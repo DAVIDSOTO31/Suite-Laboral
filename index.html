@@ -659,7 +659,7 @@
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                     <div>
                         <h3 class="font-bold text-slate-800 text-base">Directorio de Colaboradores & Ficha Laboral</h3>
-                        <p class="text-xs text-slate-500">Administre el personal registrado, contratos y áreas asignadas.</p>
+                        <p class="text-xs text-slate-500">Administre el personal registrado, contratos, salarios editables y desvinculaciones.</p>
                     </div>
                     <div class="flex gap-2 w-full sm:w-auto">
                         <button onclick="openModal('modalAddEmp')" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
@@ -681,7 +681,7 @@
                         </div>
 
                         <div id="employeesListContainer" class="space-y-2 max-h-[520px] overflow-y-auto pr-1 custom-scrollbar">
-                            <!-- Dynamic list -->
+                            <!-- Dynamic list with quick delete button -->
                         </div>
                     </div>
 
@@ -694,10 +694,49 @@
                                 </div>
                                 <p class="text-xs text-slate-500 mt-0.5" id="detailEmpRole">Puesto / Área</p>
                             </div>
-                            <div class="text-left sm:text-right bg-slate-50 sm:bg-transparent p-2 sm:p-0 rounded-lg">
-                                <span class="text-3xs uppercase tracking-wider text-slate-400 block font-semibold">Salario Ordinario</span>
-                                <span class="font-bold text-slate-800 text-base font-mono" id="detailEmpSalary">$0 COP</span>
-                                <span class="text-3xs text-emerald-600 font-bold block" id="detailEmpHourlyRate">$0/hora</span>
+                            
+                            <!-- Salario Editable y Acciones de Ficha -->
+                            <div class="flex flex-wrap items-center gap-3 bg-slate-50 sm:bg-transparent p-3 sm:p-0 rounded-xl border sm:border-0 border-slate-200">
+                                <div class="text-left sm:text-right">
+                                    <div class="flex items-center gap-1 justify-start sm:justify-end text-[10px] text-slate-500 uppercase font-bold">
+                                        <span>Salario Mensual ($ COP):</span>
+                                        <i class="fa-solid fa-pen text-sky-600 text-[8px]" title="Salario editable directamente"></i>
+                                    </div>
+                                    <div class="flex items-center gap-1.5 mt-0.5">
+                                        <div class="relative">
+                                            <span class="absolute left-2 top-1.5 text-xs text-slate-400 font-bold">$</span>
+                                            <input 
+                                                type="number" 
+                                                id="detailEmpSalaryInput" 
+                                                step="5000" 
+                                                min="0"
+                                                class="text-xs font-bold font-mono text-slate-800 bg-white border border-slate-300 rounded-lg pl-5 pr-2 py-1 w-32 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 focus:outline-none shadow-xs"
+                                                placeholder="Salario..."
+                                                onkeydown="if(event.key==='Enter') saveCurrentEmployeeSalaryFromInput()"
+                                            >
+                                        </div>
+                                        <button 
+                                            onclick="saveCurrentEmployeeSalaryFromInput()" 
+                                            title="Guardar nuevo salario" 
+                                            class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-2.5 py-1 rounded-lg transition shadow flex items-center gap-1 shrink-0"
+                                        >
+                                            <i class="fa-solid fa-check text-2xs"></i> <span>Guardar</span>
+                                        </button>
+                                    </div>
+                                    <span class="text-3xs text-emerald-600 font-bold block mt-0.5" id="detailEmpHourlyRate">$0/hora</span>
+                                </div>
+
+                                <div class="h-8 w-px bg-slate-200 hidden sm:block"></div>
+
+                                <button 
+                                    id="btnDeleteCurrentEmployee"
+                                    onclick="promptDeleteEmployee(appState.selectedEmpId)" 
+                                    title="Desvincular o eliminar colaborador de la organización" 
+                                    class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-xs"
+                                >
+                                    <i class="fa-regular fa-trash-can text-xs text-rose-600"></i>
+                                    <span>Desvincular</span>
+                                </button>
                             </div>
                         </div>
 
@@ -2112,10 +2151,85 @@
             updateDashboardMetrics();
         }
 
+        // ==========================================
+        // GESTIÓN DE SALARIO EDITABLE Y ELIMINACIÓN
+        // ==========================================
+
+        function saveCurrentEmployeeSalaryFromInput() {
+            const emp = appState.employees.find(e => e.id === appState.selectedEmpId);
+            if (!emp) {
+                showAppToast('Seleccione primero un colaborador.');
+                return;
+            }
+
+            const input = document.getElementById('detailEmpSalaryInput');
+            const newSal = parseFloat(input.value);
+
+            if (isNaN(newSal) || newSal < 0) {
+                showAppToast('Por favor ingrese un valor de salario válido.');
+                input.value = emp.salary;
+                return;
+            }
+
+            emp.salary = newSal;
+
+            // Recalcular los turnos activos de este colaborador con su nuevo salario
+            appState.shifts.forEach(s => {
+                if (s.empId === emp.id && !s.isOffDay) {
+                    s.res = calculateShift(s.startTime, s.endTime, s.breakM, s.limit, s.res.isSunday, s.endTime < s.startTime, emp.salary);
+                }
+            });
+
+            showAppToast(`Salario de ${emp.name} actualizado a $${Math.round(newSal).toLocaleString('es-CO')} COP.`);
+            renderEmployeesView();
+            renderWeeklyRoster();
+            updateDashboardMetrics();
+            if (document.getElementById('view-reports') && !document.getElementById('view-reports').classList.contains('hidden')) {
+                renderReportsView();
+            }
+        }
+
+        function promptDeleteEmployee(empId, e) {
+            if (e) e.stopPropagation();
+            const emp = appState.employees.find(e => e.id === empId);
+            if (!emp) return;
+
+            const shiftCount = appState.shifts.filter(s => s.empId === empId).length;
+            const confirmMsg = `¿Está seguro de eliminar a ${emp.name} de la organización?\n\n` + 
+                (shiftCount > 0 ? `Se eliminarán también sus ${shiftCount} turno(s) programados.` : 'Esta acción no se puede deshacer.');
+
+            if (confirm(confirmMsg)) {
+                // Eliminar empleado
+                appState.employees = appState.employees.filter(e => e.id !== empId);
+                // Eliminar turnos vinculados a este empleado
+                appState.shifts = appState.shifts.filter(s => s.empId !== empId);
+
+                // Si era el seleccionado, seleccionar otro
+                if (appState.selectedEmpId === empId) {
+                    appState.selectedEmpId = appState.employees.length > 0 ? appState.employees[0].id : null;
+                }
+
+                showAppToast(`Colaborador ${emp.name} eliminado de la nómina.`);
+                renderEmployeesView();
+                renderWeeklyRoster();
+                renderMasterShiftsTable();
+                updateDashboardMetrics();
+                renderReportsView();
+            }
+        }
+
         function resetSelectedEmployeeDetails() {
             setSafeText('detailEmpName', 'Sin Colaboradores');
             setSafeText('detailEmpRole', 'Base de datos lista para registrar personal');
-            setSafeText('detailEmpSalary', '$0 COP');
+            
+            const salaryInput = document.getElementById('detailEmpSalaryInput');
+            if (salaryInput) {
+                salaryInput.value = '';
+                salaryInput.disabled = true;
+            }
+            const btnDel = document.getElementById('btnDeleteCurrentEmployee');
+            if (btnDel) btnDel.disabled = true;
+
             setSafeText('detailEmpHourlyRate', '$0/hora');
             setSafeText('empHodTotal', '0.0 h');
             setSafeText('empHonTotal', '0.0 h');
@@ -2133,11 +2247,18 @@
                 return;
             }
 
+            const salaryInput = document.getElementById('detailEmpSalaryInput');
+            if (salaryInput) {
+                salaryInput.disabled = false;
+                salaryInput.value = Math.round(emp.salary);
+            }
+            const btnDel = document.getElementById('btnDeleteCurrentEmployee');
+            if (btnDel) btnDel.disabled = false;
+
             let hourlyRate = emp.salary / appState.settings.monthlyHoursDivider;
 
             setSafeText('detailEmpName', emp.name);
             setSafeText('detailEmpRole', `${emp.role} • ${emp.department || 'General'}`);
-            setSafeText('detailEmpSalary', `$${emp.salary.toLocaleString('es-CO')} COP`);
             setSafeText('detailEmpHourlyRate', `$${Math.round(hourlyRate).toLocaleString('es-CO')}/h`);
 
             let empShifts = appState.shifts.filter(s => s.empId === emp.id && !s.isOffDay);
@@ -2469,20 +2590,32 @@
             appState.employees.forEach(emp => {
                 let isSelected = emp.id === appState.selectedEmpId;
                 let card = document.createElement('div');
-                card.className = `p-3 rounded-xl cursor-pointer border transition flex items-center justify-between ${isSelected ? 'bg-sky-50 border-sky-400 shadow-sm' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'}`;
+                card.className = `group p-2.5 rounded-xl cursor-pointer border transition flex items-center justify-between gap-2 ${isSelected ? 'bg-sky-50 border-sky-400 shadow-sm' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'}`;
                 card.onclick = () => selectEmployee(emp.id);
 
                 card.innerHTML = `
-                    <div class="flex items-center gap-2.5">
-                        <div class="w-8 h-8 rounded-lg ${isSelected ? 'bg-sky-600 text-white' : 'bg-slate-200 text-slate-600'} font-bold text-xs flex items-center justify-center">
+                    <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                        <div class="w-8 h-8 rounded-lg ${isSelected ? 'bg-sky-600 text-white' : 'bg-slate-200 text-slate-600'} font-bold text-xs flex items-center justify-center shrink-0">
                             ${emp.name.charAt(0)}
                         </div>
-                        <div>
-                            <span class="font-bold text-xs text-slate-800 block">${emp.name}</span>
-                            <span class="text-3xs text-slate-500">${emp.role} • ${emp.department || 'Cocina'}</span>
+                        <div class="truncate">
+                            <span class="font-bold text-xs text-slate-800 block truncate">${emp.name}</span>
+                            <span class="text-3xs text-slate-500 block truncate">${emp.role} • ${emp.department || 'Cocina'}</span>
                         </div>
                     </div>
-                    <span class="text-3xs font-mono font-bold text-slate-600 bg-slate-200/70 px-2 py-0.5 rounded">$${(emp.salary/1000).toFixed(0)}k</span>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <span class="text-3xs font-mono font-bold text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200 shadow-2xs">
+                            $${Math.round(emp.salary).toLocaleString('es-CO')}
+                        </span>
+                        <button 
+                            type="button" 
+                            onclick="promptDeleteEmployee(${emp.id}, event)" 
+                            title="Eliminar colaborador" 
+                            class="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                        >
+                            <i class="fa-regular fa-trash-can text-xs"></i>
+                        </button>
+                    </div>
                 `;
                 listContainer.appendChild(card);
             });
@@ -3015,7 +3148,7 @@
 
             setSafeText('reportEmpName', emp.name);
             setSafeText('reportEmpRole', `${emp.role} • ${emp.department || 'Cocina'}`);
-            setSafeText('reportEmpSalary', `$${emp.salary.toLocaleString('es-CO')} COP`);
+            setSafeText('reportEmpSalary', `$${Math.round(emp.salary).toLocaleString('es-CO')} COP`);
             setSafeText('reportEmpHourlyRate', `$${Math.round(hourlyRate).toLocaleString('es-CO')}/h`);
 
             let empShifts = appState.shifts.filter(s => s.empId === emp.id && !s.isOffDay);
