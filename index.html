@@ -1,6 +1,13 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+    // Configuración de Supabase para la Suite RRHH
+const SUPABASE_URL = "https://tghwsoxmdcoxaayrtguj.supabase.co/rest";
+const SUPABASE_ANON_KEY = "sb_publishable_vho9t0ehBhgRzl0Rq012vg_eokxjQLW";
+    
+// Inicializar cliente (si usas la librería de Supabase)
+const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RR.HH PYMES - Suite Laboral y Control de Horarios</title>
