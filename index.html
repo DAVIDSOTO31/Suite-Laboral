@@ -1,26 +1,29 @@
 <!DOCTYPE html>
 <html lang="es">
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RR.HH PYMES - Suite Laboral y Control de Horarios</title>
+    
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Chart.js for data visualization -->
+    
+    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- FontAwesome 6 Pro-grade icons -->
+    
+    <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Google Fonts: Inter -->
+    
+    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     
-    <style>
-        const SUPABASE_URL = 'https://xyzwhatever.supabase.co'; //'https://dnxgadkbzdijaauqikxw.supabase.co'
-      const SUPABASE_ANON_KEY = 'eyJhbGciOi...';              //'sb_publishable_eOpNnwjtzbwJAK3JXghq6g_xt2R2ogs'
+    <!-- 1. LIBRERÍA DE SUPABASE (Correctamente dentro del <head>) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-      const supabase = window.supabase.createClient(https://xyzwhatever.supabase.co,sb_publishable_eOpNnwjtzbwJAK3JXghq6g_xt2R2ogs );
+    <!-- ESTILOS CSS (Únicamente diseño aquí adentro) -->
+    <style>
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background-color: #f0f7fd;
@@ -29,21 +32,10 @@
         .text-4xs { font-size: 8px; line-height: 10px; }
         .text-3xs { font-size: 9px; line-height: 11px; }
         .text-2xs { font-size: 10px; line-height: 13px; }
-        .custom-scrollbar::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: #e2e8f0;
-            border-radius: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #94a3b8;
-            border-radius: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background: #64748b;
-        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #e2e8f0; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #64748b; }
         .sidebar-item-active {
             background: linear-gradient(90deg, #e0f2fe 0%, #f0f9ff 100%);
             color: #0369a1;
