@@ -1,16 +1,22 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    // Configuración de Supabase para la Suite RRHH
-const SUPABASE_URL = "https://tghwsoxmdcoxaayrtguj.supabase.co/rest";
-const SUPABASE_ANON_KEY = "sb_publishable_vho9t0ehBhgRzl0Rq012vg_eokxjQLW";
-    
-// Inicializar cliente (si usas la librería de Supabase)
-const supabase = supabase.createClient("https://tghwsoxmdcoxaayrtguj.supabase.co/rest","sb_publishable_vho9t0ehBhgRzl0Rq012vg_eokxjQLW");
-
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RR.HH PYMES - Suite Laboral y Control de Horarios</title>
+
+    <!-- 1. Cargar la librería oficial de Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <!-- 2. Configuración de Supabase para la Suite RRHH -->
+    <script>
+        const SUPABASE_URL = "https://tghwsoxmdcoxaayrtguj.supabase.co";
+        const SUPABASE_ANON_KEY = "sb_publishable_vho9t0ehBhgRzl0Rq012vg_eokxjQLW";
+
+        // Inicializar cliente de Supabase
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    </script>
+
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Chart.js for data visualization -->
@@ -21,7 +27,8 @@ const supabase = supabase.createClient("https://tghwsoxmdcoxaayrtguj.supabase.co
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    
+</head>
+
     <style>
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
