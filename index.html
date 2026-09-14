@@ -1,6 +1,17 @@
  <!DOCTYPE html>
 <html lang="es">
 <head>
+ <!-- Carga de la librería de Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<!-- Inicialización de Supabase con tus credenciales -->
+<script>
+  const SUPABASE_URL = 'https://dnxgadkbzdijaauqikxw.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_eOpNnwjtzbwJAK3JXghq6g_xt2R2ogs';
+
+  // Cliente global de Supabase listo para usarse
+  const supabase = supabasejs.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+</script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RR.HH PYMES - Suite Laboral y Control de Horarios</title>
