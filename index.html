@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,6 +17,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     
     <style>
+        const SUPABASE_URL = 'https://xyzwhatever.supabase.co'; //'https://dnxgadkbzdijaauqikxw.supabase.co'
+      const SUPABASE_ANON_KEY = 'eyJhbGciOi...';              //'sb_publishable_eOpNnwjtzbwJAK3JXghq6g_xt2R2ogs'
+
+      const supabase = window.supabase.createClient(https://xyzwhatever.supabase.co,sb_publishable_eOpNnwjtzbwJAK3JXghq6g_xt2R2ogs );
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background-color: #f0f7fd;
