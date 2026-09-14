@@ -3696,5 +3696,21 @@
             runLiveSimulation();
         };
     </script>
+     <!-- CONEXIÓN A SUPABASE (En su propio script al final de la página) -->
+  <script>
+    // 1. Declaración de las credenciales de tu proyecto
+    const SUPABASE_URL = 'https://dnxgadkbzdijaauqikxw.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_eOpNnwjtzbwJAK3JXghq6g_xt2R2ogs';
+
+    // 2. Creación del cliente global pasando las variables declaradas
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // 3. Variable global de usuario
+    let currentUserProfile = null;
+
+    // 4. Verificación en la consola del navegador
+    console.log("¡Conexión exitosa con Supabase!", supabase);
+  </script>
+
 </body>
 </html>
