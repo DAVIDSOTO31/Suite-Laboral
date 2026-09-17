@@ -166,6 +166,10 @@
                     <i class="fa-solid fa-table-cells text-amber-500 w-5"></i>
                     <span>Planilla & Cuadre Semanal</span>
                 </a>
+                <a href="#payrollot" onclick="switchView('payrollot')" id="nav-payrollot" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
+                    <i class="fa-solid fa-moon text-violet-600 w-5"></i>
+                    <span>Liquidación Extras & Recargos</span>
+                </a>
                 <a href="#dashboard" onclick="switchView('dashboard')" id="nav-dashboard" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
                     <i class="fa-solid fa-chart-line text-blue-600 w-5"></i>
                     <span>Dashboard General</span>
@@ -567,7 +571,7 @@
                         <div class="space-y-2 pt-2">
                             <label class="flex items-center space-x-2 text-xs font-medium text-slate-700 cursor-pointer">
                                 <input type="checkbox" id="simIsSunday" onchange="runLiveSimulation()" class="rounded text-sky-600 focus:ring-sky-500 h-4 w-4">
-                                <span>¿Es Domingo o Festivo? (+75%)</span>
+                                <span>¿Es Domingo o Festivo? (+90%)</span>
                             </label>
                             <label class="flex items-center space-x-2 text-xs font-medium text-slate-700 cursor-pointer">
                                 <input type="checkbox" id="simIsNextDay" onchange="runLiveSimulation()" class="rounded text-sky-600 focus:ring-sky-500 h-4 w-4">
@@ -908,6 +912,78 @@
 
             </div>
 
+            <!-- MÓDULO: Liquidación de Horas Extras y Recargos Nocturnos -->
+            <div id="view-payrollot" class="app-view hidden space-y-6">
+
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4 no-print">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
+                                <i class="fa-solid fa-moon text-violet-600"></i>
+                                Liquidación de Horas Extras y Recargos Nocturnos
+                            </h3>
+                            <p class="text-xs text-slate-500 mt-0.5">Consolide por periodo las horas extra diurnas/nocturnas (HED/HEN) y el recargo nocturno ordinario (HON) de todos los colaboradores, para facilitar el cuadre de nómina.</p>
+                        </div>
+                        <button onclick="exportPayrollOvertimeCSV()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition flex items-center gap-2 shadow shrink-0">
+                            <i class="fa-solid fa-file-csv"></i> Exportar Liquidación CSV
+                        </button>
+                    </div>
+
+                    <div class="flex flex-wrap items-end gap-3 pt-3 border-t border-slate-100">
+                        <div>
+                            <label class="text-3xs uppercase font-bold text-slate-400 block mb-1">Periodo desde</label>
+                            <input type="date" id="payrollOtStartDate" onchange="renderPayrollOvertimeView()" class="text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500">
+                        </div>
+                        <div>
+                            <label class="text-3xs uppercase font-bold text-slate-400 block mb-1">Periodo hasta</label>
+                            <input type="date" id="payrollOtEndDate" onchange="renderPayrollOvertimeView()" class="text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500">
+                        </div>
+                        <div>
+                            <label class="text-3xs uppercase font-bold text-slate-400 block mb-1">Área / Departamento</label>
+                            <select id="payrollOtDeptFilter" onchange="renderPayrollOvertimeView()" class="text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 min-w-[160px]">
+                                <option value="_ALL_">Todas las áreas</option>
+                            </select>
+                        </div>
+                        <button onclick="setPayrollOtCurrentMonth()" class="text-xs font-semibold px-3 py-2 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-calendar-days"></i> Mes con datos
+                        </button>
+                        <button onclick="resetPayrollOtEdits()" title="Descarta los ajustes manuales y recalcula desde los turnos registrados" class="text-xs font-semibold px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-arrow-rotate-left"></i> Recalcular desde turnos
+                        </button>
+                    </div>
+                    <p class="text-3xs text-slate-400 flex items-center gap-1.5 pt-1">
+                        <i class="fa-solid fa-pen"></i> Las celdas de HON, HED, HEN y Total son editables: puede corregir manualmente cualquier valor antes de liquidar.
+                    </p>
+                </div>
+
+                <!-- KPIs del periodo -->
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" id="payrollOtKpiCards">
+                    <!-- Inyectado dinámicamente -->
+                </div>
+
+                <!-- Tabla consolidada por colaborador -->
+                <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-left text-xs min-w-[560px]">
+                        <thead class="bg-slate-100 text-slate-700 border-b font-bold text-3xs uppercase tracking-wider">
+                            <tr>
+                                <th class="p-2.5">Colaborador</th>
+                                <th class="p-2.5 text-center text-purple-700">Recargo Nocturno Ordinario (+35%)</th>
+                                <th class="p-2.5 text-center text-amber-700">Hora Extra Diurna (+25%)</th>
+                                <th class="p-2.5 text-center text-rose-700">Hora Extra Nocturna (+75%)</th>
+                                <th class="p-2.5 text-right">Total a Liquidar</th>
+                            </tr>
+                        </thead>
+                        <tbody id="payrollOtTableBody" class="divide-y divide-slate-100">
+                            <!-- Inyectado dinámicamente -->
+                        </tbody>
+                        <tfoot class="bg-slate-900 text-white font-bold" id="payrollOtTableFoot">
+                            <!-- Inyectado dinámicamente -->
+                        </tfoot>
+                    </table>
+                </div>
+
+            </div>
+
         </main>
     </div>
 
@@ -951,7 +1027,7 @@
                     </div>
                     <div>
                         <label class="block font-semibold text-slate-700 mb-1">% Dominical / Festivo Ordinario</label>
-                        <input type="number" id="cfgPercDom" value="75" class="w-full p-2 border rounded-lg">
+                        <input type="number" id="cfgPercDom" value="90" class="w-full p-2 border rounded-lg">
                     </div>
                 </div>
 
@@ -1061,7 +1137,7 @@
                 <div class="space-y-1.5 pt-1">
                     <label class="flex items-center space-x-2 text-xs font-medium text-slate-700 cursor-pointer">
                         <input type="checkbox" id="modalShiftIsSunday" class="rounded text-blue-600 h-4 w-4">
-                        <span>¿Es Dominical o Festivo? (Aplica recargo +75%)</span>
+                        <span>¿Es Dominical o Festivo? (Aplica recargo +90%)</span>
                     </label>
                     <label class="flex items-center space-x-2 text-xs font-medium text-slate-700 cursor-pointer">
                         <input type="checkbox" id="modalShiftIsOvernight" class="rounded text-blue-600 h-4 w-4">
@@ -1168,7 +1244,7 @@
                 <div class="space-y-1.5 pt-1">
                     <label class="flex items-center space-x-2 text-xs font-medium text-slate-700 cursor-pointer">
                         <input type="checkbox" id="rosterAssignIsSunday" class="rounded text-sky-600 h-4 w-4">
-                        <span>¿Es Domingo / Festivo? (+75%)</span>
+                        <span>¿Es Domingo / Festivo? (+90%)</span>
                     </label>
                     <label class="flex items-center space-x-2 text-xs font-medium text-slate-700 cursor-pointer">
                         <input type="checkbox" id="rosterAssignIsOvernight" class="rounded text-sky-600 h-4 w-4">
@@ -1323,7 +1399,7 @@
                 percHON: 0.35,
                 percHED: 0.25,
                 percHEN: 0.75,
-                percDOM: 0.75,
+                percDOM: 0.90, // Ley 2466 de 2025: 80% desde jul-2025, 90% desde jul-2026, 100% desde jul-2027
                 percHEDD: 1.00,
                 percHEND: 1.50,
                 monthlyHoursDivider: 210,
@@ -1976,6 +2052,14 @@
             }
         }
 
+        // Convierte horas decimales exactas (ej. 7.4167) a formato "7h 25min" para verificación visual
+        function formatHM(decimalHours) {
+            const totalMinutes = Math.round((decimalHours || 0) * 60);
+            const h = Math.floor(totalMinutes / 60);
+            const m = totalMinutes % 60;
+            return `${h}h ${m.toString().padStart(2, '0')}min`;
+        }
+
         function calculateShift(startTimeStr, endTimeStr, breakMinutes, dailyLimit, isSunday, isNextDayOvernight, salary) {
             let [sH, sM] = startTimeStr.split(':').map(Number);
             let [eH, eM] = endTimeStr.split(':').map(Number);
@@ -2009,7 +2093,8 @@
             let heddMin = 0;
             let hendMin = 0;
 
-            let step = 15;
+            // Conteo minuto a minuto para exactitud total (antes: bloques de 15 min)
+            let step = 1;
             let remainingBreak = breakMinutes;
 
             for (let m = startMin; m < endMin; m += step) {
@@ -2151,10 +2236,10 @@
                 hen += s.res.hen + s.res.hend;
             });
 
-            setSafeText('empHodTotal', `${hod.toFixed(1)} h`);
-            setSafeText('empHonTotal', `${hon.toFixed(1)} h`);
-            setSafeText('empHedTotal', `${hed.toFixed(1)} h`);
-            setSafeText('empHenTotal', `${hen.toFixed(1)} h`);
+            setSafeText('empHodTotal', `${hod.toFixed(2)} h`);
+            setSafeText('empHonTotal', `${hon.toFixed(2)} h`);
+            setSafeText('empHedTotal', `${hed.toFixed(2)} h`);
+            setSafeText('empHenTotal', `${hen.toFixed(2)} h`);
 
             const tbody = document.getElementById('empIndividualShiftsTableBody');
             if (!tbody) return;
@@ -2171,10 +2256,10 @@
                 tr.innerHTML = `
                     <td class="p-2.5 font-medium">${s.date} ${s.res.isSunday ? '<span class="text-blue-600 font-bold">(Dom)</span>' : ''}</td>
                     <td class="p-2.5 font-mono text-slate-600">${s.startTime} - ${s.endTime}</td>
-                    <td class="p-2.5 text-center font-bold font-mono">${s.res.totalHours.toFixed(1)}h</td>
-                    <td class="p-2.5 text-center font-mono text-purple-700 font-bold">${s.res.hon.toFixed(1)}h</td>
-                    <td class="p-2.5 text-center font-mono text-amber-700 font-bold">${(s.res.hed + s.res.hedd).toFixed(1)}h</td>
-                    <td class="p-2.5 text-center font-mono text-rose-700 font-bold">${(s.res.hen + s.res.hend).toFixed(1)}h</td>
+                    <td class="p-2.5 text-center font-bold font-mono">${s.res.totalHours.toFixed(2)}h</td>
+                    <td class="p-2.5 text-center font-mono text-purple-700 font-bold">${s.res.hon.toFixed(2)}h</td>
+                    <td class="p-2.5 text-center font-mono text-amber-700 font-bold">${(s.res.hed + s.res.hedd).toFixed(2)}h</td>
+                    <td class="p-2.5 text-center font-mono text-rose-700 font-bold">${(s.res.hen + s.res.hend).toFixed(2)}h</td>
                     <td class="p-2.5 text-right font-black font-mono text-slate-900">$${Math.round(s.res.totalPay).toLocaleString('es-CO')}</td>
                     <td class="p-2.5 text-center">
                         <button onclick="deleteShiftRecord(${s.empId}, '${s.date}')" title="Eliminar registro" class="text-slate-400 hover:text-rose-600 transition p-1">
@@ -2303,7 +2388,7 @@
                         </div>
                     </td>
                     <td class="p-2 text-center bg-slate-950 font-mono text-3xs text-slate-300">
-                        <span class="text-amber-400 font-bold">${deptTotalWeeklyHours.toFixed(1)} h</span>
+                        <span class="text-amber-400 font-bold">${deptTotalWeeklyHours.toFixed(2)} h</span>
                         <span class="block text-4xs text-slate-400 uppercase">Subtotal</span>
                     </td>
                 `;
@@ -2358,14 +2443,14 @@
 
                             return `
                                 <td class="p-1.5 border-r border-slate-200 text-center align-middle">
-                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="Clic para asignar (${shift.res.totalHours.toFixed(1)}h)" class="p-1.5 rounded-lg border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs text-center group">
+                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="Clic para asignar (${shift.res.totalHours.toFixed(2)}h)" class="p-1.5 rounded-lg border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs text-center group">
                                         <div class="flex items-center justify-center gap-1 text-3xs font-black">
                                             <i class="fa-solid ${theme.icon} text-2xs"></i>
                                             <span>${shift.startTime} - ${shift.endTime}</span>
                                         </div>
                                         ${funcBadge}
                                         <div class="flex items-center justify-between text-4xs font-medium mt-0.5 px-0.5 opacity-90">
-                                            <span class="font-bold font-mono">${shift.res.totalHours.toFixed(1)}h</span>
+                                            <span class="font-bold font-mono">${shift.res.totalHours.toFixed(2)}h</span>
                                             <span class="group-hover:inline hidden text-[9px] font-semibold text-slate-600"><i class="fa-solid fa-pen text-[7px]"></i> Editar</span>
                                         </div>
                                     </div>
@@ -2393,7 +2478,7 @@
                         <td class="p-2.5 text-center bg-slate-50 font-mono">
                             <div class="flex flex-col items-center">
                                 <span class="font-black text-xs ${isOverLimit ? 'text-rose-600' : 'text-slate-800'}">
-                                    ${empWeeklyHours.toFixed(1)} h
+                                    ${empWeeklyHours.toFixed(2)} h
                                 </span>
                                 ${isOverLimit ? `
                                     <span class="text-3xs bg-rose-100 text-rose-800 font-bold px-1.5 py-0.2 rounded mt-0.5 flex items-center gap-0.5" title="Excede las 42 horas máximas permitidas por semana">
@@ -2556,11 +2641,11 @@
                     <td class="p-3 text-center">
                         ${s.res.isSunday ? '<span class="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-3xs">Dominical</span>' : '<span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-3xs">Hábil</span>'}
                     </td>
-                    <td class="p-3 text-center font-bold font-mono">${s.res.totalHours.toFixed(1)}h</td>
-                    <td class="p-3 text-center font-mono text-emerald-700">${s.res.hod.toFixed(1)}h</td>
-                    <td class="p-3 text-center font-mono text-purple-700 font-bold">${s.res.hon.toFixed(1)}h</td>
-                    <td class="p-3 text-center font-mono text-amber-700 font-bold">${(s.res.hed + s.res.hedd).toFixed(1)}h</td>
-                    <td class="p-3 text-center font-mono text-rose-700 font-bold">${(s.res.hen + s.res.hend).toFixed(1)}h</td>
+                    <td class="p-3 text-center font-bold font-mono">${s.res.totalHours.toFixed(2)}h</td>
+                    <td class="p-3 text-center font-mono text-emerald-700">${s.res.hod.toFixed(2)}h</td>
+                    <td class="p-3 text-center font-mono text-purple-700 font-bold">${s.res.hon.toFixed(2)}h</td>
+                    <td class="p-3 text-center font-mono text-amber-700 font-bold">${(s.res.hed + s.res.hedd).toFixed(2)}h</td>
+                    <td class="p-3 text-center font-mono text-rose-700 font-bold">${(s.res.hen + s.res.hend).toFixed(2)}h</td>
                     <td class="p-3 text-right font-black font-mono text-emerald-600">$${Math.round(s.res.totalPay).toLocaleString('es-CO')}</td>
                     <td class="p-3 text-center">
                         <button onclick="deleteShiftRecord(${s.empId}, '${s.date}')" title="Eliminar turno" class="text-slate-400 hover:text-rose-600 p-1 transition">
@@ -2733,7 +2818,7 @@
 
             setSafeText('simValHoraBase', `$${Math.round(res.hourlyRate).toLocaleString('es-CO')} COP/h`);
             setSafeText('simTotalCost', `$${Math.round(res.totalPay).toLocaleString('es-CO')} COP`);
-            setSafeText('simTotalHoursFormatted', `${res.totalHours.toFixed(1)} h`);
+            setSafeText('simTotalHoursFormatted', `${res.totalHours.toFixed(2)} h (${formatHM(res.totalHours)})`);
 
             renderSimTimelineBar(res, start, end, isNextDay);
 
@@ -2742,19 +2827,23 @@
                 kpiStrip.innerHTML = `
                     <div class="bg-emerald-50 p-3 rounded-xl border border-emerald-200 text-center">
                         <span class="text-3xs text-emerald-700 font-bold uppercase block">H. Ord. Diurna</span>
-                        <span class="text-lg font-black text-emerald-950 font-mono">${res.hod.toFixed(1)} h</span>
+                        <span class="text-lg font-black text-emerald-950 font-mono">${res.hod.toFixed(2)} h</span>
+                        <span class="block text-3xs text-emerald-700 font-mono">${formatHM(res.hod)}</span>
                     </div>
                     <div class="bg-purple-50 p-3 rounded-xl border border-purple-200 text-center">
                         <span class="text-3xs text-purple-700 font-bold uppercase block">Rec. Nocturno (+35%)</span>
-                        <span class="text-lg font-black text-purple-950 font-mono">${res.hon.toFixed(1)} h</span>
+                        <span class="text-lg font-black text-purple-950 font-mono">${res.hon.toFixed(2)} h</span>
+                        <span class="block text-3xs text-purple-700 font-mono">${formatHM(res.hon)}</span>
                     </div>
                     <div class="bg-amber-50 p-3 rounded-xl border border-amber-200 text-center">
                         <span class="text-3xs text-amber-700 font-bold uppercase block">Extra Diurna (+25%)</span>
-                        <span class="text-lg font-black text-amber-950 font-mono">${(res.hed + res.hedd).toFixed(1)} h</span>
+                        <span class="text-lg font-black text-amber-950 font-mono">${(res.hed + res.hedd).toFixed(2)} h</span>
+                        <span class="block text-3xs text-amber-700 font-mono">${formatHM(res.hed + res.hedd)}</span>
                     </div>
                     <div class="bg-rose-50 p-3 rounded-xl border border-rose-200 text-center">
                         <span class="text-3xs text-rose-700 font-bold uppercase block">Extra Noct. (+75%)</span>
-                        <span class="text-lg font-black text-rose-950 font-mono">${(res.hen + res.hend).toFixed(1)} h</span>
+                        <span class="text-lg font-black text-rose-950 font-mono">${(res.hen + res.hend).toFixed(2)} h</span>
+                        <span class="block text-3xs text-rose-700 font-mono">${formatHM(res.hen + res.hend)}</span>
                     </div>
                 `;
             }
@@ -2768,7 +2857,8 @@
                             <span class="block text-3xs text-slate-400">Jornada normal dentro del rango 06:00 - 19:00</span>
                         </div>
                         <div class="text-right">
-                            <span class="font-mono font-bold text-slate-800">${res.hod.toFixed(1)} h</span>
+                            <span class="font-mono font-bold text-slate-800">${res.hod.toFixed(2)} h</span>
+                            <span class="block text-3xs font-mono text-slate-400">${formatHM(res.hod)}</span>
                             <span class="block text-xs font-mono text-slate-600">$${Math.round(res.hod * res.hourlyRate).toLocaleString('es-CO')}</span>
                         </div>
                     </div>
@@ -2779,7 +2869,8 @@
                             <span class="block text-3xs text-purple-700">Horas ordinarias cumplidas entre 19:00 y 06:00 (Ley 2466)</span>
                         </div>
                         <div class="text-right">
-                            <span class="font-mono font-bold text-purple-900">${res.hon.toFixed(1)} h</span>
+                            <span class="font-mono font-bold text-purple-900">${res.hon.toFixed(2)} h</span>
+                            <span class="block text-3xs font-mono text-purple-500">${formatHM(res.hon)}</span>
                             <span class="block text-xs font-mono text-purple-700">+$${Math.round(res.honSurcharge).toLocaleString('es-CO')}</span>
                         </div>
                     </div>
@@ -2790,7 +2881,8 @@
                             <span class="block text-3xs text-amber-700">Exceso sobre límite diario en horario diurno</span>
                         </div>
                         <div class="text-right">
-                            <span class="font-mono font-bold text-amber-900">${res.hed.toFixed(1)} h</span>
+                            <span class="font-mono font-bold text-amber-900">${res.hed.toFixed(2)} h</span>
+                            <span class="block text-3xs font-mono text-amber-600">${formatHM(res.hed)}</span>
                             <span class="block text-xs font-mono text-amber-800">$${Math.round(res.hedTotalPay).toLocaleString('es-CO')}</span>
                         </div>
                     </div>
@@ -2801,7 +2893,8 @@
                             <span class="block text-3xs text-rose-700">Exceso sobre límite diario en horario nocturno (19:00 a 06:00)</span>
                         </div>
                         <div class="text-right">
-                            <span class="font-mono font-bold text-rose-900">${res.hen.toFixed(1)} h</span>
+                            <span class="font-mono font-bold text-rose-900">${res.hen.toFixed(2)} h</span>
+                            <span class="block text-3xs font-mono text-rose-600">${formatHM(res.hen)}</span>
                             <span class="block text-xs font-mono text-rose-800">$${Math.round(res.henTotalPay).toLocaleString('es-CO')}</span>
                         </div>
                     </div>
@@ -2809,11 +2902,11 @@
                     ${res.isSunday ? `
                     <div class="p-3 flex justify-between items-center bg-blue-50">
                         <div>
-                            <span class="font-bold text-blue-950">Recargo Dominical / Festivo (+75%)</span>
+                            <span class="font-bold text-blue-950">Recargo Dominical / Festivo (+90%)</span>
                             <span class="block text-3xs text-blue-700">Compensación por laborar en día domingo o festivo</span>
                         </div>
                         <div class="text-right">
-                            <span class="font-mono font-bold text-blue-900">${(res.hod + res.hon).toFixed(1)} h</span>
+                            <span class="font-mono font-bold text-blue-900">${(res.hod + res.hon).toFixed(2)} h</span>
                             <span class="block text-xs font-mono text-blue-800">+$${Math.round(res.domOrdinarySurcharge).toLocaleString('es-CO')}</span>
                         </div>
                     </div>
@@ -2928,7 +3021,7 @@
                                 <span class="text-3xs font-bold text-rose-700 bg-rose-200/60 px-2 py-0.5 rounded">Exceso > 2 Horas Extras</span>
                             </div>
                             <p class="text-3xs text-rose-800 mt-1">
-                                Laboró <strong>${totalOvertimeHours.toFixed(1)} horas extras</strong> en este turno. El CST prohíbe superar 2 horas extras diarias.
+                                Laboró <strong>${totalOvertimeHours.toFixed(2)} horas extras</strong> en este turno. El CST prohíbe superar 2 horas extras diarias.
                             </p>
                         </div>
                     `;
@@ -2947,7 +3040,7 @@
                                 <span class="text-3xs font-bold text-amber-700 bg-amber-200/60 px-2 py-0.5 rounded">Jornada Extensa (>10h)</span>
                             </div>
                             <p class="text-3xs text-amber-800 mt-1">
-                                Duración total del turno: <strong>${s.res.totalHours.toFixed(1)} horas</strong>. Se recomienda monitorear la fatiga laboral.
+                                Duración total del turno: <strong>${s.res.totalHours.toFixed(2)} horas</strong>. Se recomienda monitorear la fatiga laboral.
                             </p>
                         </div>
                     `;
@@ -3043,37 +3136,37 @@
                     <tr>
                         <td class="p-2.5 font-bold text-slate-800">Horas Ordinarias Diurnas (HOD)</td>
                         <td class="p-2.5 text-center font-mono">100%</td>
-                        <td class="p-2.5 text-center font-bold font-mono">${totalHOD.toFixed(1)} h</td>
+                        <td class="p-2.5 text-center font-bold font-mono">${totalHOD.toFixed(2)} h</td>
                         <td class="p-2.5 text-right font-mono">$${Math.round(hourlyRate).toLocaleString('es-CO')}</td>
                         <td class="p-2.5 text-right font-mono text-slate-800">$${Math.round(totalHOD * hourlyRate).toLocaleString('es-CO')}</td>
                     </tr>
                     <tr class="bg-purple-50/40">
                         <td class="p-2.5 font-bold text-purple-950">Recargo Nocturno Ordinario (HON)</td>
                         <td class="p-2.5 text-center font-mono">+35%</td>
-                        <td class="p-2.5 text-center font-bold font-mono text-purple-900">${totalHON.toFixed(1)} h</td>
+                        <td class="p-2.5 text-center font-bold font-mono text-purple-900">${totalHON.toFixed(2)} h</td>
                         <td class="p-2.5 text-right font-mono">$${Math.round(hourlyRate * 0.35).toLocaleString('es-CO')}</td>
                         <td class="p-2.5 text-right font-mono text-purple-900 font-bold">$${Math.round(totalHonPay).toLocaleString('es-CO')}</td>
                     </tr>
                     <tr class="bg-amber-50/40">
                         <td class="p-2.5 font-bold text-amber-950">Horas Extras Diurnas (HED)</td>
                         <td class="p-2.5 text-center font-mono">+25%</td>
-                        <td class="p-2.5 text-center font-bold font-mono text-amber-900">${totalHED.toFixed(1)} h</td>
+                        <td class="p-2.5 text-center font-bold font-mono text-amber-900">${totalHED.toFixed(2)} h</td>
                         <td class="p-2.5 text-right font-mono">$${Math.round(hourlyRate * 1.25).toLocaleString('es-CO')}</td>
                         <td class="p-2.5 text-right font-mono text-amber-900 font-bold">$${Math.round(totalHedPay).toLocaleString('es-CO')}</td>
                     </tr>
                     <tr class="bg-rose-50/40">
                         <td class="p-2.5 font-bold text-rose-950">Horas Extras Nocturnas (HEN)</td>
                         <td class="p-2.5 text-center font-mono">+75%</td>
-                        <td class="p-2.5 text-center font-bold font-mono text-rose-900">${totalHEN.toFixed(1)} h</td>
+                        <td class="p-2.5 text-center font-bold font-mono text-rose-900">${totalHEN.toFixed(2)} h</td>
                         <td class="p-2.5 text-right font-mono">$${Math.round(hourlyRate * 1.75).toLocaleString('es-CO')}</td>
                         <td class="p-2.5 text-right font-mono text-rose-900 font-bold">$${Math.round(totalHenPay).toLocaleString('es-CO')}</td>
                     </tr>
                     ${totalDOM > 0 ? `
                     <tr class="bg-blue-50/40">
                         <td class="p-2.5 font-bold text-blue-950">Recargo Dominical / Festivo</td>
-                        <td class="p-2.5 text-center font-mono">+75%</td>
-                        <td class="p-2.5 text-center font-bold font-mono text-blue-900">${totalDOM.toFixed(1)} h</td>
-                        <td class="p-2.5 text-right font-mono">$${Math.round(hourlyRate * 0.75).toLocaleString('es-CO')}</td>
+                        <td class="p-2.5 text-center font-mono">+${Math.round(appState.settings.percDOM * 100)}%</td>
+                        <td class="p-2.5 text-center font-bold font-mono text-blue-900">${totalDOM.toFixed(2)} h</td>
+                        <td class="p-2.5 text-right font-mono">$${Math.round(hourlyRate * appState.settings.percDOM).toLocaleString('es-CO')}</td>
                         <td class="p-2.5 text-right font-mono text-blue-900 font-bold">$${Math.round(totalDomPay).toLocaleString('es-CO')}</td>
                     </tr>
                     ` : ''}
@@ -3082,6 +3175,290 @@
 
             let grandTotal = (totalHOD * hourlyRate) + totalHonPay + totalHedPay + totalHenPay + totalDomPay;
             setSafeText('reportGrandTotal', `$${Math.round(grandTotal).toLocaleString('es-CO')} COP`);
+        }
+
+        // ============================================================
+        // MÓDULO: Liquidación de Horas Extras y Recargos Nocturnos
+        // ============================================================
+
+        function renderPayrollOtDeptFilter() {
+            const select = document.getElementById('payrollOtDeptFilter');
+            if (!select) return;
+            const currentVal = select.value || '_ALL_';
+            select.innerHTML = '<option value="_ALL_">Todas las áreas</option>';
+            appState.departments.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.name;
+                opt.innerText = d.name;
+                select.appendChild(opt);
+            });
+            select.value = currentVal;
+        }
+
+        // Ubica el rango de fechas (min/max) presente en la planilla, para precargar el periodo con datos reales
+        function getShiftsDateRange() {
+            const activeShifts = appState.shifts.filter(s => !s.isOffDay);
+            if (activeShifts.length === 0) return null;
+            let dates = activeShifts.map(s => s.date).sort();
+            return { min: dates[0], max: dates[dates.length - 1] };
+        }
+
+        function setPayrollOtCurrentMonth() {
+            const range = getShiftsDateRange();
+            const startInput = document.getElementById('payrollOtStartDate');
+            const endInput = document.getElementById('payrollOtEndDate');
+            if (range && startInput && endInput) {
+                startInput.value = range.min;
+                endInput.value = range.max;
+            }
+            renderPayrollOvertimeView();
+        }
+
+        function renderPayrollOvertimeView() {
+            renderPayrollOtDeptFilter();
+
+            const startInput = document.getElementById('payrollOtStartDate');
+            const endInput = document.getElementById('payrollOtEndDate');
+            if (!startInput || !endInput) return;
+
+            // Precarga el periodo con el rango de datos disponible, si aún no se ha seleccionado uno
+            if (!startInput.value || !endInput.value) {
+                const range = getShiftsDateRange();
+                if (range) {
+                    startInput.value = startInput.value || range.min;
+                    endInput.value = endInput.value || range.max;
+                }
+            }
+
+            const startDate = startInput.value;
+            const endDate = endInput.value;
+            const deptFilter = document.getElementById('payrollOtDeptFilter')?.value || '_ALL_';
+
+            let filteredShifts = appState.shifts.filter(s => {
+                if (s.isOffDay) return false;
+                if (startDate && s.date < startDate) return false;
+                if (endDate && s.date > endDate) return false;
+                return true;
+            });
+
+            // Agrupa por colaborador (valores calculados exactamente desde los turnos, base antes de ajustes manuales)
+            let byEmp = {};
+            filteredShifts.forEach(s => {
+                const emp = appState.employees.find(e => e.id === s.empId);
+                if (!emp) return;
+                if (deptFilter !== '_ALL_' && emp.department !== deptFilter) return;
+
+                if (!byEmp[emp.id]) {
+                    byEmp[emp.id] = {
+                        emp, shiftsCount: 0,
+                        hourlyRate: emp.salary / appState.settings.monthlyHoursDivider,
+                        hon: 0, hed: 0, hen: 0,
+                        honPay: 0, hedPay: 0, henPay: 0, domPay: 0
+                    };
+                }
+                const acc = byEmp[emp.id];
+                acc.shiftsCount++;
+                acc.hon += s.res.hon;
+                acc.hed += (s.res.hed + s.res.hedd);
+                acc.hen += (s.res.hen + s.res.hend);
+                acc.honPay += s.res.honSurcharge;
+                acc.hedPay += s.res.hedTotalPay;
+                acc.henPay += s.res.henTotalPay;
+                if (s.res.isSunday) {
+                    acc.domPay += s.res.domOrdinarySurcharge;
+                }
+            });
+
+            // Aplica ajustes manuales guardados (si el usuario ya editó alguna celda de este colaborador)
+            if (!appState._payrollOtEdits) appState._payrollOtEdits = {};
+            const edits = appState._payrollOtEdits;
+
+            let rows = Object.values(byEmp).map(r => {
+                const edit = edits[r.emp.id];
+                if (edit) {
+                    r.hon = edit.hon;
+                    r.hed = edit.hed;
+                    r.hen = edit.hen;
+                    r.honPay = r.hon * r.hourlyRate * appState.settings.percHON;
+                    r.hedPay = r.hed * r.hourlyRate * (1 + appState.settings.percHED);
+                    r.henPay = r.hen * r.hourlyRate * (1 + appState.settings.percHEN);
+                    r.totalManual = !!edit.totalManual;
+                    r.totalOverride = edit.total;
+                } else {
+                    r.totalManual = false;
+                }
+                r.total = r.totalManual ? r.totalOverride : (r.honPay + r.hedPay + r.henPay + r.domPay);
+                return r;
+            }).sort((a, b) => a.emp.name.localeCompare(b.emp.name));
+
+            // Guardamos el cálculo vigente para reutilizarlo en las ediciones en vivo y la exportación CSV
+            appState._payrollOtCache = { rows, startDate, endDate };
+
+            renderPayrollOtTableAndKpis();
+        }
+
+        // Repinta la tabla y los KPIs a partir de appState._payrollOtCache.rows (sin recalcular desde los turnos),
+        // usada tanto en el render inicial como después de cada edición manual en las celdas.
+        function renderPayrollOtTableAndKpis() {
+            const cache = appState._payrollOtCache;
+            if (!cache) return;
+            const rows = cache.rows;
+
+            let sumHON = 0, sumHED = 0, sumHEN = 0, sumTotalPay = 0;
+            let empsWithOvertime = 0;
+            rows.forEach(r => {
+                sumHON += r.hon; sumHED += r.hed; sumHEN += r.hen;
+                sumTotalPay += r.total;
+                if ((r.hon + r.hed + r.hen) > 0) empsWithOvertime++;
+            });
+
+            const kpiContainer = document.getElementById('payrollOtKpiCards');
+            if (kpiContainer) {
+                kpiContainer.innerHTML = `
+                    <div class="bg-purple-50 p-4 rounded-xl border border-purple-200">
+                        <span class="text-3xs text-purple-700 font-bold uppercase block">Recargo Nocturno Ordinario</span>
+                        <span class="text-xl font-black text-purple-950 font-mono">${sumHON.toFixed(2)} h</span>
+                        <span class="block text-3xs text-purple-600 font-mono">${formatHM(sumHON)}</span>
+                    </div>
+                    <div class="bg-amber-50 p-4 rounded-xl border border-amber-200">
+                        <span class="text-3xs text-amber-700 font-bold uppercase block">Horas Extra Diurnas</span>
+                        <span class="text-xl font-black text-amber-950 font-mono">${sumHED.toFixed(2)} h</span>
+                        <span class="block text-3xs text-amber-600 font-mono">${formatHM(sumHED)}</span>
+                    </div>
+                    <div class="bg-rose-50 p-4 rounded-xl border border-rose-200">
+                        <span class="text-3xs text-rose-700 font-bold uppercase block">Horas Extra Nocturnas</span>
+                        <span class="text-xl font-black text-rose-950 font-mono">${sumHEN.toFixed(2)} h</span>
+                        <span class="block text-3xs text-rose-600 font-mono">${formatHM(sumHEN)}</span>
+                    </div>
+                    <div class="bg-slate-900 p-4 rounded-xl border border-slate-700">
+                        <span class="text-3xs text-slate-300 font-bold uppercase block">Total a Liquidar (Periodo)</span>
+                        <span class="text-xl font-black text-emerald-400 font-mono">$${Math.round(sumTotalPay).toLocaleString('es-CO')}</span>
+                        <span class="block text-3xs text-slate-400 font-mono">${empsWithOvertime} colaborador(es) con novedades</span>
+                    </div>
+                `;
+            }
+
+            const tbody = document.getElementById('payrollOtTableBody');
+            const tfoot = document.getElementById('payrollOtTableFoot');
+            if (tbody) {
+                if (rows.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-slate-400 text-xs">No hay turnos registrados en el periodo/área seleccionada.</td></tr>`;
+                } else {
+                    tbody.innerHTML = rows.map(r => `
+                        <tr class="hover:bg-slate-50">
+                            <td class="p-2.5 font-bold text-slate-800">${r.emp.name}</td>
+                            <td class="p-2.5 text-center">
+                                <input type="number" step="0.01" min="0" value="${r.hon.toFixed(2)}"
+                                    onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hon', this.value)"
+                                    class="w-20 text-center font-mono border border-purple-200 rounded-lg p-1.5 bg-purple-50/50 text-purple-900 font-bold focus:ring-2 focus:ring-purple-400 focus:outline-none">
+                            </td>
+                            <td class="p-2.5 text-center">
+                                <input type="number" step="0.01" min="0" value="${r.hed.toFixed(2)}"
+                                    onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hed', this.value)"
+                                    class="w-20 text-center font-mono border border-amber-200 rounded-lg p-1.5 bg-amber-50/50 text-amber-900 font-bold focus:ring-2 focus:ring-amber-400 focus:outline-none">
+                            </td>
+                            <td class="p-2.5 text-center">
+                                <input type="number" step="0.01" min="0" value="${r.hen.toFixed(2)}"
+                                    onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hen', this.value)"
+                                    class="w-20 text-center font-mono border border-rose-200 rounded-lg p-1.5 bg-rose-50/50 text-rose-900 font-bold focus:ring-2 focus:ring-rose-400 focus:outline-none">
+                            </td>
+                            <td class="p-2.5 text-right">
+                                <input type="number" step="1" min="0" value="${Math.round(r.total)}"
+                                    id="payrollOtTotalInput_${r.emp.id}"
+                                    onchange="handlePayrollOtTotalEdit(${r.emp.id}, this.value)"
+                                    class="w-28 text-right font-mono font-bold border border-emerald-200 rounded-lg p-1.5 bg-emerald-50/50 text-emerald-800 focus:ring-2 focus:ring-emerald-400 focus:outline-none">
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            }
+
+            if (tfoot) {
+                tfoot.innerHTML = `
+                    <tr>
+                        <td class="p-3 uppercase text-3xs tracking-wider">Totales del Periodo</td>
+                        <td class="p-3 text-center font-mono text-purple-300">${sumHON.toFixed(2)}h</td>
+                        <td class="p-3 text-center font-mono text-amber-300">${sumHED.toFixed(2)}h</td>
+                        <td class="p-3 text-center font-mono text-rose-300">${sumHEN.toFixed(2)}h</td>
+                        <td class="p-3 text-right font-mono text-emerald-400 text-sm">$${Math.round(sumTotalPay).toLocaleString('es-CO')}</td>
+                    </tr>
+                `;
+            }
+        }
+
+        // El usuario editó manualmente HON, HED o HEN: recalcula el pago de esa fila con las tarifas vigentes
+        // y refresca el total (a menos que el usuario ya lo haya sobrescrito, en cuyo caso también se recalcula
+        // porque una edición de horas es la fuente más confiable).
+        function handlePayrollOtHoursEdit(empId, field, rawValue) {
+            const cache = appState._payrollOtCache;
+            if (!cache) return;
+            const row = cache.rows.find(r => r.emp.id === empId);
+            if (!row) return;
+
+            let value = parseFloat(rawValue);
+            if (isNaN(value) || value < 0) value = 0;
+            row[field] = value;
+
+            row.honPay = row.hon * row.hourlyRate * appState.settings.percHON;
+            row.hedPay = row.hed * row.hourlyRate * (1 + appState.settings.percHED);
+            row.henPay = row.hen * row.hourlyRate * (1 + appState.settings.percHEN);
+            row.total = row.honPay + row.hedPay + row.henPay + row.domPay;
+            row.totalManual = false;
+
+            if (!appState._payrollOtEdits) appState._payrollOtEdits = {};
+            appState._payrollOtEdits[empId] = { hon: row.hon, hed: row.hed, hen: row.hen, total: row.total, totalManual: false };
+
+            renderPayrollOtTableAndKpis();
+        }
+
+        // El usuario escribió directamente un valor en "Total a Liquidar": se respeta como ajuste manual
+        // (por ejemplo, un acuerdo puntual o una corrección) sin alterar las horas HON/HED/HEN de la fila.
+        function handlePayrollOtTotalEdit(empId, rawValue) {
+            const cache = appState._payrollOtCache;
+            if (!cache) return;
+            const row = cache.rows.find(r => r.emp.id === empId);
+            if (!row) return;
+
+            let value = parseFloat(rawValue);
+            if (isNaN(value) || value < 0) value = 0;
+            row.total = value;
+            row.totalManual = true;
+
+            if (!appState._payrollOtEdits) appState._payrollOtEdits = {};
+            appState._payrollOtEdits[empId] = { hon: row.hon, hed: row.hed, hen: row.hen, total: value, totalManual: true };
+
+            renderPayrollOtTableAndKpis();
+        }
+
+        // Descarta todos los ajustes manuales del periodo y recalcula estrictamente desde los turnos registrados
+        function resetPayrollOtEdits() {
+            appState._payrollOtEdits = {};
+            showAppToast('Liquidación recalculada desde los turnos registrados (ajustes manuales descartados).');
+            renderPayrollOvertimeView();
+        }
+
+        function exportPayrollOvertimeCSV() {
+            const cache = appState._payrollOtCache;
+            if (!cache || cache.rows.length === 0) {
+                showAppToast('No hay datos de liquidación para exportar en el periodo seleccionado.');
+                return;
+            }
+
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Colaborador,Recargo Nocturno Ordinario (HON),Hora Extra Diurna (HED),Hora Extra Nocturna (HEN),Total a Liquidar COP\n";
+
+            cache.rows.forEach(r => {
+                csvContent += `"${r.emp.name}",${r.hon.toFixed(2)},${r.hed.toFixed(2)},${r.hen.toFixed(2)},${Math.round(r.total)}\n`;
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `Liquidacion_Extras_Recargos_${cache.startDate || 'periodo'}_a_${cache.endDate || ''}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showAppToast('Liquidación de extras y recargos exportada en formato CSV.');
         }
 
         function updateDashboardMetrics() {
@@ -3106,10 +3483,10 @@
             setSafeText('kpiMonthPayroll', `$${Math.round(totalPayrollCost).toLocaleString('es-CO')}`);
             setSafeText('kpiSurchargesTotal', `$${Math.round(totalSurcharges).toLocaleString('es-CO')}`);
             setSafeText('kpiSurchargesRatio', `${surchargeRatio.toFixed(1)}%`);
-            setSafeText('kpiTotalHours', `${totalHoursWorked.toFixed(1)} h`);
-            setSafeText('kpiNightOvertimeHours', `${totalNightHours.toFixed(1)} h`);
+            setSafeText('kpiTotalHours', `${totalHoursWorked.toFixed(2)} h`);
+            setSafeText('kpiNightOvertimeHours', `${totalNightHours.toFixed(2)} h`);
             setSafeText('kpiActiveEmployees', activeCount);
-            setSafeText('kpiAvgHoursPerEmp', `${avgHours.toFixed(1)} h`);
+            setSafeText('kpiAvgHoursPerEmp', `${avgHours.toFixed(2)} h`);
 
             const recentBody = document.getElementById('dashboardRecentShiftsBody');
             if (recentBody) {
@@ -3126,7 +3503,7 @@
                         tr.innerHTML = `
                             <td class="py-2 text-slate-500 font-mono">${s.date}</td>
                             <td class="py-2 font-bold text-slate-800">${emp.name}</td>
-                            <td class="py-2 text-center font-mono font-bold">${(s.res?.totalHours || 0).toFixed(1)}h</td>
+                            <td class="py-2 text-center font-mono font-bold">${(s.res?.totalHours || 0).toFixed(2)}h</td>
                             <td class="py-2 text-right font-mono text-emerald-600 font-bold">$${Math.round(s.res?.totalPay || 0).toLocaleString('es-CO')}</td>
                         `;
                         recentBody.appendChild(tr);
@@ -3376,6 +3753,7 @@
                 express: 'Calculador de Turno Express',
                 employees: 'Colaboradores & Nómina',
                 shifts: 'Planilla & Cuadre Semanal',
+                payrollot: 'Liquidación de Extras & Recargos',
                 audit: 'Auditoría Legal CST',
                 reports: 'Informes & Certificados'
             };
@@ -3384,6 +3762,7 @@
             if (viewId === 'dashboard') updateDashboardMetrics();
             if (viewId === 'employees') renderEmployeesView();
             if (viewId === 'shifts') renderShiftsView();
+            if (viewId === 'payrollot') renderPayrollOvertimeView();
             if (viewId === 'audit') runAuditInspection();
             if (viewId === 'reports') renderReportsView();
 
@@ -3410,7 +3789,7 @@
             appState.settings.percHON = (parseFloat(document.getElementById('cfgPercHon').value) || 35) / 100;
             appState.settings.percHED = (parseFloat(document.getElementById('cfgPercHed').value) || 25) / 100;
             appState.settings.percHEN = (parseFloat(document.getElementById('cfgPercHen').value) || 75) / 100;
-            appState.settings.percDOM = (parseFloat(document.getElementById('cfgPercDom').value) || 75) / 100;
+            appState.settings.percDOM = (parseFloat(document.getElementById('cfgPercDom').value) || 90) / 100;
             appState.settings.weeklyLimit = parseFloat(document.getElementById('cfgWeeklyLimit').value) || 42;
             appState.settings.monthlyHoursDivider = parseFloat(document.getElementById('cfgDivider').value) || 210;
 
@@ -3524,7 +3903,7 @@
 
             activeShifts.forEach(s => {
                 let emp = appState.employees.find(e => e.id === s.empId) || { name: 'Operador', department: 'General' };
-                let row = `${s.date},"${emp.name}","${emp.department || ''}",${s.startTime},${s.endTime},${s.res.totalHours.toFixed(1)},${s.res.hod.toFixed(1)},${s.res.hon.toFixed(1)},${(s.res.hed+s.res.hedd).toFixed(1)},${(s.res.hen+s.res.hend).toFixed(1)},${Math.round(s.res.totalPay)}`;
+                let row = `${s.date},"${emp.name}","${emp.department || ''}",${s.startTime},${s.endTime},${s.res.totalHours.toFixed(2)},${s.res.hod.toFixed(2)},${s.res.hon.toFixed(2)},${(s.res.hed+s.res.hedd).toFixed(2)},${(s.res.hen+s.res.hend).toFixed(2)},${Math.round(s.res.totalPay)}`;
                 csvContent += row + "\n";
             });
 
