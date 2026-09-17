@@ -1078,8 +1078,8 @@
                 </div>
                 <div>
                     <label class="block font-semibold text-slate-700 mb-1">Salario Mensual Base ($ COP)</label>
-                    <input type="number" id="newEmpSalary" value="1750905" step="10000" class="w-full p-2 border rounded-lg font-mono font-bold">
-                    <p class="text-3xs text-slate-400 mt-1">SMLMV 2026: $1.750.905 COP.</p>
+                    <input type="number" id="newEmpSalary" value="1750905" step="10000" readonly class="w-full p-2 border rounded-lg font-mono font-bold bg-slate-100 text-slate-600 cursor-not-allowed">
+                    <p class="text-3xs text-slate-400 mt-1">Política de la organización: todos los colaboradores devengan 1 SMLMV 2026 ($1.750.905 COP). Campo bloqueado.</p>
                 </div>
             </div>
 
@@ -3812,32 +3812,32 @@
 
             appState.employees = [
                 // 1. Cocina
-                { id: 101, name: "Mateo Valencia Arango", role: "Chef de Cocina", department: "Cocina", departmentId: "dept_cocina", salary: 2300000 },
+                { id: 101, name: "Mateo Valencia Arango", role: "Chef de Cocina", department: "Cocina", departmentId: "dept_cocina", salary: 1750905 },
                 { id: 102, name: "Daniela Osorio Gómez", role: "Auxiliar de Cocina", department: "Cocina", departmentId: "dept_cocina", salary: 1750905 },
 
                 // 2. Restaurante
-                { id: 103, name: "Santiago Morales Henao", role: "Capitán de Meseros", department: "Restaurante", departmentId: "dept_restaurante", salary: 1950000 },
+                { id: 103, name: "Santiago Morales Henao", role: "Capitán de Meseros", department: "Restaurante", departmentId: "dept_restaurante", salary: 1750905 },
                 { id: 104, name: "Camila Ruiz Londoño", role: "Mesera / Servicio", department: "Restaurante", departmentId: "dept_restaurante", salary: 1750905 },
 
                 // 3. Hotel
-                { id: 105, name: "Patricia Elena Buendía", role: "Supervisora de Pisos", department: "Hotel", departmentId: "dept_hotel", salary: 1900000 },
+                { id: 105, name: "Patricia Elena Buendía", role: "Supervisora de Pisos", department: "Hotel", departmentId: "dept_hotel", salary: 1750905 },
                 { id: 106, name: "Juan David Morales", role: "Camarero de Habitaciones", department: "Hotel", departmentId: "dept_hotel", salary: 1750905 },
 
                 // 4. Mantenimiento/Jardineria
-                { id: 107, name: "José Fernando Castrillón", role: "Técnico Mantenimiento & Jardines", department: "Mantenimiento/Jardineria", departmentId: "dept_mantenimiento_jardineria", salary: 1850000 },
+                { id: 107, name: "José Fernando Castrillón", role: "Técnico Mantenimiento & Jardines", department: "Mantenimiento/Jardineria", departmentId: "dept_mantenimiento_jardineria", salary: 1750905 },
 
                 // 5. Recepción/Admin
-                { id: 108, name: "Maria Fernanda Gómez", role: "Recepcionista Principal", department: "Recepción/Admin", departmentId: "dept_recepcion_admin", salary: 1850000 },
-                { id: 109, name: "Carlos Eduardo Restrepo", role: "Supervisor Administrativo", department: "Recepción/Admin", departmentId: "dept_recepcion_admin", salary: 2100000 }
+                { id: 108, name: "Maria Fernanda Gómez", role: "Recepcionista Principal", department: "Recepción/Admin", departmentId: "dept_recepcion_admin", salary: 1750905 },
+                { id: 109, name: "Carlos Eduardo Restrepo", role: "Supervisor Administrativo", department: "Recepción/Admin", departmentId: "dept_recepcion_admin", salary: 1750905 }
             ];
 
             appState.shifts = [
                 // Cocina
-                { empId: 101, date: "2026-08-31", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 2300000) },
-                { empId: 101, date: "2026-09-01", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 2300000) },
-                { empId: 101, date: "2026-09-02", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 2300000) },
-                { empId: 101, date: "2026-09-03", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 2300000) },
-                { empId: 101, date: "2026-09-04", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 2300000) },
+                { empId: 101, date: "2026-08-31", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
+                { empId: 101, date: "2026-09-01", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
+                { empId: 101, date: "2026-09-02", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
+                { empId: 101, date: "2026-09-03", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
+                { empId: 101, date: "2026-09-04", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
 
                 { empId: 102, date: "2026-08-31", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'purple', shiftTitle: 'Tarde', functionTag: 'Preparación', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
                 { empId: 102, date: "2026-09-01", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'purple', shiftTitle: 'Tarde', functionTag: 'Preparación', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
@@ -3846,38 +3846,38 @@
                 { empId: 102, date: "2026-09-05", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Preparación', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
 
                 // Restaurante
-                { empId: 103, date: "2026-08-31", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1950000) },
-                { empId: 103, date: "2026-09-01", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1950000) },
-                { empId: 103, date: "2026-09-03", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1950000) },
-                { empId: 103, date: "2026-09-04", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1950000) },
-                { empId: 103, date: "2026-09-05", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1950000) },
+                { empId: 103, date: "2026-08-31", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
+                { empId: 103, date: "2026-09-01", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
+                { empId: 103, date: "2026-09-03", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
+                { empId: 103, date: "2026-09-04", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
+                { empId: 103, date: "2026-09-05", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
 
                 // Hotel
-                { empId: 105, date: "2026-08-31", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1900000) },
-                { empId: 105, date: "2026-09-01", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1900000) },
-                { empId: 105, date: "2026-09-02", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1900000) },
-                { empId: 105, date: "2026-09-03", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1900000) },
-                { empId: 105, date: "2026-09-04", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1900000) },
+                { empId: 105, date: "2026-08-31", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
+                { empId: 105, date: "2026-09-01", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
+                { empId: 105, date: "2026-09-02", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
+                { empId: 105, date: "2026-09-03", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
+                { empId: 105, date: "2026-09-04", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
 
                 // Mantenimiento / Jardinería
-                { empId: 107, date: "2026-08-31", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1850000) },
-                { empId: 107, date: "2026-09-01", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1850000) },
-                { empId: 107, date: "2026-09-02", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1850000) },
-                { empId: 107, date: "2026-09-03", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1850000) },
-                { empId: 107, date: "2026-09-04", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1850000) },
+                { empId: 107, date: "2026-08-31", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
+                { empId: 107, date: "2026-09-01", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
+                { empId: 107, date: "2026-09-02", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
+                { empId: 107, date: "2026-09-03", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
+                { empId: 107, date: "2026-09-04", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
 
                 // Recepción / Admin
-                { empId: 108, date: "2026-08-31", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1850000) },
-                { empId: 108, date: "2026-09-01", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1850000) },
-                { empId: 108, date: "2026-09-02", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'purple', shiftTitle: 'Tarde Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1850000) },
-                { empId: 108, date: "2026-09-04", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'purple', shiftTitle: 'Tarde Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1850000) },
-                { empId: 108, date: "2026-09-05", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1850000) },
+                { empId: 108, date: "2026-08-31", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
+                { empId: 108, date: "2026-09-01", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
+                { empId: 108, date: "2026-09-02", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'purple', shiftTitle: 'Tarde Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
+                { empId: 108, date: "2026-09-04", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'purple', shiftTitle: 'Tarde Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
+                { empId: 108, date: "2026-09-05", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
 
-                { empId: 109, date: "2026-08-31", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 2100000) },
-                { empId: 109, date: "2026-09-01", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 2100000) },
-                { empId: 109, date: "2026-09-02", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 2100000) },
-                { empId: 109, date: "2026-09-03", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 2100000) },
-                { empId: 109, date: "2026-09-04", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 2100000) }
+                { empId: 109, date: "2026-08-31", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 1750905) },
+                { empId: 109, date: "2026-09-01", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 1750905) },
+                { empId: 109, date: "2026-09-02", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 1750905) },
+                { empId: 109, date: "2026-09-03", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 1750905) },
+                { empId: 109, date: "2026-09-04", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 1750905) }
             ];
 
             appState.selectedEmpId = 101;
