@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Super Admin - RR.HH PYMES</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800">
+<div id="app" class="max-w-7xl mx-auto p-4 md:p-6">
+
+  <header class="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-violet-600 text-white flex items-center justify-center"><i class="fa-solid fa-shield-halved"></i></div>
+      <div>
+        <h1 class="text-lg font-bold leading-tight">Panel Super Admin</h1>
+        <p class="text-xs text-slate-500">Gestion global de la plataforma</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="meEmail" class="text-sm text-slate-500"></span>
+      <button onclick="logout()" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm font-medium"><i class="fa-solid fa-right-from-bracket mr-1"></i>Salir</button>
+    </div>
+  </header>
+
+  <nav class="flex gap-2 mb-6 border-b border-slate-200">
+    <button data-tab="dashboard" class="tab-btn px-4 py-2 text-sm font-semibold border-b-2 border-violet-600 text-violet-700">Dashboard</button>
+    <button data-tab="orgs" class="tab-btn px-4 py-2 text-sm font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-700">Organizaciones</button>
+    <button data-tab="users" class="tab-btn px-4 py-2 text-sm font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-700">Usuarios</button>
+    <button data-tab="audit" class="tab-btn px-4 py-2 text-sm font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-700">Auditoria</button>
+  </nav>
+
+  <!-- DASHBOARD -->
+  <section id="tab-dashboard" class="tab-panel grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="bg-white rounded-xl border border-slate-200 p-4"><p class="text-xs text-slate-500">Organizaciones activas</p><p id="kpiOrgsActive" class="text-2xl font-bold text-emerald-600">-</p></div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4"><p class="text-xs text-slate-500">Organizaciones inactivas</p><p id="kpiOrgsInactive" class="text-2xl font-bold text-rose-600">-</p></div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4"><p class="text-xs text-slate-500">Usuarios totales</p><p id="kpiUsersTotal" class="text-2xl font-bold text-slate-700">-</p></div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4"><p class="text-xs text-slate-500">Usuarios activos</p><p id="kpiUsersActive" class="text-2xl font-bold text-sky-600">-</p></div>
+  </section>
+
+  <!-- ORGANIZATIONS -->
+  <section id="tab-orgs" class="tab-panel hidden">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <input id="orgSearch" placeholder="Buscar organizacion..." class="px-3 py-2 rounded-lg border border-slate-300 text-sm w-64">
+      <button onclick="openOrgModal()" class="px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold"><i class="fa-solid fa-plus mr-1"></i>Nueva organizacion</button>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase"><tr>
+          <th class="text-left px-4 py-2">Nombre</th><th class="text-left px-4 py-2">Slug</th>
+          <th class="text-left px-4 py-2">Usuarios</th><th class="text-left px-4 py-2">Estado</th>
+          <th class="text-left px-4 py-2">Creada</th><th class="text-right px-4 py-2">Acciones</th>
+        </tr></thead>
+        <tbody id="orgsTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- USERS -->
+  <section id="tab-users" class="tab-panel hidden">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <input id="userSearch" placeholder="Buscar por correo..." class="px-3 py-2 rounded-lg border border-slate-300 text-sm w-64">
+      <button onclick="openUserModal()" class="px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold"><i class="fa-solid fa-user-plus mr-1"></i>Invitar usuario</button>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase"><tr>
+          <th class="text-left px-4 py-2">Correo</th><th class="text-left px-4 py-2">Organizacion</th>
+          <th class="text-left px-4 py-2">Rol</th><th class="text-left px-4 py-2">Estado</th>
+          <th class="text-right px-4 py-2">Acciones</th>
+        </tr></thead>
+        <tbody id="usersTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- AUDIT -->
+  <section id="tab-audit" class="tab-panel hidden">
+    <div class="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase"><tr>
+          <th class="text-left px-4 py-2">Fecha</th><th class="text-left px-4 py-2">Organizacion</th>
+          <th class="text-left px-4 py-2">Usuario</th><th class="text-left px-4 py-2">Accion</th>
+          <th class="text-left px-4 py-2">Recurso</th>
+        </tr></thead>
+        <tbody id="auditTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+<!-- Org Modal -->
+<div id="orgModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
+  <div class="bg-white rounded-xl p-5 w-full max-w-md">
+    <h3 class="font-semibold mb-3">Nueva organizacion</h3>
+    <input id="orgNameInput" placeholder="Nombre de la organizacion" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-3">
+    <div id="orgModalMsg" class="hidden text-sm text-rose-600 mb-2"></div>
+    <div class="flex justify-end gap-2">
+      <button onclick="closeModal('orgModal')" class="px-3 py-2 rounded-lg bg-slate-100 text-sm">Cancelar</button>
+      <button onclick="submitOrg()" class="px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold">Crear</button>
+    </div>
+  </div>
+</div>
+
+<!-- User Modal -->
+<div id="userModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
+  <div class="bg-white rounded-xl p-5 w-full max-w-md">
+    <h3 class="font-semibold mb-3">Invitar usuario</h3>
+    <input id="userEmailInput" type="email" placeholder="correo@empresa.com" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-3">
+    <select id="userOrgSelect" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-3"></select>
+    <select id="userRoleSelect" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-3">
+      <option value="org_admin">Administrador de organizacion</option>
+      <option value="supervisor">Supervisor</option>
+      <option value="empleado">Empleado</option>
+    </select>
+    <div id="userModalMsg" class="hidden text-sm mb-2"></div>
+    <div class="flex justify-end gap-2">
+      <button onclick="closeModal('userModal')" class="px-3 py-2 rounded-lg bg-slate-100 text-sm">Cancelar</button>
+      <button onclick="submitUser()" class="px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold">Enviar invitacion</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let CSRF = null;
+let ORGS_CACHE = [];
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...(CSRF ? { 'X-CSRF-Token': CSRF } : {}), ...(opts.headers || {}) },
+  });
+  if (res.status === 401) { location.href = '/login.html'; throw new Error('unauth'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Error');
+  return data;
+}
+
+function getCookie(name) {
+  const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+async function boot() {
+  CSRF = getCookie('csrf');
+  try {
+    const me = await api('/api/auth/me');
+    if (!me.user.isSuperAdmin) { location.href = '/app.html'; return; }
+    document.getElementById('meEmail').textContent = me.user.email;
+  } catch { location.href = '/login.html'; return; }
+
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+  document.getElementById('orgSearch').addEventListener('input', debounce(loadOrgs, 300));
+  document.getElementById('userSearch').addEventListener('input', debounce(loadUsers, 300));
+
+  await loadDashboard();
+  await loadOrgs();
+}
+
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+  document.getElementById('tab-' + tab).classList.remove('hidden');
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    const active = b.dataset.tab === tab;
+    b.classList.toggle('border-violet-600', active);
+    b.classList.toggle('text-violet-700', active);
+    b.classList.toggle('border-transparent', !active);
+    b.classList.toggle('text-slate-500', !active);
+  });
+  if (tab === 'dashboard') loadDashboard();
+  if (tab === 'orgs') loadOrgs();
+  if (tab === 'users') loadUsers();
+  if (tab === 'audit') loadAudit();
+}
+
+async function loadDashboard() {
+  const d = await api('/api/superadmin/dashboard');
+  document.getElementById('kpiOrgsActive').textContent = d.organizations.active;
+  document.getElementById('kpiOrgsInactive').textContent = d.organizations.inactive;
+  document.getElementById('kpiUsersTotal').textContent = d.users.total;
+  document.getElementById('kpiUsersActive').textContent = d.users.active;
+}
+
+async function loadOrgs() {
+  const search = document.getElementById('orgSearch').value;
+  const d = await api('/api/superadmin/organizations?search=' + encodeURIComponent(search));
+  ORGS_CACHE = d.organizations;
+  const tbody = document.getElementById('orgsTableBody');
+  tbody.innerHTML = d.organizations.map(o => `
+    <tr class="border-t border-slate-100">
+      <td class="px-4 py-2 font-medium">${esc(o.name)}</td>
+      <td class="px-4 py-2 text-slate-500">${esc(o.slug)}</td>
+      <td class="px-4 py-2">${o.userCount}</td>
+      <td class="px-4 py-2">${badge(o.status)}</td>
+      <td class="px-4 py-2 text-slate-500">${(o.created_at || '').split(' ')[0]}</td>
+      <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
+        <button onclick="toggleOrg('${o.id}')" class="text-xs px-2 py-1 rounded bg-slate-100 hover:bg-slate-200">${o.status === 'active' ? 'Desactivar' : 'Activar'}</button>
+        <button onclick="deleteOrg('${o.id}','${esc(o.name)}')" class="text-xs px-2 py-1 rounded bg-rose-50 text-rose-600 hover:bg-rose-100">Eliminar</button>
+      </td>
+    </tr>`).join('') || `<tr><td colspan="6" class="px-4 py-6 text-center text-slate-400">Sin organizaciones aun.</td></tr>`;
+
+  const sel = document.getElementById('userOrgSelect');
+  sel.innerHTML = d.organizations.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('');
+}
+
+function badge(status) {
+  return status === 'active'
+    ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">Activa</span>'
+    : '<span class="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-xs font-semibold">Inactiva</span>';
+}
+function esc(s) { return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+async function toggleOrg(id) { await api(`/api/superadmin/organizations/${id}/toggle-status`, { method: 'POST' }); loadOrgs(); loadDashboard(); }
+async function deleteOrg(id, name) {
+  if (!confirm(`Esto eliminara permanentemente "${name}" y todos sus datos. ¿Continuar?`)) return;
+  await api(`/api/superadmin/organizations/${id}`, { method: 'DELETE' }); loadOrgs(); loadDashboard();
+}
+
+function openOrgModal() { document.getElementById('orgNameInput').value = ''; document.getElementById('orgModalMsg').classList.add('hidden'); openModal('orgModal'); }
+async function submitOrg() {
+  const name = document.getElementById('orgNameInput').value.trim();
+  const msg = document.getElementById('orgModalMsg');
+  if (!name) { msg.textContent = 'El nombre es obligatorio.'; msg.classList.remove('hidden'); return; }
+  try {
+    await api('/api/superadmin/organizations', { method: 'POST', body: JSON.stringify({ name }) });
+    closeModal('orgModal'); loadOrgs(); loadDashboard();
+  } catch (e) { msg.textContent = e.message; msg.classList.remove('hidden'); }
+}
+
+async function loadUsers() {
+  const search = document.getElementById('userSearch').value;
+  const d = await api('/api/superadmin/users?search=' + encodeURIComponent(search));
+  document.getElementById('usersTableBody').innerHTML = d.users.map(u => `
+    <tr class="border-t border-slate-100">
+      <td class="px-4 py-2 font-medium">${esc(u.email)}</td>
+      <td class="px-4 py-2">${esc(u.organizationName || '-')}</td>
+      <td class="px-4 py-2 text-slate-500">${esc((u.roles || []).join(', ') || '-')}</td>
+      <td class="px-4 py-2">${statusBadge(u.status)}</td>
+      <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
+        <button onclick="toggleUser('${u.id}')" class="text-xs px-2 py-1 rounded bg-slate-100 hover:bg-slate-200">${u.status === 'active' ? 'Desactivar' : 'Activar'}</button>
+        <button onclick="resetPw('${u.id}')" class="text-xs px-2 py-1 rounded bg-sky-50 text-sky-700 hover:bg-sky-100">Restablecer clave</button>
+      </td>
+    </tr>`).join('') || `<tr><td colspan="5" class="px-4 py-6 text-center text-slate-400">Sin usuarios aun.</td></tr>`;
+}
+function statusBadge(s) {
+  const map = { active: ['bg-emerald-100 text-emerald-700', 'Activo'], invited: ['bg-amber-100 text-amber-700', 'Invitado'], inactive: ['bg-rose-100 text-rose-700', 'Inactivo'] };
+  const [cls, label] = map[s] || map.inactive;
+  return `<span class="px-2 py-0.5 rounded-full ${cls} text-xs font-semibold">${label}</span>`;
+}
+async function toggleUser(id) { await api(`/api/superadmin/users/${id}/toggle-status`, { method: 'POST' }); loadUsers(); loadDashboard(); }
+async function resetPw(id) {
+  const d = await api(`/api/superadmin/users/${id}/reset-password`, { method: 'POST' });
+  alert('Enlace de restablecimiento generado (tambien impreso en la consola del servidor):\n' + d.resetLink);
+}
+
+function openUserModal() {
+  document.getElementById('userEmailInput').value = '';
+  document.getElementById('userModalMsg').classList.add('hidden');
+  openModal('userModal');
+}
+async function submitUser() {
+  const email = document.getElementById('userEmailInput').value.trim();
+  const organizationId = document.getElementById('userOrgSelect').value;
+  const role = document.getElementById('userRoleSelect').value;
+  const msg = document.getElementById('userModalMsg');
+  if (!email || !organizationId) { msg.textContent = 'Correo y organizacion son obligatorios.'; msg.className = 'text-sm text-rose-600 mb-2'; msg.classList.remove('hidden'); return; }
+  try {
+    const d = await api('/api/superadmin/users', { method: 'POST', body: JSON.stringify({ email, organizationId, role }) });
+    closeModal('userModal'); loadUsers(); loadDashboard();
+    alert('Invitacion enviada. Enlace (tambien impreso en la consola del servidor):\n' + d.inviteLink);
+  } catch (e) { msg.textContent = e.message; msg.className = 'text-sm text-rose-600 mb-2'; msg.classList.remove('hidden'); }
+}
+
+async function loadAudit() {
+  const d = await api('/api/superadmin/audit');
+  const orgName = (id) => (ORGS_CACHE.find(o => o.id === id) || {}).name || (id ? id.slice(0, 10) : '-');
+  document.getElementById('auditTableBody').innerHTML = d.logs.map(l => `
+    <tr class="border-t border-slate-100">
+      <td class="px-4 py-2 text-slate-500 whitespace-nowrap">${l.created_at}</td>
+      <td class="px-4 py-2">${esc(orgName(l.organization_id))}</td>
+      <td class="px-4 py-2 text-slate-500">${l.user_id ? l.user_id.slice(0, 12) : '-'}</td>
+      <td class="px-4 py-2 font-medium">${esc(l.action)}</td>
+      <td class="px-4 py-2 text-slate-500">${esc(l.resource_type || '-')} ${l.resource_id ? '#' + l.resource_id.slice(0, 8) : ''}</td>
+    </tr>`).join('') || `<tr><td colspan="5" class="px-4 py-6 text-center text-slate-400">Sin eventos registrados.</td></tr>`;
+}
+
+function openModal(id) { const m = document.getElementById(id); m.classList.remove('hidden'); m.classList.add('flex'); }
+function closeModal(id) { const m = document.getElementById(id); m.classList.add('hidden'); m.classList.remove('flex'); }
+
+async function logout() { await api('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
+
+boot();
+</script>
+</body>
+</html>

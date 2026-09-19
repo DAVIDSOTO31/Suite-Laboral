@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><title>RR.HH PYMES</title></head>
+<body>
+<script>
+fetch('/api/auth/me', { credentials: 'include' })
+  .then(r => r.ok ? r.json() : Promise.reject())
+  .then(d => { location.href = d.user.isSuperAdmin ? '/superadmin.html' : '/app.html'; })
+  .catch(() => { location.href = '/login.html'; });
+</script>
+</body>
+</html>
