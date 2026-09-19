@@ -1,0 +1,15 @@
+{
+  "name": "rrhh-pymes-multitenant",
+  "version": "1.0.0",
+  "description": "RR.HH PYMES - Plataforma multi-organizacion (multi-tenant) con autenticacion, RBAC y Super Admin",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {},
+  "license": "UNLICENSED"
+}
