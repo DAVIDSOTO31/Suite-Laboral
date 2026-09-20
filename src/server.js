@@ -90,7 +90,30 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net;");
+  // script-src: 'self' + CDNs para los <script src="..."> externos (Tailwind, Chart.js),
+  // mas un hash SHA-256 por cada bloque <script>...</script> inline que traen las paginas
+  // de /public (login, app, superadmin, index, accept-invite, forgot/reset-password).
+  // Si se edita el contenido de alguno de esos bloques <script>, su hash cambia y hay que
+  // recalcularlo (ver README) o el navegador volvera a bloquearlo.
+  const INLINE_SCRIPT_HASHES = [
+    "'sha256-VHT9CPskO5vtuB4/dvdS04Q+SweVGZPL/1qWK+IKjFI='", // index.html
+    "'sha256-dum9fwlx0dkN5ryTuRUUwv195GfaGUq71kgIuRd86vs='", // login.html
+    "'sha256-Mw75BhCr8p7KOHnUhedU/phgSplvZ2WhY9Oiy0vo2jA='", // app.html
+    "'sha256-Vg0lkpEUaRwl1e4TJtu3+bHOQPCIrP4qkdoMWzoPCJU='", // superadmin.html
+    "'sha256-acq3Igc1f3abTnmdP0vrk+f21ykK7GXxlTu0HAeDxD8='", // accept-invite.html
+    "'sha256-p7WRDAOI/vt0mUjmPWtSZe+ugsLNJkiYzKuVx61YsjA='", // forgot-password.html
+    "'sha256-mZ3lS9DOiVRo7hkAzBXkRD0YGddIYpBoAsC0YnepqJQ='", // reset-password.html
+  ].join(' ');
+  res.setHeader('Content-Security-Policy',
+    "default-src 'self'; " +
+    "img-src 'self' data:; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; " +
+    "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; " +
+    `script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net ${INLINE_SCRIPT_HASHES}; ` +
+    // app.html y superadmin.html usan onclick="..."/onchange="..." en vez de addEventListener.
+    // 'unsafe-inline' aqui solo afecta a esos atributos de evento (no a los <script> del bloque
+    // anterior, que ya quedan protegidos por los hashes de arriba).
+    "script-src-attr 'unsafe-inline';");
 
   if (env.ALLOWED_ORIGIN && req.headers.origin === env.ALLOWED_ORIGIN) {
     res.setHeader('Access-Control-Allow-Origin', env.ALLOWED_ORIGIN);
