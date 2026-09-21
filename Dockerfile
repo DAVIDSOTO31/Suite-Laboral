@@ -1,15 +1,13 @@
+# Imagen oficial de Litestream: de aqui tomamos el programa ya compilado,
+# sin necesidad de descargarlo manualmente (mucho mas confiable).
+FROM litestream/litestream:0.5.17 AS litestream
+
 # Imagen base con Node.js 22 (la version que ya requiere el proyecto)
 FROM node:22-slim
 
-# Instala curl y tar para poder descargar Litestream
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates tar \
-    && rm -rf /var/lib/apt/lists/*
+# Copiamos el programa litestream desde la imagen oficial
+COPY --from=litestream /usr/local/bin/litestream /usr/local/bin/litestream
 
-# Descarga Litestream (version fija y estable, sin depender de la API de GitHub)
-RUN curl -fsSL -o /tmp/litestream.tar.gz \
-    https://github.com/benbjohnson/litestream/releases/download/v0.5.17/litestream-v0.5.17-linux-amd64.tar.gz \
-    && tar -C /usr/local/bin -xzf /tmp/litestream.tar.gz litestream \
-    && rm /tmp/litestream.tar.gz
 WORKDIR /app
 
 # Copia el proyecto (package.json no tiene dependencias externas, pero se
