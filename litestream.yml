@@ -1,0 +1,14 @@
+# Configuracion de Litestream: le dice donde esta la base de datos local
+# y a que "bucket" (almacen) de la nube debe copiarla continuamente.
+# Los valores ${...} se toman de las variables de entorno que configures
+# en el panel de Render (nunca escribas aqui las claves directamente).
+dbs:
+  - path: /app/data/app.db
+    replica:
+      type: s3
+      bucket: ${LITESTREAM_BUCKET}
+      path: rrhh-pymes
+      endpoint: ${LITESTREAM_ENDPOINT}
+      region: auto
+      access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+      secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
