@@ -5,15 +5,11 @@ FROM node:22-slim
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates tar \
     && rm -rf /var/lib/apt/lists/*
 
-# Descarga la ultima version de Litestream (herramienta que copia la base de
-# datos SQLite hacia la nube en tiempo real) sin fijar un numero de version
-RUN curl -fsSL https://api.github.com/repos/benbjohnson/litestream/releases/latest \
-    | grep "browser_download_url.*linux-amd64.tar.gz" \
-    | cut -d '"' -f 4 \
-    | xargs -I {} curl -fsSL {} -o /tmp/litestream.tar.gz \
+# Descarga Litestream (version fija y estable, sin depender de la API de GitHub)
+RUN curl -fsSL -o /tmp/litestream.tar.gz \
+    https://github.com/benbjohnson/litestream/releases/download/v0.5.17/litestream-v0.5.17-linux-amd64.tar.gz \
     && tar -C /usr/local/bin -xzf /tmp/litestream.tar.gz litestream \
     && rm /tmp/litestream.tar.gz
-
 WORKDIR /app
 
 # Copia el proyecto (package.json no tiene dependencias externas, pero se
