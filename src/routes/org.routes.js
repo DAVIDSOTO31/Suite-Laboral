@@ -151,7 +151,7 @@ async function createOrgUser(req, res) {
   const token = randomToken(32);
   db.prepare(`INSERT INTO invitations (id, organization_id, email, role_id, token_hash, expires_at, created_by) VALUES (?, ?, ?, ?, ?, datetime('now', '+3 days'), ?)`)
     .run(uid('inv'), orgId, email, role.id, sha256Hex(token), req.user.id);
-  const mail = sendMail({ to: email, subject: `Invitacion a tu organizacion`, kind: 'invitation', link: `/accept-invite.html?token=${token}` });
+  const mail = await sendMail({ to: email, subject: `Invitacion a tu organizacion`, kind: 'invitation', link: `/accept-invite.html?token=${token}` });
   logAction({ organizationId: orgId, userId: req.user.id, action: 'user.invite', resourceType: 'user', resourceId: userId, ip: getClientIp(req), metadata: { email, role: roleName } });
   sendJson(res, 201, { ok: true, inviteLink: mail.link, note: 'El enlace de invitacion tambien se imprimio en la consola del servidor.' });
 }
@@ -190,12 +190,12 @@ function toggleOrgUserStatus(req, res, params) {
   sendJson(res, 200, { ok: true, status: newStatus });
 }
 
-function resetOrgUserPassword(req, res, params) {
+async function resetOrgUserPassword(req, res, params) {
   const target = assertOrgUserOwnership(req, res, params.id);
   if (!target) return;
   const token = randomToken(32);
   db.prepare(`INSERT INTO password_resets (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, datetime('now', '+1 hour'))`).run(uid('pwr'), target.id, sha256Hex(token));
-  const mail = sendMail({ to: target.email, subject: 'Restablecimiento de contrasena', kind: 'password_reset', link: `/reset-password.html?token=${token}` });
+  const mail = await sendMail({ to: target.email, subject: 'Restablecimiento de contrasena', kind: 'password_reset', link: `/reset-password.html?token=${token}` });
   logAction({ organizationId: req.user.organizationId, userId: req.user.id, action: 'user.reset_password_requested', resourceType: 'user', resourceId: target.id, ip: getClientIp(req) });
   sendJson(res, 200, { ok: true, resetLink: mail.link });
 }
