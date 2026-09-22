@@ -2,7 +2,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-// Loads a .env file (if present) into process.env without needing the "dotenv" package.
 function loadEnv() {
   const envPath = path.join(__dirname, '..', '..', '.env');
   if (fs.existsSync(envPath)) {
@@ -33,10 +32,7 @@ module.exports = {
   SUPERADMIN_PASSWORD: process.env.SUPERADMIN_PASSWORD || 'CambiaEstaClave123!',
   ALLOWED_ORIGIN: process.env.ALLOWED_ORIGIN || '',
   EMAIL_MODE: process.env.EMAIL_MODE || 'console',
-  // Configuracion SMTP (por ejemplo, la de Brevo) - solo se usa si EMAIL_MODE=smtp
-  SMTP_HOST: process.env.SMTP_HOST || '',
-  SMTP_PORT: parseInt(process.env.SMTP_PORT || '587', 10),
-  SMTP_USER: process.env.SMTP_USER || '',
-  SMTP_PASS: process.env.SMTP_PASS || '',
+  // API HTTPS de Brevo (no SMTP): https://api.brevo.com/v3/smtp/email
+  BREVO_API_KEY: process.env.BREVO_API_KEY || '',
   MAIL_FROM: process.env.MAIL_FROM || 'RR.HH PYMES <no-reply@example.com>',
 };
