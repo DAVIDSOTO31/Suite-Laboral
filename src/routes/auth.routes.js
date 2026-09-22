@@ -113,7 +113,7 @@ async function forgotPassword(req, res) {
     const token = randomToken(32);
     db.prepare(`INSERT INTO password_resets (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, datetime('now', '+1 hour'))`)
       .run(uid('pwr'), user.id, sha256Hex(token));
-    sendMail({ to: user.email, subject: 'Restablece tu contrasena', kind: 'password_reset', link: `/reset-password.html?token=${token}` });
+    await sendMail({ to: user.email, subject: 'Restablece tu contrasena', kind: 'password_reset', link: `/reset-password.html?token=${token}` });
     logAction({ organizationId: user.organization_id, userId: user.id, action: 'auth.password_reset_requested', ip: getClientIp(req) });
   }
   sendJson(res, 200, { ok: true, message: 'Si el correo existe, se enviaron instrucciones de recuperacion.' });
