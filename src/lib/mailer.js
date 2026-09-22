@@ -4,49 +4,47 @@ const env = require('./env');
 /**
  * Envia (o, en modo "console", imprime) un correo transaccional.
  *
- * EMAIL_MODE=console  -> imprime el enlace en los logs (modo desarrollo)
- * EMAIL_MODE=smtp     -> envia el correo de verdad usando las credenciales
- *                        SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / MAIL_FROM
- *                        (por ejemplo, las de Brevo)
+ * EMAIL_MODE=console -> imprime el enlace en los logs (modo desarrollo)
+ * EMAIL_MODE=brevo   -> envia el correo de verdad usando la API HTTPS de
+ *                       Brevo (no usa SMTP, porque Render bloquea los
+ *                       puertos SMTP salientes en el plan gratuito)
  */
-let transporter = null;
-
-function getTransporter() {
-  if (transporter) return transporter;
-  // Se importa aqui adentro (no al inicio del archivo) para que el modo
-  // "console" siga funcionando aunque nodemailer no este instalado todavia.
-  const nodemailer = require('nodemailer');
-  transporter = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    secure: env.SMTP_PORT === 465, // true solo para el puerto 465 (SSL)
-    auth: {
-      user: env.SMTP_USER,
-      pass: env.SMTP_PASS,
-    },
-  });
-  return transporter;
+function parseSender(mailFrom) {
+  const match = /^(.*?)<(.+)>$/.exec(String(mailFrom || '').trim());
+  if (match) return { name: match[1].trim() || undefined, email: match[2].trim() };
+  return { email: String(mailFrom || '').trim() };
 }
 
 async function sendMail({ to, subject, link, kind }) {
-  if (env.EMAIL_MODE === 'smtp') {
+  if (env.EMAIL_MODE === 'brevo') {
     try {
-      const info = await getTransporter().sendMail({
-        from: env.MAIL_FROM,
-        to,
-        subject,
-        text: `${subject}\n\n${link}`,
-        html: `<p>${subject}</p><p><a href="${link}">${link}</a></p>`,
+      const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          'api-key': env.BREVO_API_KEY,
+        },
+        body: JSON.stringify({
+          sender: parseSender(env.MAIL_FROM),
+          to: [{ email: to }],
+          subject,
+          htmlContent: `<p>${subject}</p><p><a href="${link}">${link}</a></p>`,
+          textContent: `${subject}\n\n${link}`,
+        }),
       });
-      console.log('Correo enviado a', to, '- id:', info.messageId);
-      return { delivered: true, mode: 'smtp', link };
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        console.error('Error enviando correo por Brevo API:', resp.status, JSON.stringify(data));
+        console.log('Enlace para', to, ':', link);
+        return { delivered: false, mode: 'brevo-error', link, error: data };
+      }
+      console.log('Correo enviado a', to, '- id:', data.messageId);
+      return { delivered: true, mode: 'brevo', link };
     } catch (err) {
-      // Si falla el envio real, lo dejamos registrado en los logs pero no
-      // tumbamos la aplicacion: el enlace igual queda disponible en el log
-      // para que puedas completar la accion manualmente si hace falta.
-      console.error('Error enviando correo por SMTP:', err.message);
+      console.error('Error enviando correo por Brevo API:', err.message);
       console.log('Enlace para', to, ':', link);
-      return { delivered: false, mode: 'smtp-error', link, error: err.message };
+      return { delivered: false, mode: 'brevo-error', link, error: err.message };
     }
   }
 
@@ -60,7 +58,7 @@ async function sendMail({ to, subject, link, kind }) {
     return { delivered: false, mode: 'console', link };
   }
 
-  console.warn('EMAIL_MODE distinto de "console"/"smtp". Cayendo a consola.');
+  console.warn('EMAIL_MODE distinto de "console"/"brevo". Cayendo a consola.');
   console.log('Enlace para', to, ':', link);
   return { delivered: false, mode: 'unconfigured', link };
 }
