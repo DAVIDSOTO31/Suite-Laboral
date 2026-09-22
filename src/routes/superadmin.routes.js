@@ -127,7 +127,7 @@ async function createUser(req, res) {
   const token = randomToken(32);
   db.prepare(`INSERT INTO invitations (id, organization_id, email, role_id, token_hash, expires_at, created_by) VALUES (?, ?, ?, ?, ?, datetime('now', '+3 days'), ?)`)
     .run(uid('inv'), organizationId, email, role.id, sha256Hex(token), req.user.id);
-  const mail = sendMail({ to: email, subject: `Invitacion a ${org.name}`, kind: 'invitation', link: `/accept-invite.html?token=${token}` });
+  const mail = await sendMail({ to: email, subject: `Invitacion a ${org.name}`, kind: 'invitation', link: `/accept-invite.html?token=${token}` });
   logAction({ organizationId, userId: req.user.id, action: 'user.invite', resourceType: 'user', resourceId: userId, ip: getClientIp(req), metadata: { email, role: roleName } });
   sendJson(res, 201, { ok: true, userId, inviteLink: mail.link, note: 'El enlace de invitacion tambien se imprimio en la consola del servidor.' });
 }
@@ -166,12 +166,12 @@ function toggleUserStatus(req, res, params) {
   sendJson(res, 200, { ok: true, status: newStatus });
 }
 
-function resetUserPassword(req, res, params) {
+async function resetUserPassword(req, res, params) {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(params.id);
   if (!user) return sendJson(res, 404, { error: 'Usuario no encontrado.' });
   const token = randomToken(32);
   db.prepare(`INSERT INTO password_resets (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, datetime('now', '+1 hour'))`).run(uid('pwr'), user.id, sha256Hex(token));
-  const mail = sendMail({ to: user.email, subject: 'Restablecimiento de contrasena (solicitado por un administrador)', kind: 'password_reset', link: `/reset-password.html?token=${token}` });
+  const mail = await sendMail({ to: user.email, subject: 'Restablecimiento de contrasena (solicitado por un administrador)', kind: 'password_reset', link: `/reset-password.html?token=${token}` });
   logAction({ organizationId: user.organization_id, userId: req.user.id, action: 'user.reset_password_requested', resourceType: 'user', resourceId: user.id, ip: getClientIp(req) });
   sendJson(res, 200, { ok: true, resetLink: mail.link, note: 'El enlace tambien se imprimio en la consola del servidor.' });
 }
