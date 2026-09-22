@@ -35,4 +35,6 @@ module.exports = {
   // API HTTPS de Brevo (no SMTP): https://api.brevo.com/v3/smtp/email
   BREVO_API_KEY: process.env.BREVO_API_KEY || '',
   MAIL_FROM: process.env.MAIL_FROM || 'RR.HH PYMES <no-reply@example.com>',
+  // Direccion base publica de tu app, sin barra al final, ej: https://rr-hh-pymes-suite-laboral.onrender.com
+  APP_URL: process.env.APP_URL || '',
 };
