@@ -10,8 +10,6 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js"
   },
-  "dependencies": {
-    "nodemailer": "^8.0.0"
-  },
+  "dependencies": {},
   "license": "UNLICENSED"
 }
