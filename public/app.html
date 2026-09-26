@@ -59,20 +59,26 @@
             
             <!-- Brand & HR Specialized Logo -->
             <div class="flex items-center space-x-3 shrink-0">
+                <button onclick="appLogout()" title="Cerrar sesión" class="text-slate-300 hover:text-rose-400 p-2 rounded-lg hover:bg-slate-800 transition shrink-0">
+                    <i class="fa-solid fa-right-from-bracket text-sm"></i>
+                </button>
+
                 <button onclick="toggleSidebar()" class="lg:hidden text-slate-300 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition" aria-label="Abrir Menú">
                     <i class="fa-solid fa-bars text-lg"></i>
                 </button>
                 
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-sky-500 via-sky-600 to-blue-800 flex items-center justify-center text-white shadow-md shadow-sky-600/30 border border-sky-400/40 shrink-0 transform transition-transform hover:scale-105">
-                        <svg class="w-5 h-5 sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M4 19.5C4 18.6716 4.67157 18 5.5 18H18.5C19.3284 18 20 18.6716 20 19.5V20C20 20.5523 19.5523 21 19 21H5C4.44772 21 4 20.5523 4 20V19.5Z" fill="currentColor" opacity="0.4"/>
-                            <circle cx="12" cy="7" r="2.8" fill="currentColor"/>
-                            <path d="M7.5 15.5C7.5 13.0147 9.51472 11 12 11C14.4853 11 16.5 13.0147 16.5 15.5V16.8H7.5V15.5Z" fill="currentColor"/>
-                            <circle cx="6" cy="9.2" r="1.8" fill="currentColor" opacity="0.8"/>
-                            <path d="M2.5 16C2.5 14.1 4 12.5 5.9 12.5C6.7 12.5 7.4 12.8 8 13.3C7.5 13.9 7.2 14.8 7.2 15.7V16.8H2.5V16Z" fill="currentColor" opacity="0.8"/>
-                            <circle cx="18" cy="9.2" r="1.8" fill="currentColor" opacity="0.8"/>
-                            <path d="M21.5 16C21.5 14.1 20 12.5 18.1 12.5C17.3 12.5 16.6 12.8 16 13.3C16.5 13.9 16.8 14.8 16.8 15.7V16.8H21.5V16Z" fill="currentColor" opacity="0.8"/>
+                        <svg class="w-6 h-6 sm:w-7 sm:h-7" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M24 2 L43 13 V35 L24 46 L5 35 V13 Z" fill="none" stroke="currentColor" stroke-width="2" opacity="0.55"/>
+                            <circle cx="24" cy="18" r="5" fill="currentColor"/>
+                            <path d="M14 34c0-6 4.5-10 10-10s10 4 10 10v2H14v-2Z" fill="currentColor"/>
+                            <circle cx="12" cy="22" r="3" fill="currentColor" opacity="0.75"/>
+                            <path d="M6 33c0-3.5 2.6-6.2 6-6.2 1.5 0 2.8.5 3.8 1.4-1 1.3-1.6 3-1.6 4.8v2H6v-2Z" fill="currentColor" opacity="0.75"/>
+                            <circle cx="36" cy="22" r="3" fill="currentColor" opacity="0.75"/>
+                            <path d="M42 33c0-3.5-2.6-6.2-6-6.2-1.5 0-2.8.5-3.8 1.4 1 1.3 1.6 3 1.6 4.8v2h8.2v-2Z" fill="currentColor" opacity="0.75"/>
+                            <circle cx="36" cy="34" r="6" fill="#10b981"/>
+                            <path d="M33 34l2 2 4-4" stroke="white" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
                     </div>
                     <div>
@@ -143,14 +149,6 @@
                     <i class="fa-solid fa-scale-balanced text-sky-400"></i>
                     <span class="hidden md:inline">Parámetros CST</span>
                 </button>
-
-                <div class="h-7 w-px bg-slate-800 mx-0.5 hidden sm:block"></div>
-
-                <div class="flex items-center gap-2 px-2.5 py-2 rounded-xl bg-slate-800/70 border border-slate-700/70">
-                    <i class="fa-solid fa-circle-user text-sky-400"></i>
-                    <span id="headerUserEmail" class="hidden md:inline text-xs text-slate-200 font-medium max-w-[140px] truncate"></span>
-                    <button onclick="appLogout()" title="Cerrar sesión" class="text-slate-400 hover:text-rose-400 transition"><i class="fa-solid fa-right-from-bracket"></i></button>
-                </div>
 
             </div>
 
