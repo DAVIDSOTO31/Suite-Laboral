@@ -11,6 +11,7 @@ const { requireAuth, requireCsrf, requirePermission, requireSuperAdmin, loadUser
 const authRoutes = require('./routes/auth.routes');
 const superadmin = require('./routes/superadmin.routes');
 const org = require('./routes/org.routes');
+const attendance = require('./routes/attendance.routes');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const router = new Router();
@@ -80,6 +81,12 @@ route('POST', '/api/org/users/:id/toggle-status', [requirePermission('users.dele
 route('POST', '/api/org/users/:id/reset-password', [requirePermission('users.reset_password')], (req, res, params) => org.resetOrgUserPassword(req, res, params));
 route('GET', '/api/org/audit', [requirePermission('audit.view')], (req, res) => org.listOrgAudit(req, res));
 
+// ---- Modulo de Asistencia (marcaciones, historial, alertas) ----
+route('GET', '/api/attendance/employees-today', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listEmployeesToday(req, res, query));
+route('POST', '/api/attendance/mark', [requirePermission('attendance.mark')], (req, res) => attendance.registerMark(req, res));
+route('GET', '/api/attendance/history', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listHistory(req, res, query));
+route('GET', '/api/attendance/alerts', [requirePermission('attendance.view_alerts')], (req, res, params, query) => attendance.listAlerts(req, res, query));
+
 // ---------------------------------------------------------------------------
 // HTTP server: security headers, CORS, static files, API dispatch
 // ---------------------------------------------------------------------------
@@ -99,7 +106,7 @@ const server = http.createServer(async (req, res) => {
   const INLINE_SCRIPT_HASHES = [
     "'sha256-VHT9CPskO5vtuB4/dvdS04Q+SweVGZPL/1qWK+IKjFI='", // index.html
     "'sha256-dum9fwlx0dkN5ryTuRUUwv195GfaGUq71kgIuRd86vs='", // login.html
-    "'sha256-Mw75BhCr8p7KOHnUhedU/phgSplvZ2WhY9Oiy0vo2jA='", // app.html
+    "'sha256-c3JF3Yy74kRuvZzYQaPAfGL/gPRFfuhKN+C7t5vSrr8='", // app.html
     "'sha256-SkZ8MDP1PB+wba8BkIrLszFlOTQ9YEjBIPu4TsJPKTo='", // superadmin.html
     "'sha256-acq3Igc1f3abTnmdP0vrk+f21ykK7GXxlTu0HAeDxD8='", // accept-invite.html
     "'sha256-p7WRDAOI/vt0mUjmPWtSZe+ugsLNJkiYzKuVx61YsjA='", // forgot-password.html
