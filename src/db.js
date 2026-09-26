@@ -169,6 +169,83 @@ if (!orgColumns.includes('phone')) db.exec('ALTER TABLE organizations ADD COLUMN
 if (!orgColumns.includes('contact_email')) db.exec('ALTER TABLE organizations ADD COLUMN contact_email TEXT');
 
 // ---------------------------------------------------------------------------
+// MODULO DE ASISTENCIA (marcaciones + alertas + estado diario) — NUEVO Y
+// AISLADO: no toca ninguna tabla existente, solo agrega 3 tablas propias.
+// ---------------------------------------------------------------------------
+db.exec(`
+CREATE TABLE IF NOT EXISTS attendance_marks (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  shift_date TEXT NOT NULL,
+  mark_type TEXT NOT NULL,
+  scheduled_time TEXT,
+  actual_at TEXT NOT NULL,
+  method TEXT NOT NULL DEFAULT 'manual',
+  marked_by_user_id TEXT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS attendance_alerts (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  shift_date TEXT NOT NULL,
+  alert_type TEXT NOT NULL,
+  scheduled_time TEXT,
+  actual_time TEXT,
+  diff_minutes INTEGER,
+  metadata_json TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS attendance_days (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  shift_date TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pendiente_entrada',
+  scheduled_entrada TEXT, scheduled_inicio_almuerzo TEXT, scheduled_fin_almuerzo TEXT, scheduled_salida TEXT,
+  entrada_real TEXT, inicio_almuerzo_real TEXT, fin_almuerzo_real TEXT, salida_real TEXT,
+  retraso_min INTEGER NOT NULL DEFAULT 0,
+  exceso_almuerzo_min INTEGER NOT NULL DEFAULT 0,
+  salida_anticipada_min INTEGER NOT NULL DEFAULT 0,
+  hod_min INTEGER NOT NULL DEFAULT 0,
+  hon_min INTEGER NOT NULL DEFAULT 0,
+  hed_min INTEGER NOT NULL DEFAULT 0,
+  hen_min INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(employee_id, shift_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_attendance_marks_emp_date ON attendance_marks(employee_id, shift_date);
+CREATE INDEX IF NOT EXISTS idx_attendance_marks_org ON attendance_marks(organization_id);
+CREATE INDEX IF NOT EXISTS idx_attendance_alerts_org ON attendance_alerts(organization_id, shift_date);
+CREATE INDEX IF NOT EXISTS idx_attendance_days_org ON attendance_days(organization_id, shift_date);
+
+-- Regla 8: las alertas (y las marcaciones, su evidencia de origen) son
+-- inmutables. Esto se aplica a nivel de base de datos, no solo ocultando el
+-- boton de editar en la pantalla -- ni siquiera una cuenta de Super Admin
+-- puede saltarselo desde este mismo motor.
+CREATE TRIGGER IF NOT EXISTS trg_attendance_alerts_no_update
+BEFORE UPDATE ON attendance_alerts BEGIN
+  SELECT RAISE(ABORT, 'Las alertas de asistencia son inmutables y no pueden modificarse.');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_attendance_alerts_no_delete
+BEFORE DELETE ON attendance_alerts BEGIN
+  SELECT RAISE(ABORT, 'Las alertas de asistencia son inmutables y no pueden eliminarse.');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_attendance_marks_no_update
+BEFORE UPDATE ON attendance_marks BEGIN
+  SELECT RAISE(ABORT, 'Las marcaciones de asistencia son inmutables y no pueden modificarse.');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_attendance_marks_no_delete
+BEFORE DELETE ON attendance_marks BEGIN
+  SELECT RAISE(ABORT, 'Las marcaciones de asistencia son inmutables y no pueden eliminarse.');
+END;
+`);
+
+// ---------------------------------------------------------------------------
 // PERMISSIONS CATALOG (idempotent upsert)
 // ---------------------------------------------------------------------------
 const PERMISSIONS = [
@@ -188,6 +265,10 @@ const PERMISSIONS = [
   ['reports.view', 'Ver reportes y nomina'],
   ['settings.manage', 'Gestionar configuracion de la organizacion'],
   ['audit.view', 'Consultar auditoria de la organizacion'],
+  ['attendance.view', 'Ver asistencia, historial de marcaciones y dashboard'],
+  ['attendance.mark', 'Registrar marcaciones (punto de marcacion)'],
+  ['attendance.view_alerts', 'Ver alertas de asistencia (llegadas tarde, excesos, etc.)'],
+  ['attendance.manage', 'Administrar configuracion del modulo de asistencia'],
 ];
 
 const insertPerm = db.prepare('INSERT OR IGNORE INTO permissions (id, code, description) VALUES (?, ?, ?)');
@@ -203,7 +284,7 @@ function permIdByCode(code) {
 // System-wide default org role templates, cloned into every new organization.
 const DEFAULT_ORG_ROLES = {
   org_admin: PERMISSIONS.map(p => p[0]), // all permissions within the org
-  supervisor: ['employees.view', 'employees.create', 'employees.edit', 'shifts.view', 'shifts.create', 'shifts.edit', 'reports.view'],
+  supervisor: ['employees.view', 'employees.create', 'employees.edit', 'shifts.view', 'shifts.create', 'shifts.edit', 'reports.view', 'attendance.view', 'attendance.view_alerts'],
   empleado: ['employees.view', 'shifts.view', 'reports.view'],
 };
 
@@ -225,6 +306,33 @@ function createDefaultRolesForOrg(organizationId) {
 
 function getOrgRoleByName(organizationId, name) {
   return db.prepare('SELECT * FROM roles WHERE organization_id = ? AND name = ?').get(organizationId, name);
+}
+
+// ---------------------------------------------------------------------------
+// MIGRATION: organizaciones creadas ANTES de este modulo ya tienen sus roles
+// (org_admin, supervisor) creados con el catalogo de permisos viejo. Sin
+// esto, el nuevo permiso "attendance.*" nunca aparecerian en esos roles
+// aunque el codigo ya sepa exigirlos. Se ejecuta una sola vez por permiso
+// gracias a INSERT OR IGNORE (no duplica ni sobreescribe nada existente).
+// ---------------------------------------------------------------------------
+{
+  const insertRolePerm = db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)');
+  const existingOrgAdminRoles = db.prepare("SELECT id FROM roles WHERE name = 'org_admin' AND organization_id IS NOT NULL").all();
+  const existingSupervisorRoles = db.prepare("SELECT id FROM roles WHERE name = 'supervisor' AND organization_id IS NOT NULL").all();
+  const attendanceCodes = ['attendance.view', 'attendance.mark', 'attendance.view_alerts', 'attendance.manage'];
+  const supervisorCodes = ['attendance.view', 'attendance.view_alerts'];
+  for (const role of existingOrgAdminRoles) {
+    for (const code of attendanceCodes) {
+      const pid = permIdByCode(code);
+      if (pid) insertRolePerm.run(role.id, pid);
+    }
+  }
+  for (const role of existingSupervisorRoles) {
+    for (const code of supervisorCodes) {
+      const pid = permIdByCode(code);
+      if (pid) insertRolePerm.run(role.id, pid);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
