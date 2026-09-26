@@ -161,6 +161,14 @@ CREATE INDEX IF NOT EXISTS idx_invitations_org ON invitations(organization_id);
 `);
 
 // ---------------------------------------------------------------------------
+// MIGRATION: datos de contacto de la organizacion (nit, telefono, correo)
+// ---------------------------------------------------------------------------
+const orgColumns = db.prepare("PRAGMA table_info(organizations)").all().map(c => c.name);
+if (!orgColumns.includes('nit')) db.exec('ALTER TABLE organizations ADD COLUMN nit TEXT');
+if (!orgColumns.includes('phone')) db.exec('ALTER TABLE organizations ADD COLUMN phone TEXT');
+if (!orgColumns.includes('contact_email')) db.exec('ALTER TABLE organizations ADD COLUMN contact_email TEXT');
+
+// ---------------------------------------------------------------------------
 // PERMISSIONS CATALOG (idempotent upsert)
 // ---------------------------------------------------------------------------
 const PERMISSIONS = [
