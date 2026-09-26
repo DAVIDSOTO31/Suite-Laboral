@@ -61,6 +61,7 @@ route('GET', '/api/superadmin/users', [requireSuperAdmin], (req, res, params, qu
 route('POST', '/api/superadmin/users', [requireSuperAdmin], (req, res) => superadmin.createUser(req, res));
 route('PUT', '/api/superadmin/users/:id', [requireSuperAdmin], (req, res, params) => superadmin.updateUser(req, res, params));
 route('POST', '/api/superadmin/users/:id/toggle-status', [requireSuperAdmin], (req, res, params) => superadmin.toggleUserStatus(req, res, params));
+route('DELETE', '/api/superadmin/users/:id', [requireSuperAdmin], (req, res, params) => superadmin.deleteUser(req, res, params));
 route('POST', '/api/superadmin/users/:id/reset-password', [requireSuperAdmin], (req, res, params) => superadmin.resetUserPassword(req, res, params));
 route('GET', '/api/superadmin/roles', [requireSuperAdmin], (req, res, params, query) => superadmin.listRolesForOrg(req, res, query));
 route('GET', '/api/superadmin/audit', [requireSuperAdmin], (req, res, params, query) => superadmin.listAuditLogs(req, res, query));
