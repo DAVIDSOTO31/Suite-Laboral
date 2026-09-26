@@ -107,6 +107,17 @@
   </div>
 </div>
 
+<!-- Org Detail Modal -->
+<div id="orgDetailModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
+  <div class="bg-white rounded-xl p-5 w-full max-w-md">
+    <h3 class="font-semibold mb-3">Detalle de la organizacion</h3>
+    <div id="orgDetailContent" class="space-y-2 text-sm"></div>
+    <div class="flex justify-end mt-4">
+      <button onclick="closeModal('orgDetailModal')" class="px-3 py-2 rounded-lg bg-slate-100 text-sm">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <!-- User Modal -->
 <div id="userModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
   <div class="bg-white rounded-xl p-5 w-full max-w-md">
@@ -202,6 +213,7 @@ async function loadOrgs() {
       <td class="px-4 py-2">${badge(o.status)}</td>
       <td class="px-4 py-2 text-slate-500">${(o.created_at || '').split(' ')[0]}</td>
       <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
+        <button onclick="viewOrg('${o.id}')" class="text-xs px-2 py-1 rounded bg-sky-50 text-sky-700 hover:bg-sky-100">Ver</button>
         <button onclick="toggleOrg('${o.id}')" class="text-xs px-2 py-1 rounded bg-slate-100 hover:bg-slate-200">${o.status === 'active' ? 'Desactivar' : 'Activar'}</button>
         <button onclick="deleteOrg('${o.id}','${esc(o.name)}')" class="text-xs px-2 py-1 rounded bg-rose-50 text-rose-600 hover:bg-rose-100">Eliminar</button>
       </td>
@@ -219,6 +231,20 @@ function badge(status) {
 function esc(s) { return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 async function toggleOrg(id) { await api(`/api/superadmin/organizations/${id}/toggle-status`, { method: 'POST' }); loadOrgs(); loadDashboard(); }
+async function viewOrg(id) {
+  const d = await api(`/api/superadmin/organizations/${id}`);
+  const o = d.organization;
+  document.getElementById('orgDetailContent').innerHTML = `
+    <p><span class="text-slate-500">Nombre:</span> <strong>${esc(o.name)}</strong></p>
+    <p><span class="text-slate-500">NIT:</span> ${esc(o.nit || '-')}</p>
+    <p><span class="text-slate-500">Telefono:</span> ${esc(o.phone || '-')}</p>
+    <p><span class="text-slate-500">Correo:</span> ${esc(o.contact_email || '-')}</p>
+    <p><span class="text-slate-500">Identificador (slug):</span> ${esc(o.slug)}</p>
+    <p><span class="text-slate-500">Estado:</span> ${badge(o.status)}</p>
+    <p><span class="text-slate-500">Creada:</span> ${(o.created_at || '').split(' ')[0]}</p>
+  `;
+  openModal('orgDetailModal');
+}
 async function deleteOrg(id, name) {
   if (!confirm(`Esto eliminara permanentemente "${name}" y todos sus datos. ¿Continuar?`)) return;
   await api(`/api/superadmin/organizations/${id}`, { method: 'DELETE' }); loadOrgs(); loadDashboard();
