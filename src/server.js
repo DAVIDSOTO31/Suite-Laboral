@@ -100,7 +100,7 @@ const server = http.createServer(async (req, res) => {
     "'sha256-VHT9CPskO5vtuB4/dvdS04Q+SweVGZPL/1qWK+IKjFI='", // index.html
     "'sha256-dum9fwlx0dkN5ryTuRUUwv195GfaGUq71kgIuRd86vs='", // login.html
     "'sha256-Mw75BhCr8p7KOHnUhedU/phgSplvZ2WhY9Oiy0vo2jA='", // app.html
-    "'sha256-de8OXDT1qUTPoirOCv0Gv4wz3ZUKttH7eXUUqSNaEyk='", // superadmin.html
+    "'sha256-SkZ8MDP1PB+wba8BkIrLszFlOTQ9YEjBIPu4TsJPKTo='", // superadmin.html
     "'sha256-acq3Igc1f3abTnmdP0vrk+f21ykK7GXxlTu0HAeDxD8='", // accept-invite.html
     "'sha256-p7WRDAOI/vt0mUjmPWtSZe+ugsLNJkiYzKuVx61YsjA='", // forgot-password.html
     "'sha256-mZ3lS9DOiVRo7hkAzBXkRD0YGddIYpBoAsC0YnepqJQ='", // reset-password.html
