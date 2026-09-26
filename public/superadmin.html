@@ -7,7 +7,7 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
-<body class="bg-slate-50 min-h-screen text-slate-800">
+<body class="bg-gradient-to-br from-sky-50 via-blue-50 to-sky-100 min-h-screen text-slate-800">
 <div id="app" class="max-w-7xl mx-auto p-4 md:p-6">
 
   <header class="flex flex-wrap items-center justify-between gap-3 mb-6">
@@ -96,6 +96,9 @@
   <div class="bg-white rounded-xl p-5 w-full max-w-md">
     <h3 class="font-semibold mb-3">Nueva organizacion</h3>
     <input id="orgNameInput" placeholder="Nombre de la organizacion" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-3">
+    <input id="orgNitInput" placeholder="NIT" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-3">
+    <input id="orgPhoneInput" type="tel" placeholder="Numero de telefono" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-3">
+    <input id="orgEmailInput" type="email" placeholder="Correo electronico" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-3">
     <div id="orgModalMsg" class="hidden text-sm text-rose-600 mb-2"></div>
     <div class="flex justify-end gap-2">
       <button onclick="closeModal('orgModal')" class="px-3 py-2 rounded-lg bg-slate-100 text-sm">Cancelar</button>
@@ -221,13 +224,23 @@ async function deleteOrg(id, name) {
   await api(`/api/superadmin/organizations/${id}`, { method: 'DELETE' }); loadOrgs(); loadDashboard();
 }
 
-function openOrgModal() { document.getElementById('orgNameInput').value = ''; document.getElementById('orgModalMsg').classList.add('hidden'); openModal('orgModal'); }
+function openOrgModal() {
+  document.getElementById('orgNameInput').value = '';
+  document.getElementById('orgNitInput').value = '';
+  document.getElementById('orgPhoneInput').value = '';
+  document.getElementById('orgEmailInput').value = '';
+  document.getElementById('orgModalMsg').classList.add('hidden');
+  openModal('orgModal');
+}
 async function submitOrg() {
   const name = document.getElementById('orgNameInput').value.trim();
+  const nit = document.getElementById('orgNitInput').value.trim();
+  const phone = document.getElementById('orgPhoneInput').value.trim();
+  const contactEmail = document.getElementById('orgEmailInput').value.trim();
   const msg = document.getElementById('orgModalMsg');
-  if (!name) { msg.textContent = 'El nombre es obligatorio.'; msg.classList.remove('hidden'); return; }
+  if (!name || !nit || !phone || !contactEmail) { msg.textContent = 'Todos los campos son obligatorios.'; msg.classList.remove('hidden'); return; }
   try {
-    await api('/api/superadmin/organizations', { method: 'POST', body: JSON.stringify({ name }) });
+    await api('/api/superadmin/organizations', { method: 'POST', body: JSON.stringify({ name, nit, phone, contactEmail }) });
     closeModal('orgModal'); loadOrgs(); loadDashboard();
   } catch (e) { msg.textContent = e.message; msg.classList.remove('hidden'); }
 }
@@ -244,6 +257,7 @@ async function loadUsers() {
       <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
         <button onclick="toggleUser('${u.id}')" class="text-xs px-2 py-1 rounded bg-slate-100 hover:bg-slate-200">${u.status === 'active' ? 'Desactivar' : 'Activar'}</button>
         <button onclick="resetPw('${u.id}')" class="text-xs px-2 py-1 rounded bg-sky-50 text-sky-700 hover:bg-sky-100">Restablecer clave</button>
+        <button onclick="deleteUser('${u.id}','${esc(u.email)}')" class="text-xs px-2 py-1 rounded bg-rose-50 text-rose-600 hover:bg-rose-100">Eliminar</button>
       </td>
     </tr>`).join('') || `<tr><td colspan="5" class="px-4 py-6 text-center text-slate-400">Sin usuarios aun.</td></tr>`;
 }
@@ -253,6 +267,10 @@ function statusBadge(s) {
   return `<span class="px-2 py-0.5 rounded-full ${cls} text-xs font-semibold">${label}</span>`;
 }
 async function toggleUser(id) { await api(`/api/superadmin/users/${id}/toggle-status`, { method: 'POST' }); loadUsers(); loadDashboard(); }
+async function deleteUser(id, email) {
+  if (!confirm(`Esto eliminara permanentemente al usuario "${email}". ¿Continuar?`)) return;
+  await api(`/api/superadmin/users/${id}`, { method: 'DELETE' }); loadUsers(); loadDashboard();
+}
 async function resetPw(id) {
   const d = await api(`/api/superadmin/users/${id}/reset-password`, { method: 'POST' });
   alert('Enlace de restablecimiento generado (tambien impreso en la consola del servidor):\n' + d.resetLink);
