@@ -41,18 +41,24 @@ async function createOrganization(req, res) {
   let body;
   try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
   const name = String(body.name || '').trim();
+  const nit = String(body.nit || '').trim();
+  const phone = String(body.phone || '').trim();
+  const contactEmail = String(body.contactEmail || '').trim();
   if (!name) return sendJson(res, 400, { error: 'El nombre de la organizacion es obligatorio.' });
+  if (!nit) return sendJson(res, 400, { error: 'El NIT es obligatorio.' });
+  if (!phone) return sendJson(res, 400, { error: 'El numero de telefono es obligatorio.' });
+  if (!contactEmail) return sendJson(res, 400, { error: 'El correo electronico es obligatorio.' });
   const slug = body.slug ? slugify(body.slug) : slugify(name);
   if (db.prepare('SELECT id FROM organizations WHERE slug = ?').get(slug)) {
     return sendJson(res, 409, { error: 'Ya existe una organizacion con ese identificador (slug).' });
   }
   const id = uid('org');
-  db.prepare(`INSERT INTO organizations (id, name, slug, status, settings_json) VALUES (?, ?, ?, 'active', ?)`)
-    .run(id, name, slug, JSON.stringify(body.settings || {}));
+  db.prepare(`INSERT INTO organizations (id, name, slug, status, settings_json, nit, phone, contact_email) VALUES (?, ?, ?, 'active', ?, ?, ?, ?)`)
+    .run(id, name, slug, JSON.stringify(body.settings || {}), nit, phone, contactEmail);
   db.prepare('INSERT INTO org_settings (organization_id, org_name) VALUES (?, ?)').run(id, name);
   createDefaultRolesForOrg(id);
-  logAction({ organizationId: id, userId: req.user.id, action: 'organization.create', resourceType: 'organization', resourceId: id, ip: getClientIp(req), metadata: { name } });
-  sendJson(res, 201, { organization: { id, name, slug, status: 'active' } });
+  logAction({ organizationId: id, userId: req.user.id, action: 'organization.create', resourceType: 'organization', resourceId: id, ip: getClientIp(req), metadata: { name, nit } });
+  sendJson(res, 201, { organization: { id, name, slug, status: 'active', nit, phone, contactEmail } });
 }
 
 async function updateOrganization(req, res, params) {
@@ -157,6 +163,15 @@ async function updateUser(req, res, params) {
   sendJson(res, 200, { ok: true });
 }
 
+function deleteUser(req, res, params) {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(params.id);
+  if (!user || user.is_super_admin) return sendJson(res, 404, { error: 'Usuario no encontrado.' });
+  db.prepare('UPDATE invitations SET created_by = NULL WHERE created_by = ?').run(user.id);
+  db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+  logAction({ organizationId: user.organization_id, userId: req.user.id, action: 'user.delete', resourceType: 'user', resourceId: user.id, ip: getClientIp(req), metadata: { email: user.email } });
+  sendJson(res, 200, { ok: true });
+}
+
 function toggleUserStatus(req, res, params) {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(params.id);
   if (!user || user.is_super_admin) return sendJson(res, 404, { error: 'Usuario no encontrado.' });
@@ -195,5 +210,5 @@ function listAuditLogs(req, res, query) {
 module.exports = {
   dashboard, listOrganizations, createOrganization, updateOrganization, toggleOrganizationStatus,
   deleteOrganization, getOrganizationDetail, listUsers, createUser, updateUser, toggleUserStatus,
-  resetUserPassword, listRolesForOrg, listAuditLogs,
+  deleteUser, resetUserPassword, listRolesForOrg, listAuditLogs,
 };
