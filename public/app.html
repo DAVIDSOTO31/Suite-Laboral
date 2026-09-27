@@ -939,23 +939,81 @@
                     <button id="btnAttTabAlerts" onclick="attendanceSetSubTab('alerts')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
                         <i class="fa-solid fa-triangle-exclamation"></i> Alertas
                     </button>
+                    <button id="btnAttTabBio" onclick="attendanceSetSubTab('bio')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
+                        <i class="fa-solid fa-id-badge"></i> Biometría
+                    </button>
                 </div>
 
                 <!-- Sub-vista: Marcación rápida -->
                 <div id="attSubtab-mark">
                     <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm max-w-xl">
-                        <h3 class="font-bold text-slate-800 text-base mb-1">Punto de marcación</h3>
-                        <p class="text-xs text-slate-500 mb-4">
-                            Selecciona el colaborador y confirma. El sistema detecta automáticamente el turno del día y qué marcación corresponde (entrada, inicio/fin de almuerzo o salida) — no se elige manualmente.
-                            <span class="block mt-1 text-amber-600"><i class="fa-solid fa-circle-info"></i> Esta selección manual es temporal, mientras se conecta el reconocimiento facial (próxima fase).</span>
-                        </p>
-                        <select id="attMarkEmployeeSelect" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-3"></select>
-                        <button onclick="attendanceDoMark()" class="w-full py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold text-sm transition flex items-center justify-center gap-2">
-                            <i class="fa-solid fa-hand-point-up"></i> Marcar ahora
-                        </button>
+                        <div class="flex gap-2 mb-4">
+                            <button id="attModeBtnFacial" onclick="attendanceSetMarkMode('facial')" class="flex-1 px-3 py-2 rounded-lg text-xs font-bold bg-sky-600 text-white">
+                                <i class="fa-solid fa-camera"></i> Reconocimiento facial
+                            </button>
+                            <button id="attModeBtnManual" onclick="attendanceSetMarkMode('manual')" class="flex-1 px-3 py-2 rounded-lg text-xs font-bold bg-slate-100 text-slate-600">
+                                <i class="fa-solid fa-hand-pointer"></i> Selección manual
+                            </button>
+                        </div>
+
+                        <!-- Modo facial -->
+                        <div id="attMarkFacialBox">
+                            <p class="text-xs text-slate-500 mb-3">Colócate frente a la cámara. El sistema te identifica automáticamente y detecta qué marcación corresponde.</p>
+                            <video id="attFaceVideo" autoplay muted playsinline class="w-full rounded-lg bg-slate-900" style="max-height:280px; object-fit:cover;"></video>
+                            <canvas id="attFaceCanvas" class="hidden"></canvas>
+                            <p id="attFaceStatus" class="text-center text-sm font-semibold text-slate-600 mt-3">Iniciando cámara…</p>
+                        </div>
+
+                        <!-- Modo manual (respaldo si la cámara falla) -->
+                        <div id="attMarkManualBox" class="hidden">
+                            <p class="text-xs text-slate-500 mb-4">
+                                Selecciona el colaborador y confirma. El sistema detecta automáticamente el turno del día y qué marcación corresponde — no se elige manualmente.
+                            </p>
+                            <select id="attMarkEmployeeSelect" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-3"></select>
+                            <button onclick="attendanceDoMark()" class="w-full py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold text-sm transition flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-hand-point-up"></i> Marcar ahora
+                            </button>
+                        </div>
+
                         <div id="attMarkResult" class="mt-4 hidden"></div>
                     </div>
                 </div>
+
+                <!-- Sub-vista: Biometría -->
+                <div id="attSubtab-bio" class="hidden">
+                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                        <h3 class="font-bold text-slate-800 text-base mb-1">Perfiles biométricos faciales</h3>
+                        <p class="text-xs text-slate-500 mb-4">Solo se guarda una plantilla matemática del rostro, nunca la fotografía. Requiere el consentimiento explícito del colaborador (Ley 1581 de 2012, Habeas Data).</p>
+                        <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                            <table class="w-full text-xs">
+                                <thead class="bg-slate-50 text-slate-500 uppercase"><tr>
+                                    <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Estado</th>
+                                    <th class="text-left px-3 py-2">Actualizado</th><th class="text-left px-3 py-2">Acciones</th>
+                                </tr></thead>
+                                <tbody id="attBioTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal de enrolamiento facial -->
+                <div id="attEnrollModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
+                    <div class="bg-white rounded-xl p-5 w-full max-w-md">
+                        <h3 class="font-bold text-slate-800 mb-2">Registrar rostro — <span id="attEnrollEmployeeName"></span></h3>
+                        <label class="flex items-start gap-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3">
+                            <input type="checkbox" id="attEnrollConsent" class="mt-0.5">
+                            <span>El colaborador autoriza expresamente el uso de su rostro (dato biométrico) para fines de control de asistencia laboral, conforme a la Ley 1581 de 2012 de protección de datos personales (Habeas Data).</span>
+                        </label>
+                        <video id="attEnrollVideo" autoplay muted playsinline class="w-full rounded-lg bg-slate-900 mb-2" style="max-height:260px; object-fit:cover;"></video>
+                        <p id="attEnrollStatus" class="text-center text-xs font-semibold text-slate-600 mb-3">Marca la casilla para activar la cámara.</p>
+                        <div class="flex justify-end gap-2">
+                            <button onclick="attendanceCloseEnrollModal()" class="px-3 py-2 rounded-lg bg-slate-100 text-sm">Cancelar</button>
+                            <button id="attEnrollCaptureBtn" onclick="attendanceCaptureEnroll()" disabled class="px-3 py-2 rounded-lg bg-sky-600 disabled:opacity-40 text-white text-sm font-semibold">Capturar rostro</button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
 
                 <!-- Sub-vista: Historial -->
                 <div id="attSubtab-history" class="hidden">
@@ -3851,6 +3909,7 @@
         }
 
         function switchView(viewId) {
+            if (viewId !== 'attendance') attendanceStopFacialMode();
             document.querySelectorAll('.app-view').forEach(v => v.classList.add('hidden'));
             const target = document.getElementById(`view-${viewId}`);
             if (target) target.classList.remove('hidden');
@@ -4241,7 +4300,6 @@
 
         function initAttendanceView() {
             attendanceSetSubTab(currentAttendanceSubTab || 'mark');
-            attendanceLoadEmployeesToday();
             const today = new Date().toISOString().slice(0, 10);
             if (!document.getElementById('attHistoryFrom').value) {
                 document.getElementById('attHistoryFrom').value = today;
@@ -4251,15 +4309,181 @@
 
         let currentAttendanceSubTab = 'mark';
         function attendanceSetSubTab(tab) {
+            if (currentAttendanceSubTab === 'mark' && tab !== 'mark') attendanceStopFacialMode();
             currentAttendanceSubTab = tab;
-            ['mark', 'history', 'alerts'].forEach(t => {
+            ['mark', 'history', 'alerts', 'bio'].forEach(t => {
                 document.getElementById(`attSubtab-${t}`).classList.toggle('hidden', t !== tab);
                 const btn = document.getElementById(`btnAttTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
                 btn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 ' + (t === tab ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900');
             });
-            if (tab === 'mark') attendanceLoadEmployeesToday();
+            if (tab === 'mark') attendanceSetMarkMode(attMarkMode);
             if (tab === 'history') attendanceLoadHistory();
             if (tab === 'alerts') attendanceLoadAlerts();
+            if (tab === 'bio') attendanceLoadBioList();
+        }
+
+        // -----------------------------------------------------------------
+        // Motor de reconocimiento facial (face-api.js, cargado bajo demanda)
+        // Solo se descarga cuando el usuario realmente abre Asistencia -- no
+        // afecta el tiempo de carga del resto de la app.
+        // -----------------------------------------------------------------
+        const FACE_MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
+        let faceApiLoadPromise = null;
+        function loadFaceApiScript() {
+            if (window.faceapi) return Promise.resolve();
+            if (faceApiLoadPromise) return faceApiLoadPromise;
+            faceApiLoadPromise = new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js';
+                s.onload = resolve;
+                s.onerror = () => reject(new Error('No se pudo cargar la librería de reconocimiento facial (revisa tu conexión a internet).'));
+                document.head.appendChild(s);
+            });
+            return faceApiLoadPromise;
+        }
+        let faceModelsLoaded = false;
+        async function ensureFaceModelsLoaded() {
+            await loadFaceApiScript();
+            if (faceModelsLoaded) return;
+            await Promise.all([
+                faceapi.nets.tinyFaceDetector.loadFromUri(FACE_MODEL_URL),
+                faceapi.nets.faceLandmark68Net.loadFromUri(FACE_MODEL_URL),
+                faceapi.nets.faceRecognitionNet.loadFromUri(FACE_MODEL_URL),
+            ]);
+            faceModelsLoaded = true;
+        }
+        async function startCameraOn(videoEl) {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+            videoEl.srcObject = stream;
+            await new Promise(resolve => { videoEl.onloadedmetadata = resolve; });
+            return stream;
+        }
+        function stopCameraStream(videoEl) {
+            const stream = videoEl.srcObject;
+            if (stream) stream.getTracks().forEach(t => t.stop());
+            videoEl.srcObject = null;
+        }
+        async function detectFaceOnce(videoEl) {
+            const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+            const result = await faceapi.detectSingleFace(videoEl, options).withFaceLandmarks().withFaceDescriptor();
+            return result || null;
+        }
+        // Eye Aspect Ratio (EAR): metrica estandar para detectar parpadeo a
+        // partir de los 6 puntos de cada ojo en los 68 landmarks faciales.
+        // Se usa como una prueba de vida basica (una foto impresa no parpadea).
+        function eyeAspectRatio(eyePoints) {
+            const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+            const vertical1 = dist(eyePoints[1], eyePoints[5]);
+            const vertical2 = dist(eyePoints[2], eyePoints[4]);
+            const horizontal = dist(eyePoints[0], eyePoints[3]);
+            return (vertical1 + vertical2) / (2.0 * horizontal);
+        }
+
+        // -----------------------------------------------------------------
+        // Modo de marcación: facial (por defecto) o manual (respaldo)
+        // -----------------------------------------------------------------
+        let attMarkMode = 'facial';
+        let attFaceLoopActive = false;
+        let attFaceBlinkDetected = false;
+
+        function attendanceSetMarkMode(mode) {
+            attMarkMode = mode;
+            document.getElementById('attModeBtnFacial').className = 'flex-1 px-3 py-2 rounded-lg text-xs font-bold ' + (mode === 'facial' ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-600');
+            document.getElementById('attModeBtnManual').className = 'flex-1 px-3 py-2 rounded-lg text-xs font-bold ' + (mode === 'manual' ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-600');
+            document.getElementById('attMarkFacialBox').classList.toggle('hidden', mode !== 'facial');
+            document.getElementById('attMarkManualBox').classList.toggle('hidden', mode !== 'manual');
+            document.getElementById('attMarkResult').classList.add('hidden');
+            if (mode === 'facial') {
+                attendanceStartFacialMode();
+            } else {
+                attendanceStopFacialMode();
+                attendanceLoadEmployeesToday();
+            }
+        }
+
+        async function attendanceStartFacialMode() {
+            if (currentAttendanceSubTab !== 'mark' || attMarkMode !== 'facial') return;
+            const statusEl = document.getElementById('attFaceStatus');
+            const video = document.getElementById('attFaceVideo');
+            attFaceLoopActive = true;
+            attFaceBlinkDetected = false;
+            try {
+                statusEl.textContent = 'Cargando modelo de reconocimiento…';
+                await ensureFaceModelsLoaded();
+                if (!attFaceLoopActive) return; // el usuario cambio de pestana mientras cargaba
+                statusEl.textContent = 'Iniciando cámara…';
+                await startCameraOn(video);
+                if (!attFaceLoopActive) { stopCameraStream(video); return; }
+                statusEl.textContent = 'Buscando rostro…';
+                attendanceFaceLoop();
+            } catch (e) {
+                statusEl.textContent = 'No se pudo activar la cámara: ' + e.message + ' — usa la selección manual.';
+            }
+        }
+
+        function attendanceStopFacialMode() {
+            attFaceLoopActive = false;
+            const video = document.getElementById('attFaceVideo');
+            if (video) stopCameraStream(video);
+            const enrollVideo = document.getElementById('attEnrollVideo');
+            if (enrollVideo) stopCameraStream(enrollVideo);
+        }
+
+        async function attendanceFaceLoop() {
+            const video = document.getElementById('attFaceVideo');
+            const statusEl = document.getElementById('attFaceStatus');
+            while (attFaceLoopActive) {
+                try {
+                    const det = await detectFaceOnce(video);
+                    if (det) {
+                        const ear = (eyeAspectRatio(det.landmarks.getLeftEye()) + eyeAspectRatio(det.landmarks.getRightEye())) / 2;
+                        if (ear < 0.22) attFaceBlinkDetected = true; // ojos cerrados en algun frame reciente
+                        if (attFaceBlinkDetected && ear > 0.25) {
+                            // parpadeo completo (se cerraron y volvieron a abrir) -> aceptar
+                            statusEl.textContent = 'Verificando…';
+                            const descriptor = Array.from(det.descriptor);
+                            attFaceLoopActive = false;
+                            await attendanceSubmitFaceMark(descriptor);
+                            return;
+                        } else if (!attFaceBlinkDetected) {
+                            statusEl.textContent = 'Rostro detectado. Parpadea para confirmar…';
+                        }
+                    } else {
+                        attFaceBlinkDetected = false;
+                        statusEl.textContent = 'Buscando rostro…';
+                    }
+                } catch (e) { /* frame fallido, se reintenta en el siguiente ciclo */ }
+                await new Promise(r => setTimeout(r, 250));
+            }
+        }
+
+        async function attendanceSubmitFaceMark(descriptor) {
+            const statusEl = document.getElementById('attFaceStatus');
+            try {
+                const r = await apiFetch('/api/attendance/mark-by-face', { method: 'POST', body: JSON.stringify({ descriptor }) });
+                renderMarkResult(r);
+                showAppToast(`Marcación registrada: ${ATTENDANCE_MARK_LABELS[r.markType]} (${r.actualTime}).`);
+                statusEl.textContent = '¡Listo! Preparando para el siguiente colaborador…';
+            } catch (e) {
+                statusEl.textContent = e.message;
+            }
+            stopCameraStream(document.getElementById('attFaceVideo'));
+            setTimeout(() => { if (currentAttendanceSubTab === 'mark' && attMarkMode === 'facial') attendanceStartFacialMode(); }, 3000);
+        }
+
+        function renderMarkResult(r) {
+            const resultBox = document.getElementById('attMarkResult');
+            const alertHtml = r.alert ? `<div class="mt-2 text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 text-xs"><i class="fa-solid fa-triangle-exclamation"></i> Alerta generada: ${escapeHtml(r.alert.type)} (${attMinutesLabel(r.alert.diffMinutes)})</div>` : '';
+            resultBox.className = 'mt-4 bg-slate-50 border border-slate-200 rounded-lg p-4';
+            resultBox.innerHTML = `
+                <p class="font-bold text-slate-800">${escapeHtml(r.employeeName)}</p>
+                <p class="text-xs text-slate-500 mb-2">Turno: ${r.shift.startTime} - ${r.shift.endTime}</p>
+                <p class="text-lg font-extrabold text-sky-700">${ATTENDANCE_MARK_LABELS[r.markType]}</p>
+                <p class="text-sm text-slate-600">Hora registrada: <strong>${r.actualTime}</strong></p>
+                <div class="mt-2">${attStatusBadge(r.status)}</div>
+                ${alertHtml}
+            `;
+            resultBox.classList.remove('hidden');
         }
 
         async function attendanceLoadEmployeesToday() {
@@ -4291,23 +4515,14 @@
             }
             try {
                 const r = await apiFetch('/api/attendance/mark', { method: 'POST', body: JSON.stringify({ employeeId: Number(employeeId) }) });
-                const alertHtml = r.alert ? `<div class="mt-2 text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 text-xs"><i class="fa-solid fa-triangle-exclamation"></i> Alerta generada: ${escapeHtml(r.alert.type)} (${attMinutesLabel(r.alert.diffMinutes)})</div>` : '';
-                resultBox.className = 'mt-4 bg-slate-50 border border-slate-200 rounded-lg p-4';
-                resultBox.innerHTML = `
-                    <p class="font-bold text-slate-800">${escapeHtml(r.employeeName)}</p>
-                    <p class="text-xs text-slate-500 mb-2">Turno: ${r.shift.startTime} - ${r.shift.endTime}</p>
-                    <p class="text-lg font-extrabold text-sky-700">${ATTENDANCE_MARK_LABELS[r.markType]}</p>
-                    <p class="text-sm text-slate-600">Hora registrada: <strong>${r.actualTime}</strong></p>
-                    <div class="mt-2">${attStatusBadge(r.status)}</div>
-                    ${alertHtml}
-                `;
+                renderMarkResult(r);
                 showAppToast(`Marcación registrada: ${ATTENDANCE_MARK_LABELS[r.markType]} (${r.actualTime}).`);
                 attendanceLoadEmployeesToday();
             } catch (e) {
                 resultBox.className = 'mt-4 bg-rose-50 border border-rose-200 rounded-lg p-4 text-rose-700 text-sm';
                 resultBox.innerHTML = escapeHtml(e.message);
+                resultBox.classList.remove('hidden');
             }
-            resultBox.classList.remove('hidden');
         }
 
         async function attendanceLoadHistory() {
@@ -4355,6 +4570,118 @@
             } catch (e) {
                 body.innerHTML = `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">No tienes permiso para ver esta sección.</td></tr>`;
             }
+        }
+
+        // -----------------------------------------------------------------
+        // Gestión de perfiles biométricos (Biometría)
+        // -----------------------------------------------------------------
+        let attBioCurrentEmployeeId = null;
+        let attBioCaptures = [];
+
+        async function attendanceLoadBioList() {
+            const body = document.getElementById('attBioTableBody');
+            body.innerHTML = `<tr><td colspan="4" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
+            try {
+                const { employees } = await apiFetch('/api/attendance/face-profiles');
+                body.innerHTML = employees.map(e => {
+                    const active = e.profile && e.profile.active;
+                    const statusHtml = active
+                        ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-2xs font-semibold">Activo</span>'
+                        : (e.profile ? '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-2xs font-semibold">Inactivo</span>' : '<span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-2xs font-semibold">Sin registrar</span>');
+                    const updated = e.profile ? e.profile.updatedAt : '-';
+                    return `<tr class="border-t border-slate-100">
+                        <td class="px-3 py-2 font-medium">${escapeHtml(e.name)}</td>
+                        <td class="px-3 py-2">${statusHtml}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${updated}</td>
+                        <td class="px-3 py-2 flex gap-2">
+                            <button onclick="attendanceOpenEnrollModal(${e.id}, '${escapeHtml(e.name)}')" class="text-xs px-2 py-1 rounded bg-sky-50 text-sky-700 hover:bg-sky-100">${active ? 'Actualizar' : 'Registrar'} rostro</button>
+                            ${active ? `<button onclick="attendanceDeactivateFace(${e.id})" class="text-xs px-2 py-1 rounded bg-rose-50 text-rose-600 hover:bg-rose-100">Desactivar</button>` : ''}
+                        </td>
+                    </tr>`;
+                }).join('') || `<tr><td colspan="4" class="px-3 py-6 text-center text-slate-400">No hay colaboradores registrados.</td></tr>`;
+            } catch (e) {
+                body.innerHTML = `<tr><td colspan="4" class="px-3 py-6 text-center text-slate-400">No tienes permiso para ver esta sección.</td></tr>`;
+            }
+        }
+
+        function attendanceOpenEnrollModal(employeeId, employeeName) {
+            attBioCurrentEmployeeId = employeeId;
+            attBioCaptures = [];
+            document.getElementById('attEnrollEmployeeName').textContent = employeeName;
+            document.getElementById('attEnrollConsent').checked = false;
+            document.getElementById('attEnrollCaptureBtn').disabled = true;
+            document.getElementById('attEnrollStatus').textContent = 'Marca la casilla para activar la cámara.';
+            document.getElementById('attEnrollModal').classList.remove('hidden');
+            document.getElementById('attEnrollModal').classList.add('flex');
+            document.getElementById('attEnrollConsent').onchange = attendanceOnConsentToggle;
+        }
+
+        async function attendanceOnConsentToggle(e) {
+            const statusEl = document.getElementById('attEnrollStatus');
+            const video = document.getElementById('attEnrollVideo');
+            if (e.target.checked) {
+                try {
+                    statusEl.textContent = 'Cargando modelo de reconocimiento…';
+                    await ensureFaceModelsLoaded();
+                    statusEl.textContent = 'Iniciando cámara…';
+                    await startCameraOn(video);
+                    statusEl.textContent = 'Mira a la cámara y presiona "Capturar rostro".';
+                    document.getElementById('attEnrollCaptureBtn').disabled = false;
+                } catch (err) {
+                    statusEl.textContent = 'No se pudo activar la cámara/modelo: ' + err.message;
+                    e.target.checked = false;
+                }
+            } else {
+                stopCameraStream(video);
+                document.getElementById('attEnrollCaptureBtn').disabled = true;
+                statusEl.textContent = 'Marca la casilla para activar la cámara.';
+            }
+        }
+
+        function attendanceCloseEnrollModal() {
+            stopCameraStream(document.getElementById('attEnrollVideo'));
+            document.getElementById('attEnrollModal').classList.add('hidden');
+            document.getElementById('attEnrollModal').classList.remove('flex');
+        }
+
+        async function attendanceCaptureEnroll() {
+            const statusEl = document.getElementById('attEnrollStatus');
+            const video = document.getElementById('attEnrollVideo');
+            const btn = document.getElementById('attEnrollCaptureBtn');
+            btn.disabled = true;
+            try {
+                statusEl.textContent = 'Capturando… no te muevas.';
+                const det = await detectFaceOnce(video);
+                if (!det) {
+                    statusEl.textContent = 'No se detectó un rostro. Intenta de nuevo.';
+                    btn.disabled = false;
+                    return;
+                }
+                attBioCaptures.push(Array.from(det.descriptor));
+                statusEl.textContent = `Muestra ${attBioCaptures.length} de 3 capturada.`;
+                if (attBioCaptures.length < 3) {
+                    btn.disabled = false;
+                    return;
+                }
+                // Promediar las 3 muestras para una plantilla mas estable.
+                const avg = attBioCaptures[0].map((_, i) => attBioCaptures.reduce((sum, d) => sum + d[i], 0) / attBioCaptures.length);
+                await apiFetch('/api/attendance/face-profiles', {
+                    method: 'POST',
+                    body: JSON.stringify({ employeeId: attBioCurrentEmployeeId, descriptor: avg, consent: true }),
+                });
+                statusEl.textContent = '¡Rostro registrado correctamente!';
+                showAppToast('Perfil biométrico guardado.');
+                setTimeout(() => { attendanceCloseEnrollModal(); attendanceLoadBioList(); }, 1200);
+            } catch (e) {
+                statusEl.textContent = 'Error: ' + e.message;
+                btn.disabled = false;
+            }
+        }
+
+        async function attendanceDeactivateFace(employeeId) {
+            if (!confirm('¿Desactivar el reconocimiento facial de este colaborador? Podrá volver a registrarse más adelante.')) return;
+            await apiFetch(`/api/attendance/face-profiles/${employeeId}/deactivate`, { method: 'POST' });
+            attendanceLoadBioList();
         }
 
         function escapeHtml(s) {
