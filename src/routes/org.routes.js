@@ -103,10 +103,30 @@ async function syncEmployeesAndShifts(req, res) {
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
 
   if (Array.isArray(body.employees)) {
-    db.prepare('DELETE FROM employees WHERE organization_id = ?').run(orgId);
-    const insert = db.prepare('INSERT INTO employees (id, organization_id, name, role, department, department_id, salary) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    // IMPORTANTE (fix): antes esto borraba TODOS los empleados de la
+    // organizacion y los volvia a insertar en cada sincronizacion. Eso
+    // funcionaba bien hasta que se agrego el modulo de Asistencia: al
+    // borrar un empleado, la base de datos borraba en cascada su historial
+    // de marcaciones/alertas -- pero esas tablas son inmutables (Regla 8),
+    // asi que la operacion completa fallaba con error 500.
+    // Ahora se ACTUALIZAN los empleados que siguen existiendo (sin
+    // borrarlos, para no arrastrar en cascada su historial ni su perfil
+    // biometrico facial) y solo se eliminan los que de verdad ya no vienen
+    // en la lista (los que el usuario borro desde Colaboradores).
+    const incomingIds = body.employees.map(e => e.id);
+    if (incomingIds.length === 0) {
+      db.prepare('DELETE FROM employees WHERE organization_id = ?').run(orgId);
+    } else {
+      const placeholders = incomingIds.map(() => '?').join(',');
+      db.prepare(`DELETE FROM employees WHERE organization_id = ? AND id NOT IN (${placeholders})`).run(orgId, ...incomingIds);
+    }
+    const upsert = db.prepare(`
+      INSERT INTO employees (id, organization_id, name, role, department, department_id, salary)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, department = excluded.department, department_id = excluded.department_id, salary = excluded.salary
+    `);
     for (const e of body.employees) {
-      insert.run(e.id, orgId, String(e.name || '').slice(0, 120), String(e.role || '').slice(0, 120), e.department || null, e.departmentId || null, Number(e.salary) || 0);
+      upsert.run(e.id, orgId, String(e.name || '').slice(0, 120), String(e.role || '').slice(0, 120), e.department || null, e.departmentId || null, Number(e.salary) || 0);
     }
   }
   if (Array.isArray(body.shifts)) {
