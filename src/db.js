@@ -239,26 +239,23 @@ CREATE INDEX IF NOT EXISTS idx_attendance_marks_org ON attendance_marks(organiza
 CREATE INDEX IF NOT EXISTS idx_attendance_alerts_org ON attendance_alerts(organization_id, shift_date);
 CREATE INDEX IF NOT EXISTS idx_attendance_days_org ON attendance_days(organization_id, shift_date);
 
--- Regla 8: las alertas (y las marcaciones, su evidencia de origen) son
--- inmutables. Esto se aplica a nivel de base de datos, no solo ocultando el
--- boton de editar en la pantalla -- ni siquiera una cuenta de Super Admin
--- puede saltarselo desde este mismo motor.
+-- Regla 8: las alertas y marcaciones no pueden ser MODIFICADAS por ningun
+-- usuario (ni siquiera Super Admin) mientras el colaborador/organizacion al
+-- que pertenecen siga existiendo -- esto evita falsificar el historial.
+-- (No se bloquea el DELETE: si el colaborador o la organizacion se elimina
+-- por completo, es correcto que su historial se elimine en cascada junto
+-- con el, igual que el resto de sus datos -- bloquear eso rompia la
+-- sincronizacion normal de Colaboradores.)
 CREATE TRIGGER IF NOT EXISTS trg_attendance_alerts_no_update
 BEFORE UPDATE ON attendance_alerts BEGIN
   SELECT RAISE(ABORT, 'Las alertas de asistencia son inmutables y no pueden modificarse.');
-END;
-CREATE TRIGGER IF NOT EXISTS trg_attendance_alerts_no_delete
-BEFORE DELETE ON attendance_alerts BEGIN
-  SELECT RAISE(ABORT, 'Las alertas de asistencia son inmutables y no pueden eliminarse.');
 END;
 CREATE TRIGGER IF NOT EXISTS trg_attendance_marks_no_update
 BEFORE UPDATE ON attendance_marks BEGIN
   SELECT RAISE(ABORT, 'Las marcaciones de asistencia son inmutables y no pueden modificarse.');
 END;
-CREATE TRIGGER IF NOT EXISTS trg_attendance_marks_no_delete
-BEFORE DELETE ON attendance_marks BEGIN
-  SELECT RAISE(ABORT, 'Las marcaciones de asistencia son inmutables y no pueden eliminarse.');
-END;
+DROP TRIGGER IF EXISTS trg_attendance_alerts_no_delete;
+DROP TRIGGER IF EXISTS trg_attendance_marks_no_delete;
 `);
 
 // ---------------------------------------------------------------------------
