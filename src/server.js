@@ -86,6 +86,10 @@ route('GET', '/api/attendance/employees-today', [requirePermission('attendance.v
 route('POST', '/api/attendance/mark', [requirePermission('attendance.mark')], (req, res) => attendance.registerMark(req, res));
 route('GET', '/api/attendance/history', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listHistory(req, res, query));
 route('GET', '/api/attendance/alerts', [requirePermission('attendance.view_alerts')], (req, res, params, query) => attendance.listAlerts(req, res, query));
+route('GET', '/api/attendance/face-profiles', [requirePermission('attendance.manage_biometrics')], (req, res, params, query) => attendance.listFaceProfiles(req, res, query));
+route('POST', '/api/attendance/face-profiles', [requirePermission('attendance.manage_biometrics')], (req, res) => attendance.enrollFaceProfile(req, res));
+route('POST', '/api/attendance/face-profiles/:id/deactivate', [requirePermission('attendance.manage_biometrics')], (req, res, params) => attendance.deactivateFaceProfile(req, res, params));
+route('POST', '/api/attendance/mark-by-face', [requirePermission('attendance.mark')], (req, res) => attendance.registerMarkByFace(req, res));
 
 // ---------------------------------------------------------------------------
 // HTTP server: security headers, CORS, static files, API dispatch
@@ -106,7 +110,7 @@ const server = http.createServer(async (req, res) => {
   const INLINE_SCRIPT_HASHES = [
     "'sha256-VHT9CPskO5vtuB4/dvdS04Q+SweVGZPL/1qWK+IKjFI='", // index.html
     "'sha256-dum9fwlx0dkN5ryTuRUUwv195GfaGUq71kgIuRd86vs='", // login.html
-    "'sha256-c3JF3Yy74kRuvZzYQaPAfGL/gPRFfuhKN+C7t5vSrr8='", // app.html
+    "'sha256-IhThOBzpvFVJuD65SDInSw+iOSKiAD/43pKJenhElfs='", // app.html
     "'sha256-SkZ8MDP1PB+wba8BkIrLszFlOTQ9YEjBIPu4TsJPKTo='", // superadmin.html
     "'sha256-acq3Igc1f3abTnmdP0vrk+f21ykK7GXxlTu0HAeDxD8='", // accept-invite.html
     "'sha256-p7WRDAOI/vt0mUjmPWtSZe+ugsLNJkiYzKuVx61YsjA='", // forgot-password.html
@@ -118,6 +122,11 @@ const server = http.createServer(async (req, res) => {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; " +
     "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; " +
     `script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net ${INLINE_SCRIPT_HASHES}; ` +
+    // connect-src: el modulo de Asistencia carga los "pesos" del modelo de
+    // reconocimiento facial (face-api.js) desde el mismo CDN del script.
+    // Esto NO envia fotos de los empleados a ningun lado -- solo descarga
+    // el modelo de IA una vez (se queda en cache del navegador).
+    "connect-src 'self' https://cdn.jsdelivr.net; " +
     // app.html y superadmin.html usan onclick="..."/onchange="..." en vez de addEventListener.
     // 'unsafe-inline' aqui solo afecta a esos atributos de evento (no a los <script> del bloque
     // anterior, que ya quedan protegidos por los hashes de arriba).
