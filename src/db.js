@@ -199,6 +199,22 @@ CREATE TABLE IF NOT EXISTS attendance_alerts (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS employee_face_profiles (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  descriptor_json TEXT NOT NULL,
+  enrolled_by_user_id TEXT NULL REFERENCES users(id),
+  consent_given INTEGER NOT NULL DEFAULT 0,
+  consent_at TEXT NULL,
+  consent_text TEXT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(employee_id)
+);
+CREATE INDEX IF NOT EXISTS idx_face_profiles_org ON employee_face_profiles(organization_id, active);
+
 CREATE TABLE IF NOT EXISTS attendance_days (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -269,6 +285,7 @@ const PERMISSIONS = [
   ['attendance.mark', 'Registrar marcaciones (punto de marcacion)'],
   ['attendance.view_alerts', 'Ver alertas de asistencia (llegadas tarde, excesos, etc.)'],
   ['attendance.manage', 'Administrar configuracion del modulo de asistencia'],
+  ['attendance.manage_biometrics', 'Registrar y administrar perfiles biometricos faciales de colaboradores'],
 ];
 
 const insertPerm = db.prepare('INSERT OR IGNORE INTO permissions (id, code, description) VALUES (?, ?, ?)');
@@ -319,7 +336,7 @@ function getOrgRoleByName(organizationId, name) {
   const insertRolePerm = db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)');
   const existingOrgAdminRoles = db.prepare("SELECT id FROM roles WHERE name = 'org_admin' AND organization_id IS NOT NULL").all();
   const existingSupervisorRoles = db.prepare("SELECT id FROM roles WHERE name = 'supervisor' AND organization_id IS NOT NULL").all();
-  const attendanceCodes = ['attendance.view', 'attendance.mark', 'attendance.view_alerts', 'attendance.manage'];
+  const attendanceCodes = ['attendance.view', 'attendance.mark', 'attendance.view_alerts', 'attendance.manage', 'attendance.manage_biometrics'];
   const supervisorCodes = ['attendance.view', 'attendance.view_alerts'];
   for (const role of existingOrgAdminRoles) {
     for (const code of attendanceCodes) {
