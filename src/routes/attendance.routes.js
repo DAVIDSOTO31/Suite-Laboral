@@ -126,35 +126,31 @@ function listEmployeesToday(req, res, query) {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/attendance/mark
-// Body: { employeeId }. El servidor determina TODO lo demas automaticamente:
-// organizacion (de la sesion), fecha/turno, y tipo de marcacion.
+// Nucleo de "registrar una marcacion" (sin nada de HTTP). Lo usan tanto la
+// marcacion manual (registerMark) como la marcacion por reconocimiento
+// facial (registerMarkByFace) -- misma logica de negocio, una sola vez.
+// Devuelve { httpStatus, body } (nunca lanza para errores esperados de
+// negocio, solo para errores de programacion reales).
 // ---------------------------------------------------------------------------
-async function registerMark(req, res) {
-  let body;
-  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
-  const orgId = resolveOrgId(req, body);
-  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
-
-  const employeeId = Number(body.employeeId);
+function performMark(orgId, employeeId, userId, method, ip) {
   const employee = db.prepare('SELECT * FROM employees WHERE id = ? AND organization_id = ?').get(employeeId, orgId);
   // Aislamiento multi-organizacion (Caso 12 del documento): si el empleado no
   // pertenece a esta organizacion, se responde como "no encontrado", igual
   // que el resto de la app hace con otros recursos entre organizaciones.
-  if (!employee) return sendJson(res, 404, { error: 'Colaborador no encontrado en esta organizacion.' });
+  if (!employee) return { httpStatus: 404, body: { error: 'Colaborador no encontrado en esta organizacion.' } };
 
   const now = new Date();
   const shiftDateISO = resolveShiftDateForMark(orgId, employeeId, now);
   const shift = getShiftForEmployeeDate(orgId, employeeId, shiftDateISO);
   if (!shift || shift.isOffDay) {
-    return sendJson(res, 409, { error: 'Este colaborador no tiene un turno asignado para hoy.', state: 'sin_turno' });
+    return { httpStatus: 409, body: { error: 'Este colaborador no tiene un turno asignado para hoy.', state: 'sin_turno' } };
   }
 
   const marksDone = getExistingMarkTypes(employeeId, shiftDateISO);
   const seq = rules.validateMarkSequence(marksDone, null);
   const markType = seq.expected;
   if (markType == null) {
-    return sendJson(res, 409, { error: 'El turno de hoy ya tiene las 4 marcaciones completas.', state: 'completo' });
+    return { httpStatus: 409, body: { error: 'El turno de hoy ya tiene las 4 marcaciones completas.', state: 'completo' } };
   }
 
   const actualAbsMin = bogota.minutesSinceShiftMidnight(now, shiftDateISO);
@@ -248,22 +244,41 @@ async function registerMark(req, res) {
 
   db.prepare(`
     INSERT INTO attendance_marks (id, organization_id, employee_id, shift_date, mark_type, scheduled_time, actual_at, method, marked_by_user_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', ?)
-  `).run(uid('mark'), orgId, employeeId, shiftDateISO, markType, shift.startTime || null, nowIso, req.user.id);
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(uid('mark'), orgId, employeeId, shiftDateISO, markType, shift.startTime || null, nowIso, method, userId);
 
   upsertAttendanceDay(orgId, employeeId, shiftDateISO, shift, patch);
 
-  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.mark', resourceType: 'employee', resourceId: String(employeeId), ip: getClientIp(req), metadata: { markType, shiftDateISO, actualClock } });
+  logAction({ organizationId: orgId, userId, action: 'attendance.mark', resourceType: 'employee', resourceId: String(employeeId), ip, metadata: { markType, shiftDateISO, actualClock, method } });
 
-  sendJson(res, 200, {
-    ok: true,
-    employeeName: employee.name,
-    markType,
-    actualTime: actualClock,
-    shift: { startTime: shift.startTime, endTime: shift.endTime },
-    status: statusLabel,
-    alert,
-  });
+  return {
+    httpStatus: 200,
+    body: {
+      ok: true,
+      employeeName: employee.name,
+      markType,
+      actualTime: actualClock,
+      shift: { startTime: shift.startTime, endTime: shift.endTime },
+      status: statusLabel,
+      alert,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/attendance/mark
+// Body: { employeeId }. El servidor determina TODO lo demas automaticamente:
+// organizacion (de la sesion), fecha/turno, y tipo de marcacion.
+// ---------------------------------------------------------------------------
+async function registerMark(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+
+  const employeeId = Number(body.employeeId);
+  const result = performMark(orgId, employeeId, req.user.id, 'manual', getClientIp(req));
+  sendJson(res, result.httpStatus, result.body);
 }
 
 // ---------------------------------------------------------------------------
@@ -302,4 +317,133 @@ function listAlerts(req, res, query) {
   sendJson(res, 200, { rows });
 }
 
-module.exports = { listEmployeesToday, registerMark, listHistory, listAlerts };
+// ---------------------------------------------------------------------------
+// RECONOCIMIENTO FACIAL (Fase 2)
+// Solo se guarda la "plantilla" matematica del rostro (un vector de 128
+// numeros que produce face-api.js), NUNCA la fotografia -- Regla 20 del
+// documento. La comparacion (distancia euclidiana) se hace aqui, en el
+// servidor, sobre los perfiles de la MISMA organizacion unicamente.
+// ---------------------------------------------------------------------------
+const FACE_MATCH_THRESHOLD = 0.5; // distancia euclidiana maxima para aceptar una coincidencia (mientras mas bajo, mas estricto)
+const FACE_CONSENT_TEXT = 'El colaborador autoriza expresamente el uso de su rostro (dato biometrico) para fines de control de asistencia laboral, conforme a la Ley 1581 de 2012 de proteccion de datos personales (Habeas Data).';
+
+function euclideanDistance(a, b) {
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += (a[i] - b[i]) ** 2;
+  return Math.sqrt(sum);
+}
+
+function validDescriptor(d) {
+  return Array.isArray(d) && d.length === 128 && d.every(n => typeof n === 'number' && Number.isFinite(n));
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/attendance/face-profiles
+// ---------------------------------------------------------------------------
+function listFaceProfiles(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const employees = db.prepare('SELECT id, name, role FROM employees WHERE organization_id = ? ORDER BY name ASC').all(orgId);
+  const profiles = db.prepare('SELECT employee_id, active, consent_given, consent_at, updated_at FROM employee_face_profiles WHERE organization_id = ?').all(orgId);
+  const byEmp = Object.fromEntries(profiles.map(p => [p.employee_id, p]));
+  sendJson(res, 200, {
+    employees: employees.map(e => ({
+      id: e.id, name: e.name, role: e.role,
+      profile: byEmp[e.id] ? { active: !!byEmp[e.id].active, consentGiven: !!byEmp[e.id].consent_given, updatedAt: byEmp[e.id].updated_at } : null,
+    })),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/attendance/face-profiles
+// Body: { employeeId, descriptor: number[128], consent: true }
+// ---------------------------------------------------------------------------
+async function enrollFaceProfile(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+
+  const employeeId = Number(body.employeeId);
+  const employee = db.prepare('SELECT * FROM employees WHERE id = ? AND organization_id = ?').get(employeeId, orgId);
+  if (!employee) return sendJson(res, 404, { error: 'Colaborador no encontrado en esta organizacion.' });
+
+  if (!body.consent) {
+    return sendJson(res, 400, { error: 'Se requiere el consentimiento explicito del colaborador para registrar su rostro (dato biometrico).' });
+  }
+  if (!validDescriptor(body.descriptor)) {
+    return sendJson(res, 400, { error: 'La plantilla facial recibida no es valida.' });
+  }
+
+  const existing = db.prepare('SELECT id FROM employee_face_profiles WHERE employee_id = ?').get(employeeId);
+  const nowIso = new Date().toISOString();
+  if (existing) {
+    db.prepare(`
+      UPDATE employee_face_profiles
+      SET descriptor_json = ?, enrolled_by_user_id = ?, consent_given = 1, consent_at = ?, consent_text = ?, active = 1, updated_at = datetime('now')
+      WHERE employee_id = ?
+    `).run(JSON.stringify(body.descriptor), req.user.id, nowIso, FACE_CONSENT_TEXT, employeeId);
+  } else {
+    db.prepare(`
+      INSERT INTO employee_face_profiles (id, organization_id, employee_id, descriptor_json, enrolled_by_user_id, consent_given, consent_at, consent_text, active)
+      VALUES (?, ?, ?, ?, ?, 1, ?, ?, 1)
+    `).run(uid('face'), orgId, employeeId, JSON.stringify(body.descriptor), req.user.id, nowIso, FACE_CONSENT_TEXT);
+  }
+
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.face_enroll', resourceType: 'employee', resourceId: String(employeeId), ip: getClientIp(req), metadata: { employeeName: employee.name } });
+  sendJson(res, 200, { ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/attendance/face-profiles/:id/deactivate
+// ---------------------------------------------------------------------------
+async function deactivateFaceProfile(req, res, params) {
+  let body = {};
+  try { body = await readBody(req); } catch { /* body opcional en esta ruta */ }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const employeeId = Number(params.id);
+  const employee = db.prepare('SELECT * FROM employees WHERE id = ? AND organization_id = ?').get(employeeId, orgId);
+  if (!employee) return sendJson(res, 404, { error: 'Colaborador no encontrado en esta organizacion.' });
+  db.prepare("UPDATE employee_face_profiles SET active = 0, updated_at = datetime('now') WHERE employee_id = ? AND organization_id = ?").run(employeeId, orgId);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.face_deactivate', resourceType: 'employee', resourceId: String(employeeId), ip: getClientIp(req), metadata: { employeeName: employee.name } });
+  sendJson(res, 200, { ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/attendance/mark-by-face
+// Body: { descriptor: number[128] }. Identifica al colaborador COMPARANDO
+// SOLO contra los perfiles activos de la organizacion de la sesion (nunca
+// contra otras organizaciones), y si hay coincidencia, delega en el mismo
+// performMark() que usa la marcacion manual.
+// ---------------------------------------------------------------------------
+async function registerMarkByFace(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  if (!validDescriptor(body.descriptor)) {
+    return sendJson(res, 400, { error: 'No se pudo leer el rostro correctamente. Intenta de nuevo.' });
+  }
+
+  const profiles = db.prepare(
+    'SELECT employee_id, descriptor_json FROM employee_face_profiles WHERE organization_id = ? AND active = 1'
+  ).all(orgId);
+
+  let best = null;
+  for (const p of profiles) {
+    let descriptor;
+    try { descriptor = JSON.parse(p.descriptor_json); } catch { continue; }
+    const dist = euclideanDistance(body.descriptor, descriptor);
+    if (!best || dist < best.dist) best = { employeeId: p.employee_id, dist };
+  }
+
+  if (!best || best.dist > FACE_MATCH_THRESHOLD) {
+    return sendJson(res, 404, { error: 'Rostro no reconocido. Intenta de nuevo o usa la selección manual.', state: 'no_reconocido' });
+  }
+
+  const result = performMark(orgId, best.employeeId, req.user.id, 'facial', getClientIp(req));
+  sendJson(res, result.httpStatus, result.body);
+}
+
+module.exports = { listEmployeesToday, registerMark, listHistory, listAlerts, listFaceProfiles, enrollFaceProfile, deactivateFaceProfile, registerMarkByFace };
