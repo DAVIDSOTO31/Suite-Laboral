@@ -6,6 +6,7 @@
 const { db, uid } = require('../db');
 const { sendJson, readBody, getClientIp } = require('../lib/http');
 const { logAction } = require('../lib/audit');
+const { randomToken, sha256Hex } = require('../lib/crypto');
 const rules = require('../lib/attendance-rules');
 const bogota = require('../lib/bogota-time');
 
@@ -446,4 +447,200 @@ async function registerMarkByFace(req, res) {
   sendJson(res, result.httpStatus, result.body);
 }
 
-module.exports = { listEmployeesToday, registerMark, listHistory, listAlerts, listFaceProfiles, enrollFaceProfile, deactivateFaceProfile, registerMarkByFace };
+// ---------------------------------------------------------------------------
+// DISPOSITIVOS DE MARCACION (Fase 3)
+// Permite restringir DONDE se puede marcar: solo desde tablets/totems
+// registrados (con su propio token, sin usuario ni contrasena), y ademas
+// QUE colaboradores puede reconocer cada uno (por area/departamento).
+// ---------------------------------------------------------------------------
+
+function deviceOutputRow(d) {
+  return { id: d.id, name: d.device_name, active: !!d.active, lastUsedAt: d.last_used_at, createdAt: d.created_at };
+}
+
+// GET /api/attendance/devices
+function listDevices(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const devices = db.prepare('SELECT * FROM attendance_devices WHERE organization_id = ? ORDER BY created_at DESC').all(orgId);
+  const counts = Object.fromEntries(
+    db.prepare(`SELECT device_id, COUNT(*) as n FROM attendance_device_employees WHERE device_id IN (SELECT id FROM attendance_devices WHERE organization_id = ?) GROUP BY device_id`).all(orgId).map(r => [r.device_id, r.n])
+  );
+  sendJson(res, 200, { devices: devices.map(d => ({ ...deviceOutputRow(d), assignedCount: counts[d.id] || 0 })) });
+}
+
+// POST /api/attendance/devices  Body: { deviceName }
+// Devuelve el token EN CRUDO una sola vez (nunca se puede volver a ver).
+async function createDevice(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const deviceName = String(body.deviceName || '').trim().slice(0, 120);
+  if (!deviceName) return sendJson(res, 400, { error: 'El nombre del dispositivo es obligatorio.' });
+
+  const rawToken = randomToken(32);
+  const id = uid('dev');
+  db.prepare(`
+    INSERT INTO attendance_devices (id, organization_id, device_name, token_hash, created_by_user_id)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(id, orgId, deviceName, sha256Hex(rawToken), req.user.id);
+
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.device_create', resourceType: 'attendance_device', resourceId: id, ip: getClientIp(req), metadata: { deviceName } });
+  sendJson(res, 201, { device: { id, name: deviceName, active: true }, token: rawToken });
+}
+
+// POST /api/attendance/devices/:id/rotate -- invalida el token anterior y entrega uno nuevo.
+async function rotateDeviceToken(req, res, params) {
+  let body = {};
+  try { body = await readBody(req); } catch { /* opcional */ }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const device = db.prepare('SELECT * FROM attendance_devices WHERE id = ? AND organization_id = ?').get(params.id, orgId);
+  if (!device) return sendJson(res, 404, { error: 'Dispositivo no encontrado en esta organizacion.' });
+  const rawToken = randomToken(32);
+  db.prepare('UPDATE attendance_devices SET token_hash = ? WHERE id = ?').run(sha256Hex(rawToken), device.id);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.device_rotate', resourceType: 'attendance_device', resourceId: device.id, ip: getClientIp(req), metadata: { deviceName: device.device_name } });
+  sendJson(res, 200, { token: rawToken });
+}
+
+// POST /api/attendance/devices/:id/deactivate
+async function deactivateDevice(req, res, params) {
+  let body = {};
+  try { body = await readBody(req); } catch { /* opcional */ }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const device = db.prepare('SELECT * FROM attendance_devices WHERE id = ? AND organization_id = ?').get(params.id, orgId);
+  if (!device) return sendJson(res, 404, { error: 'Dispositivo no encontrado en esta organizacion.' });
+  db.prepare('UPDATE attendance_devices SET active = 0 WHERE id = ?').run(device.id);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.device_deactivate', resourceType: 'attendance_device', resourceId: device.id, ip: getClientIp(req), metadata: { deviceName: device.device_name } });
+  sendJson(res, 200, { ok: true });
+}
+
+// GET /api/attendance/devices/:id/employees -- lista TODOS los colaboradores
+// de la organizacion, marcando cuales ya estan asignados a este dispositivo.
+function getDeviceAssignments(req, res, params, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const device = db.prepare('SELECT * FROM attendance_devices WHERE id = ? AND organization_id = ?').get(params.id, orgId);
+  if (!device) return sendJson(res, 404, { error: 'Dispositivo no encontrado en esta organizacion.' });
+  const employees = db.prepare('SELECT id, name, department FROM employees WHERE organization_id = ? ORDER BY department ASC, name ASC').all(orgId);
+  const assigned = new Set(db.prepare('SELECT employee_id FROM attendance_device_employees WHERE device_id = ?').all(device.id).map(r => r.employee_id));
+  sendJson(res, 200, {
+    device: deviceOutputRow(device),
+    employees: employees.map(e => ({ id: e.id, name: e.name, department: e.department, assigned: assigned.has(e.id) })),
+  });
+}
+
+// POST /api/attendance/devices/:id/employees  Body: { employeeIds: number[] }
+// Reemplaza por completo la lista de colaboradores permitidos en ese dispositivo.
+async function setDeviceAssignments(req, res, params) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const device = db.prepare('SELECT * FROM attendance_devices WHERE id = ? AND organization_id = ?').get(params.id, orgId);
+  if (!device) return sendJson(res, 404, { error: 'Dispositivo no encontrado en esta organizacion.' });
+  const employeeIds = Array.isArray(body.employeeIds) ? body.employeeIds.map(Number) : [];
+
+  db.prepare('DELETE FROM attendance_device_employees WHERE device_id = ?').run(device.id);
+  const insert = db.prepare('INSERT OR IGNORE INTO attendance_device_employees (device_id, employee_id) VALUES (?, ?)');
+  for (const empId of employeeIds) {
+    const belongs = db.prepare('SELECT id FROM employees WHERE id = ? AND organization_id = ?').get(empId, orgId);
+    if (belongs) insert.run(device.id, empId);
+  }
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.device_assign', resourceType: 'attendance_device', resourceId: device.id, ip: getClientIp(req), metadata: { count: employeeIds.length } });
+  sendJson(res, 200, { ok: true, assignedCount: employeeIds.length });
+}
+
+// ---------------------------------------------------------------------------
+// ENDPOINTS DEL KIOSCO -- autenticados por TOKEN DE DISPOSITIVO, nunca por
+// sesion de usuario. Se registran en server.js con { auth: false } (sin
+// cookie de sesion ni CSRF), y esta funcion hace su propia verificacion.
+// ---------------------------------------------------------------------------
+function authenticateDevice(req, res) {
+  const token = req.headers['x-device-token'];
+  if (!token || typeof token !== 'string') {
+    sendJson(res, 401, { error: 'Falta el token del dispositivo.' });
+    return null;
+  }
+  const device = db.prepare('SELECT * FROM attendance_devices WHERE token_hash = ?').get(sha256Hex(token));
+  if (!device || !device.active) {
+    sendJson(res, 401, { error: 'Dispositivo no autorizado o desactivado.' });
+    return null;
+  }
+  db.prepare("UPDATE attendance_devices SET last_used_at = datetime('now') WHERE id = ?").run(device.id);
+  return device;
+}
+
+// GET /api/kiosk/employees-today
+function kioskEmployeesToday(req, res) {
+  const device = authenticateDevice(req, res);
+  if (!device) return;
+  const orgId = device.organization_id;
+  const now = new Date();
+  const assignedIds = new Set(db.prepare('SELECT employee_id FROM attendance_device_employees WHERE device_id = ?').all(device.id).map(r => r.employee_id));
+  const employees = db.prepare('SELECT id, name FROM employees WHERE organization_id = ? ORDER BY name ASC').all(orgId)
+    .filter(e => assignedIds.has(e.id));
+
+  const result = employees.map(emp => {
+    const shiftDateISO = resolveShiftDateForMark(orgId, emp.id, now);
+    const shift = getShiftForEmployeeDate(orgId, emp.id, shiftDateISO);
+    if (!shift || shift.isOffDay) return { id: emp.id, name: emp.name, hasShift: false, nextMark: null };
+    const marksDone = getExistingMarkTypes(emp.id, shiftDateISO);
+    const nextMark = rules.nextExpectedMarkType(marksDone);
+    return { id: emp.id, name: emp.name, hasShift: true, nextMark, completed: nextMark === null };
+  });
+  sendJson(res, 200, { deviceName: device.device_name, employees: result });
+}
+
+// POST /api/kiosk/mark  Body: { employeeId }
+async function kioskMark(req, res) {
+  const device = authenticateDevice(req, res);
+  if (!device) return;
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const employeeId = Number(body.employeeId);
+  const allowed = db.prepare('SELECT 1 FROM attendance_device_employees WHERE device_id = ? AND employee_id = ?').get(device.id, employeeId);
+  if (!allowed) return sendJson(res, 403, { error: 'Este colaborador no esta autorizado para marcar en este dispositivo.' });
+  const result = performMark(device.organization_id, employeeId, null, 'kiosk-manual', getClientIp(req));
+  sendJson(res, result.httpStatus, result.body);
+}
+
+// POST /api/kiosk/mark-by-face  Body: { descriptor: number[128] }
+// Compara SOLO contra los colaboradores asignados a ESTE dispositivo (nunca
+// contra el resto de la organizacion, ni contra otras organizaciones).
+async function kioskMarkByFace(req, res) {
+  const device = authenticateDevice(req, res);
+  if (!device) return;
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  if (!validDescriptor(body.descriptor)) {
+    return sendJson(res, 400, { error: 'No se pudo leer el rostro correctamente. Intenta de nuevo.' });
+  }
+  const profiles = db.prepare(`
+    SELECT fp.employee_id, fp.descriptor_json
+    FROM employee_face_profiles fp
+    JOIN attendance_device_employees de ON de.employee_id = fp.employee_id AND de.device_id = ?
+    WHERE fp.organization_id = ? AND fp.active = 1
+  `).all(device.id, device.organization_id);
+
+  let best = null;
+  for (const p of profiles) {
+    let descriptor;
+    try { descriptor = JSON.parse(p.descriptor_json); } catch { continue; }
+    const dist = euclideanDistance(body.descriptor, descriptor);
+    if (!best || dist < best.dist) best = { employeeId: p.employee_id, dist };
+  }
+  if (!best || best.dist > FACE_MATCH_THRESHOLD) {
+    return sendJson(res, 404, { error: 'Rostro no reconocido en este dispositivo.', state: 'no_reconocido' });
+  }
+  const result = performMark(device.organization_id, best.employeeId, null, 'kiosk-facial', getClientIp(req));
+  sendJson(res, result.httpStatus, result.body);
+}
+
+module.exports = {
+  listEmployeesToday, registerMark, listHistory, listAlerts, listFaceProfiles, enrollFaceProfile, deactivateFaceProfile, registerMarkByFace,
+  listDevices, createDevice, rotateDeviceToken, deactivateDevice, getDeviceAssignments, setDeviceAssignments,
+  kioskEmployeesToday, kioskMark, kioskMarkByFace,
+};
