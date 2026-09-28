@@ -91,6 +91,20 @@ route('POST', '/api/attendance/face-profiles', [requirePermission('attendance.ma
 route('POST', '/api/attendance/face-profiles/:id/deactivate', [requirePermission('attendance.manage_biometrics')], (req, res, params) => attendance.deactivateFaceProfile(req, res, params));
 route('POST', '/api/attendance/mark-by-face', [requirePermission('attendance.mark')], (req, res) => attendance.registerMarkByFace(req, res));
 
+// ---- Dispositivos de marcacion (administracion, requiere sesion) ----
+route('GET', '/api/attendance/devices', [requirePermission('attendance.manage_devices')], (req, res, params, query) => attendance.listDevices(req, res, query));
+route('POST', '/api/attendance/devices', [requirePermission('attendance.manage_devices')], (req, res) => attendance.createDevice(req, res));
+route('POST', '/api/attendance/devices/:id/rotate', [requirePermission('attendance.manage_devices')], (req, res, params) => attendance.rotateDeviceToken(req, res, params));
+route('POST', '/api/attendance/devices/:id/deactivate', [requirePermission('attendance.manage_devices')], (req, res, params) => attendance.deactivateDevice(req, res, params));
+route('GET', '/api/attendance/devices/:id/employees', [requirePermission('attendance.manage_devices')], (req, res, params, query) => attendance.getDeviceAssignments(req, res, params, query));
+route('POST', '/api/attendance/devices/:id/employees', [requirePermission('attendance.manage_devices')], (req, res, params) => attendance.setDeviceAssignments(req, res, params));
+
+// ---- Kiosco de marcacion: SIN sesion de usuario, autenticado por el token
+// propio del dispositivo (header X-Device-Token). Ver attendance.routes.js. ----
+route('GET', '/api/kiosk/employees-today', [], (req, res) => attendance.kioskEmployeesToday(req, res), { auth: false });
+route('POST', '/api/kiosk/mark', [], (req, res) => attendance.kioskMark(req, res), { auth: false });
+route('POST', '/api/kiosk/mark-by-face', [], (req, res) => attendance.kioskMarkByFace(req, res), { auth: false });
+
 // ---------------------------------------------------------------------------
 // HTTP server: security headers, CORS, static files, API dispatch
 // ---------------------------------------------------------------------------
@@ -110,7 +124,8 @@ const server = http.createServer(async (req, res) => {
   const INLINE_SCRIPT_HASHES = [
     "'sha256-VHT9CPskO5vtuB4/dvdS04Q+SweVGZPL/1qWK+IKjFI='", // index.html
     "'sha256-dum9fwlx0dkN5ryTuRUUwv195GfaGUq71kgIuRd86vs='", // login.html
-    "'sha256-IhThOBzpvFVJuD65SDInSw+iOSKiAD/43pKJenhElfs='", // app.html
+    "'sha256-Oe5IPBuj1cretL6T+VeJWpz8pIhhJYD4B9r2U/Ys4rQ='", // app.html
+    "'sha256-eics1CykptfLpN2z7XhaycAEVVZakabp+JFmNbjSBa8='", // kiosk.html
     "'sha256-SkZ8MDP1PB+wba8BkIrLszFlOTQ9YEjBIPu4TsJPKTo='", // superadmin.html
     "'sha256-acq3Igc1f3abTnmdP0vrk+f21ykK7GXxlTu0HAeDxD8='", // accept-invite.html
     "'sha256-p7WRDAOI/vt0mUjmPWtSZe+ugsLNJkiYzKuVx61YsjA='", // forgot-password.html
