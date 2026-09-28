@@ -199,6 +199,29 @@ CREATE TABLE IF NOT EXISTS attendance_alerts (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS attendance_devices (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  device_name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_by_user_id TEXT NULL REFERENCES users(id),
+  active INTEGER NOT NULL DEFAULT 1,
+  last_used_at TEXT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_attendance_devices_org ON attendance_devices(organization_id);
+
+-- Que colaboradores puede reconocer/aceptar cada dispositivo (ej. solo los
+-- de Bodega en el totem de Bodega). Si un empleado no esta aqui para un
+-- dispositivo, ese dispositivo simplemente no lo reconoce, aunque su rostro
+-- ya este registrado en la organizacion.
+CREATE TABLE IF NOT EXISTS attendance_device_employees (
+  device_id TEXT NOT NULL REFERENCES attendance_devices(id) ON DELETE CASCADE,
+  employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  PRIMARY KEY (device_id, employee_id)
+);
+CREATE INDEX IF NOT EXISTS idx_device_employees_employee ON attendance_device_employees(employee_id);
+
 CREATE TABLE IF NOT EXISTS employee_face_profiles (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -283,6 +306,7 @@ const PERMISSIONS = [
   ['attendance.view_alerts', 'Ver alertas de asistencia (llegadas tarde, excesos, etc.)'],
   ['attendance.manage', 'Administrar configuracion del modulo de asistencia'],
   ['attendance.manage_biometrics', 'Registrar y administrar perfiles biometricos faciales de colaboradores'],
+  ['attendance.manage_devices', 'Registrar y administrar dispositivos autorizados para marcar asistencia'],
 ];
 
 const insertPerm = db.prepare('INSERT OR IGNORE INTO permissions (id, code, description) VALUES (?, ?, ?)');
@@ -333,7 +357,7 @@ function getOrgRoleByName(organizationId, name) {
   const insertRolePerm = db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)');
   const existingOrgAdminRoles = db.prepare("SELECT id FROM roles WHERE name = 'org_admin' AND organization_id IS NOT NULL").all();
   const existingSupervisorRoles = db.prepare("SELECT id FROM roles WHERE name = 'supervisor' AND organization_id IS NOT NULL").all();
-  const attendanceCodes = ['attendance.view', 'attendance.mark', 'attendance.view_alerts', 'attendance.manage', 'attendance.manage_biometrics'];
+  const attendanceCodes = ['attendance.view', 'attendance.mark', 'attendance.view_alerts', 'attendance.manage', 'attendance.manage_biometrics', 'attendance.manage_devices'];
   const supervisorCodes = ['attendance.view', 'attendance.view_alerts'];
   for (const role of existingOrgAdminRoles) {
     for (const code of attendanceCodes) {
