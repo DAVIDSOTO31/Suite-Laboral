@@ -942,6 +942,9 @@
                     <button id="btnAttTabBio" onclick="attendanceSetSubTab('bio')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
                         <i class="fa-solid fa-id-badge"></i> Biometría
                     </button>
+                    <button id="btnAttTabDevices" onclick="attendanceSetSubTab('devices')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
+                        <i class="fa-solid fa-tablet-screen-button"></i> Dispositivos
+                    </button>
                 </div>
 
                 <!-- Sub-vista: Marcación rápida -->
@@ -992,6 +995,63 @@
                                 </tr></thead>
                                 <tbody id="attBioTableBody"></tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sub-vista: Dispositivos -->
+                <div id="attSubtab-devices" class="hidden">
+                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                        <div class="flex items-center justify-between mb-1">
+                            <h3 class="font-bold text-slate-800 text-base">Dispositivos autorizados para marcar</h3>
+                            <button onclick="attendanceOpenCreateDeviceModal()" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold"><i class="fa-solid fa-plus"></i> Nuevo dispositivo</button>
+                        </div>
+                        <p class="text-xs text-slate-500 mb-4">Solo estos dispositivos (tablets/tótems) pueden registrar marcaciones a través de <code>/kiosk.html</code>. Ningún usuario puede marcar desde su propio celular o computador, salvo el administrador de la organización, como respaldo de emergencia dentro de esta misma app.</p>
+                        <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                            <table class="w-full text-xs">
+                                <thead class="bg-slate-50 text-slate-500 uppercase"><tr>
+                                    <th class="text-left px-3 py-2">Nombre</th><th class="text-left px-3 py-2">Estado</th>
+                                    <th class="text-left px-3 py-2">Colaboradores asignados</th><th class="text-left px-3 py-2">Último uso</th>
+                                    <th class="text-left px-3 py-2">Acciones</th>
+                                </tr></thead>
+                                <tbody id="attDevicesTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal: crear dispositivo / mostrar token una sola vez -->
+                <div id="attDeviceCreateModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
+                    <div class="bg-white rounded-xl p-5 w-full max-w-md">
+                        <h3 class="font-bold text-slate-800 mb-3">Nuevo dispositivo</h3>
+                        <div id="attDeviceCreateStep1">
+                            <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Nombre (ej. "Tablet Entrada Principal")</label>
+                            <input id="attDeviceNameInput" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-4" placeholder="Tablet Entrada Principal">
+                            <div class="flex justify-end gap-2">
+                                <button onclick="attendanceCloseDeviceModal()" class="px-3 py-2 rounded-lg bg-slate-100 text-sm">Cancelar</button>
+                                <button onclick="attendanceSubmitCreateDevice()" class="px-3 py-2 rounded-lg bg-sky-600 text-white text-sm font-semibold">Crear</button>
+                            </div>
+                        </div>
+                        <div id="attDeviceCreateStep2" class="hidden">
+                            <p class="text-xs text-slate-600 mb-2">Copia este token ahora y pégalo en la pantalla de configuración de <code>/kiosk.html</code> en el dispositivo físico. <strong>No se volverá a mostrar.</strong></p>
+                            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 font-mono text-xs break-all select-all mb-3" id="attDeviceTokenBox"></div>
+                            <div class="flex justify-end">
+                                <button onclick="attendanceCloseDeviceModal()" class="px-3 py-2 rounded-lg bg-sky-600 text-white text-sm font-semibold">Listo, ya lo copié</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal: asignar colaboradores a un dispositivo -->
+                <div id="attDeviceAssignModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
+                    <div class="bg-white rounded-xl p-5 w-full max-w-lg">
+                        <h3 class="font-bold text-slate-800 mb-1">Colaboradores autorizados — <span id="attDeviceAssignName"></span></h3>
+                        <p class="text-xs text-slate-500 mb-3">Marca quiénes pueden marcar en este dispositivo. Puedes seleccionar por área completa.</p>
+                        <div id="attDeviceAssignByDept" class="flex flex-wrap gap-1.5 mb-3"></div>
+                        <div id="attDeviceAssignList" class="max-h-72 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 mb-4"></div>
+                        <div class="flex justify-end gap-2">
+                            <button onclick="attendanceCloseAssignModal()" class="px-3 py-2 rounded-lg bg-slate-100 text-sm">Cancelar</button>
+                            <button onclick="attendanceSaveAssignments()" class="px-3 py-2 rounded-lg bg-sky-600 text-white text-sm font-semibold">Guardar</button>
                         </div>
                     </div>
                 </div>
@@ -4311,7 +4371,7 @@
         function attendanceSetSubTab(tab) {
             if (currentAttendanceSubTab === 'mark' && tab !== 'mark') attendanceStopFacialMode();
             currentAttendanceSubTab = tab;
-            ['mark', 'history', 'alerts', 'bio'].forEach(t => {
+            ['mark', 'history', 'alerts', 'bio', 'devices'].forEach(t => {
                 document.getElementById(`attSubtab-${t}`).classList.toggle('hidden', t !== tab);
                 const btn = document.getElementById(`btnAttTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
                 btn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 ' + (t === tab ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900');
@@ -4320,6 +4380,7 @@
             if (tab === 'history') attendanceLoadHistory();
             if (tab === 'alerts') attendanceLoadAlerts();
             if (tab === 'bio') attendanceLoadBioList();
+            if (tab === 'devices') attendanceLoadDevices();
         }
 
         // -----------------------------------------------------------------
@@ -4682,6 +4743,112 @@
             if (!confirm('¿Desactivar el reconocimiento facial de este colaborador? Podrá volver a registrarse más adelante.')) return;
             await apiFetch(`/api/attendance/face-profiles/${employeeId}/deactivate`, { method: 'POST' });
             attendanceLoadBioList();
+        }
+
+        // -----------------------------------------------------------------
+        // Gestión de dispositivos de marcación
+        // -----------------------------------------------------------------
+        async function attendanceLoadDevices() {
+            const body = document.getElementById('attDevicesTableBody');
+            body.innerHTML = `<tr><td colspan="5" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
+            try {
+                const { devices } = await apiFetch('/api/attendance/devices');
+                body.innerHTML = devices.map(d => `
+                    <tr class="border-t border-slate-100">
+                        <td class="px-3 py-2 font-medium">${escapeHtml(d.name)}</td>
+                        <td class="px-3 py-2">${d.active ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-2xs font-semibold">Activo</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-2xs font-semibold">Desactivado</span>'}</td>
+                        <td class="px-3 py-2">${d.assignedCount} colaborador(es)</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${d.lastUsedAt || 'Nunca'}</td>
+                        <td class="px-3 py-2 flex flex-wrap gap-1.5">
+                            <button onclick="attendanceOpenAssignModal('${d.id}', '${escapeHtml(d.name)}')" class="text-xs px-2 py-1 rounded bg-sky-50 text-sky-700 hover:bg-sky-100">Asignar colaboradores</button>
+                            <button onclick="attendanceRotateDevice('${d.id}')" class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100">Nuevo token</button>
+                            ${d.active ? `<button onclick="attendanceDeactivateDevice('${d.id}')" class="text-xs px-2 py-1 rounded bg-rose-50 text-rose-600 hover:bg-rose-100">Desactivar</button>` : ''}
+                        </td>
+                    </tr>`).join('') || `<tr><td colspan="5" class="px-3 py-6 text-center text-slate-400">Aún no hay dispositivos registrados.</td></tr>`;
+            } catch (e) {
+                body.innerHTML = `<tr><td colspan="5" class="px-3 py-6 text-center text-slate-400">No tienes permiso para ver esta sección.</td></tr>`;
+            }
+        }
+
+        function attendanceOpenCreateDeviceModal() {
+            document.getElementById('attDeviceNameInput').value = '';
+            document.getElementById('attDeviceCreateStep1').classList.remove('hidden');
+            document.getElementById('attDeviceCreateStep2').classList.add('hidden');
+            document.getElementById('attDeviceCreateModal').classList.remove('hidden');
+            document.getElementById('attDeviceCreateModal').classList.add('flex');
+        }
+        function attendanceCloseDeviceModal() {
+            document.getElementById('attDeviceCreateModal').classList.add('hidden');
+            document.getElementById('attDeviceCreateModal').classList.remove('flex');
+            attendanceLoadDevices();
+        }
+        async function attendanceSubmitCreateDevice() {
+            const name = document.getElementById('attDeviceNameInput').value.trim();
+            if (!name) { showAppToast('Ponle un nombre al dispositivo.'); return; }
+            try {
+                const r = await apiFetch('/api/attendance/devices', { method: 'POST', body: JSON.stringify({ deviceName: name }) });
+                document.getElementById('attDeviceTokenBox').textContent = r.token;
+                document.getElementById('attDeviceCreateStep1').classList.add('hidden');
+                document.getElementById('attDeviceCreateStep2').classList.remove('hidden');
+            } catch (e) { showAppToast(e.message); }
+        }
+        async function attendanceRotateDevice(deviceId) {
+            if (!confirm('Esto invalida el token actual de este dispositivo (dejará de funcionar hasta que pegues el nuevo). ¿Continuar?')) return;
+            try {
+                const r = await apiFetch(`/api/attendance/devices/${deviceId}/rotate`, { method: 'POST' });
+                document.getElementById('attDeviceNameInput').value = '';
+                document.getElementById('attDeviceTokenBox').textContent = r.token;
+                document.getElementById('attDeviceCreateStep1').classList.add('hidden');
+                document.getElementById('attDeviceCreateStep2').classList.remove('hidden');
+                document.getElementById('attDeviceCreateModal').classList.remove('hidden');
+                document.getElementById('attDeviceCreateModal').classList.add('flex');
+            } catch (e) { showAppToast(e.message); }
+        }
+        async function attendanceDeactivateDevice(deviceId) {
+            if (!confirm('¿Desactivar este dispositivo? Dejará de poder marcar asistencia de inmediato.')) return;
+            await apiFetch(`/api/attendance/devices/${deviceId}/deactivate`, { method: 'POST' });
+            attendanceLoadDevices();
+        }
+
+        let attDeviceAssignCurrentId = null;
+        async function attendanceOpenAssignModal(deviceId, deviceName) {
+            attDeviceAssignCurrentId = deviceId;
+            document.getElementById('attDeviceAssignName').textContent = deviceName;
+            document.getElementById('attDeviceAssignList').innerHTML = `<p class="p-3 text-slate-400 text-xs">Cargando…</p>`;
+            document.getElementById('attDeviceAssignModal').classList.remove('hidden');
+            document.getElementById('attDeviceAssignModal').classList.add('flex');
+            try {
+                const { employees } = await apiFetch(`/api/attendance/devices/${deviceId}/employees`);
+                const depts = [...new Set(employees.map(e => e.department).filter(Boolean))];
+                document.getElementById('attDeviceAssignByDept').innerHTML = depts.map(d =>
+                    `<button type="button" onclick="attendanceToggleDeptChecks('${escapeHtml(d)}', true)" class="text-2xs px-2 py-1 rounded-full bg-slate-100 hover:bg-slate-200">+ ${escapeHtml(d)}</button>
+                     <button type="button" onclick="attendanceToggleDeptChecks('${escapeHtml(d)}', false)" class="text-2xs px-2 py-1 rounded-full bg-slate-100 hover:bg-slate-200">− ${escapeHtml(d)}</button>`
+                ).join('');
+                document.getElementById('attDeviceAssignList').innerHTML = employees.map(e => `
+                    <label class="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50" data-dept="${escapeHtml(e.department || '')}">
+                        <input type="checkbox" class="att-assign-check" value="${e.id}" ${e.assigned ? 'checked' : ''}>
+                        <span>${escapeHtml(e.name)}</span>
+                        ${e.department ? `<span class="text-2xs text-slate-400 ml-auto">${escapeHtml(e.department)}</span>` : ''}
+                    </label>`).join('') || `<p class="p-3 text-slate-400 text-xs">No hay colaboradores en esta organización.</p>`;
+            } catch (e) {
+                document.getElementById('attDeviceAssignList').innerHTML = `<p class="p-3 text-rose-500 text-xs">${escapeHtml(e.message)}</p>`;
+            }
+        }
+        function attendanceToggleDeptChecks(dept, value) {
+            document.querySelectorAll(`#attDeviceAssignList label[data-dept="${dept.replace(/"/g, '')}"] input`).forEach(cb => cb.checked = value);
+        }
+        function attendanceCloseAssignModal() {
+            document.getElementById('attDeviceAssignModal').classList.add('hidden');
+            document.getElementById('attDeviceAssignModal').classList.remove('flex');
+        }
+        async function attendanceSaveAssignments() {
+            const ids = Array.from(document.querySelectorAll('.att-assign-check:checked')).map(el => Number(el.value));
+            try {
+                await apiFetch(`/api/attendance/devices/${attDeviceAssignCurrentId}/employees`, { method: 'POST', body: JSON.stringify({ employeeIds: ids }) });
+                showAppToast('Colaboradores asignados correctamente.');
+                attendanceCloseAssignModal();
+                attendanceLoadDevices();
+            } catch (e) { showAppToast(e.message); }
         }
 
         function escapeHtml(s) {
