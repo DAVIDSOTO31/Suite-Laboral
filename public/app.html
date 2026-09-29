@@ -1223,6 +1223,7 @@
                                 <th class="p-2.5 text-center text-amber-700">Hora Extra Diurna (+25%)</th>
                                 <th class="p-2.5 text-center text-rose-700">Hora Extra Nocturna (+75%)</th>
                                 <th class="p-2.5 text-right">Total a Liquidar</th>
+                                <th class="p-2.5 text-center">Detalle</th>
                             </tr>
                         </thead>
                         <tbody id="payrollOtTableBody" class="divide-y divide-slate-100">
@@ -1237,6 +1238,27 @@
             </div>
 
         </main>
+    </div>
+
+    <!-- MODAL: Detalle por fecha de la Liquidación de horas extras -->
+    <div id="payrollOtDetailModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-lg w-full p-5 shadow-2xl border border-slate-200">
+            <h3 class="font-bold text-slate-800 mb-1">Detalle por fecha — <span id="payrollOtDetailName"></span></h3>
+            <p class="text-2xs text-slate-500 mb-3">"Real" viene de una marcación de Asistencia ya finalizada; "Estimado" viene del turno programado (aún sin marcación completa).</p>
+            <div class="overflow-x-auto max-h-80 overflow-y-auto border border-slate-200 rounded-lg">
+                <table class="w-full text-xs">
+                    <thead class="bg-slate-50 text-slate-500 uppercase sticky top-0"><tr>
+                        <th class="text-left px-3 py-2">Fecha</th><th class="text-center px-3 py-2">Recargo noct.</th>
+                        <th class="text-center px-3 py-2">Extra diurna</th><th class="text-center px-3 py-2">Extra nocturna</th>
+                        <th class="text-center px-3 py-2">Origen</th>
+                    </tr></thead>
+                    <tbody id="payrollOtDetailTableBody"></tbody>
+                </table>
+            </div>
+            <div class="flex justify-end mt-4">
+                <button onclick="document.getElementById('payrollOtDetailModal').classList.add('hidden'); document.getElementById('payrollOtDetailModal').classList.remove('flex');" class="px-3 py-2 rounded-lg bg-slate-100 text-sm">Cerrar</button>
+            </div>
+        </div>
     </div>
 
     <!-- MODAL 1: Parámetros CST Colombia -->
@@ -3449,7 +3471,7 @@
             renderPayrollOvertimeView();
         }
 
-        function renderPayrollOvertimeView() {
+        async function renderPayrollOvertimeView() {
             renderPayrollOtDeptFilter();
 
             const startInput = document.getElementById('payrollOtStartDate');
@@ -3476,6 +3498,19 @@
                 return true;
             });
 
+            // Trae las marcaciones REALES del mismo periodo (Asistencia). Donde exista
+            // un turno ya marcado por completo, se usa el dato real en vez de la
+            // proyeccion del turno programado; donde no, se sigue usando el turno
+            // programado como estimado (asi no se pierde continuidad con periodos
+            // anteriores a la existencia del modulo de Asistencia).
+            let realByKey = {};
+            if (startDate && endDate) {
+                try {
+                    const { rows: realRows } = await apiFetch(`/api/attendance/payroll-summary?from=${startDate}&to=${endDate}`);
+                    realRows.forEach(r => { realByKey[`${r.employee_id}_${r.shift_date}`] = r; });
+                } catch (e) { /* si el usuario no tiene permiso de Asistencia, se sigue solo con el estimado */ }
+            }
+
             // Agrupa por colaborador (valores calculados exactamente desde los turnos, base antes de ajustes manuales)
             let byEmp = {};
             filteredShifts.forEach(s => {
@@ -3488,20 +3523,46 @@
                         emp, shiftsCount: 0,
                         hourlyRate: emp.salary / appState.settings.monthlyHoursDivider,
                         hon: 0, hed: 0, hen: 0,
-                        honPay: 0, hedPay: 0, henPay: 0, domPay: 0
+                        honPay: 0, hedPay: 0, henPay: 0, domPay: 0,
+                        detail: [], // desglose por fecha, para el boton "Ver detalle"
                     };
                 }
                 const acc = byEmp[emp.id];
                 acc.shiftsCount++;
-                acc.hon += s.res.hon;
-                acc.hed += (s.res.hed + s.res.hedd);
-                acc.hen += (s.res.hen + s.res.hend);
-                acc.honPay += s.res.honSurcharge;
-                acc.hedPay += s.res.hedTotalPay;
-                acc.henPay += s.res.henTotalPay;
+
+                const real = realByKey[`${emp.id}_${s.date}`];
+                let hon, hed, hen, honPay, hedPay, henPay, origin;
+                if (real) {
+                    // Datos REALES (de la marcacion de asistencia): ya vienen en minutos,
+                    // e incluyen el descuento por salida anticipada (regla 6/7), que
+                    // puede dejar hed en negativo a proposito.
+                    hon = real.hon_min / 60;
+                    hed = real.hed_min / 60;
+                    hen = real.hen_min / 60;
+                    honPay = hon * acc.hourlyRate * appState.settings.percHON;
+                    hedPay = hed * acc.hourlyRate * (1 + appState.settings.percHED);
+                    henPay = hen * acc.hourlyRate * (1 + appState.settings.percHEN);
+                    origin = 'real';
+                } else {
+                    // Sin marcacion real todavia: se usa el turno programado como estimado.
+                    hon = s.res.hon;
+                    hed = s.res.hed + s.res.hedd;
+                    hen = s.res.hen + s.res.hend;
+                    honPay = s.res.honSurcharge;
+                    hedPay = s.res.hedTotalPay;
+                    henPay = s.res.henTotalPay;
+                    origin = 'estimado';
+                }
+                acc.hon += hon;
+                acc.hed += hed;
+                acc.hen += hen;
+                acc.honPay += honPay;
+                acc.hedPay += hedPay;
+                acc.henPay += henPay;
                 if (s.res.isSunday) {
                     acc.domPay += s.res.domOrdinarySurcharge;
                 }
+                acc.detail.push({ date: s.date, hon, hed, hen, origin });
             });
 
             // Aplica ajustes manuales guardados (si el usuario ya editó alguna celda de este colaborador)
@@ -3577,7 +3638,7 @@
             const tfoot = document.getElementById('payrollOtTableFoot');
             if (tbody) {
                 if (rows.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-slate-400 text-xs">No hay turnos registrados en el periodo/área seleccionada.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-400 text-xs">No hay turnos registrados en el periodo/área seleccionada.</td></tr>`;
                 } else {
                     tbody.innerHTML = rows.map(r => `
                         <tr class="hover:bg-slate-50">
@@ -3603,6 +3664,9 @@
                                     onchange="handlePayrollOtTotalEdit(${r.emp.id}, this.value)"
                                     class="w-28 text-right font-mono font-bold border border-emerald-200 rounded-lg p-1.5 bg-emerald-50/50 text-emerald-800 focus:ring-2 focus:ring-emerald-400 focus:outline-none">
                             </td>
+                            <td class="p-2.5 text-center">
+                                <button onclick="payrollOtOpenDetail(${r.emp.id})" class="text-2xs px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600"><i class="fa-solid fa-list"></i> Ver</button>
+                            </td>
                         </tr>
                     `).join('');
                 }
@@ -3616,9 +3680,31 @@
                         <td class="p-3 text-center font-mono text-amber-300">${sumHED.toFixed(2)}h</td>
                         <td class="p-3 text-center font-mono text-rose-300">${sumHEN.toFixed(2)}h</td>
                         <td class="p-3 text-right font-mono text-emerald-400 text-sm">$${Math.round(sumTotalPay).toLocaleString('es-CO')}</td>
+                        <td class="p-3"></td>
                     </tr>
                 `;
             }
+        }
+
+        // Muestra el desglose fecha por fecha (real vs. estimado) de un colaborador,
+        // para las 3 categorías de horas de la Liquidación.
+        function payrollOtOpenDetail(empId) {
+            const cache = appState._payrollOtCache;
+            if (!cache) return;
+            const row = cache.rows.find(r => r.emp.id === empId);
+            if (!row) return;
+            document.getElementById('payrollOtDetailName').textContent = row.emp.name;
+            const sorted = [...row.detail].sort((a, b) => a.date.localeCompare(b.date));
+            document.getElementById('payrollOtDetailTableBody').innerHTML = sorted.map(d => `
+                <tr class="border-t border-slate-100">
+                    <td class="px-3 py-2 whitespace-nowrap">${d.date}</td>
+                    <td class="px-3 py-2 text-center font-mono">${d.hon.toFixed(2)}h</td>
+                    <td class="px-3 py-2 text-center font-mono ${d.hed < 0 ? 'text-rose-600' : ''}">${d.hed.toFixed(2)}h</td>
+                    <td class="px-3 py-2 text-center font-mono">${d.hen.toFixed(2)}h</td>
+                    <td class="px-3 py-2 text-center">${d.origin === 'real' ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-2xs font-semibold">Real</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-2xs font-semibold">Estimado</span>'}</td>
+                </tr>`).join('') || `<tr><td colspan="5" class="px-3 py-6 text-center text-slate-400">Sin turnos en este periodo.</td></tr>`;
+            document.getElementById('payrollOtDetailModal').classList.remove('hidden');
+            document.getElementById('payrollOtDetailModal').classList.add('flex');
         }
 
         // El usuario editó manualmente HON, HED o HEN: recalcula el pago de esa fila con las tarifas vigentes
