@@ -86,6 +86,7 @@ route('GET', '/api/attendance/employees-today', [requirePermission('attendance.v
 route('POST', '/api/attendance/mark', [requirePermission('attendance.mark')], (req, res) => attendance.registerMark(req, res));
 route('GET', '/api/attendance/history', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listHistory(req, res, query));
 route('GET', '/api/attendance/alerts', [requirePermission('attendance.view_alerts')], (req, res, params, query) => attendance.listAlerts(req, res, query));
+route('GET', '/api/attendance/payroll-summary', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listPayrollAttendance(req, res, query));
 route('GET', '/api/attendance/face-profiles', [requirePermission('attendance.manage_biometrics')], (req, res, params, query) => attendance.listFaceProfiles(req, res, query));
 route('POST', '/api/attendance/face-profiles', [requirePermission('attendance.manage_biometrics')], (req, res) => attendance.enrollFaceProfile(req, res));
 route('POST', '/api/attendance/face-profiles/:id/deactivate', [requirePermission('attendance.manage_biometrics')], (req, res, params) => attendance.deactivateFaceProfile(req, res, params));
@@ -124,7 +125,7 @@ const server = http.createServer(async (req, res) => {
   const INLINE_SCRIPT_HASHES = [
     "'sha256-VHT9CPskO5vtuB4/dvdS04Q+SweVGZPL/1qWK+IKjFI='", // index.html
     "'sha256-dum9fwlx0dkN5ryTuRUUwv195GfaGUq71kgIuRd86vs='", // login.html
-    "'sha256-Hd+68EATxJsPZQnhp3kVcbaIYfJwOQAQ4oY+hhs78lY='", // app.html
+    "'sha256-sb50an9qge6HWtCehKmNXQYmC0BB2kA1LPcq6ONnc/M='", // app.html
     "'sha256-TzhG/uxi5EgM2EbJA3/PNLxXGN7EtKKt3GiJJhmAcxQ='", // kiosk.html
     "'sha256-SkZ8MDP1PB+wba8BkIrLszFlOTQ9YEjBIPu4TsJPKTo='", // superadmin.html
     "'sha256-acq3Igc1f3abTnmdP0vrk+f21ykK7GXxlTu0HAeDxD8='", // accept-invite.html
