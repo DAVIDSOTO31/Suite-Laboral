@@ -192,10 +192,12 @@ async function startFacialMode() {
 async function faceLoop() {
   const video = document.getElementById('video');
   const statusEl = document.getElementById('faceStatus');
+  let noFaceStreak = 0;
   while (faceLoopActive) {
     try {
       const det = await detectFaceOnce(video);
       if (det) {
+        noFaceStreak = 0;
         const ear = (eyeAspectRatio(det.landmarks.getLeftEye()) + eyeAspectRatio(det.landmarks.getRightEye())) / 2;
         if (ear < 0.22) blinkDetected = true;
         if (blinkDetected && ear > 0.25) {
@@ -204,12 +206,15 @@ async function faceLoop() {
           faceLoopActive = false;
           await submitFaceMark(descriptor);
           return;
-        } else if (!blinkDetected) {
-          statusEl.textContent = 'Rostro detectado. Parpadea para confirmar…';
+        } else {
+          statusEl.textContent = blinkDetected ? 'Parpadeo detectado, confirmando…' : 'Rostro detectado. Parpadea para confirmar…';
         }
       } else {
-        blinkDetected = false;
-        statusEl.textContent = 'Buscando rostro…';
+        noFaceStreak++;
+        if (noFaceStreak > 6) {
+          blinkDetected = false;
+          statusEl.textContent = 'Buscando rostro…';
+        }
       }
     } catch (e) { /* reintenta */ }
     await new Promise(r => setTimeout(r, 250));
