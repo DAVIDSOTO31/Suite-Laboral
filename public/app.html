@@ -4493,10 +4493,12 @@
         async function attendanceFaceLoop() {
             const video = document.getElementById('attFaceVideo');
             const statusEl = document.getElementById('attFaceStatus');
+            let noFaceStreak = 0;
             while (attFaceLoopActive) {
                 try {
                     const det = await detectFaceOnce(video);
                     if (det) {
+                        noFaceStreak = 0;
                         const ear = (eyeAspectRatio(det.landmarks.getLeftEye()) + eyeAspectRatio(det.landmarks.getRightEye())) / 2;
                         if (ear < 0.22) attFaceBlinkDetected = true; // ojos cerrados en algun frame reciente
                         if (attFaceBlinkDetected && ear > 0.25) {
@@ -4506,12 +4508,18 @@
                             attFaceLoopActive = false;
                             await attendanceSubmitFaceMark(descriptor);
                             return;
-                        } else if (!attFaceBlinkDetected) {
-                            statusEl.textContent = 'Rostro detectado. Parpadea para confirmar…';
+                        } else {
+                            statusEl.textContent = attFaceBlinkDetected ? 'Parpadeo detectado, confirmando…' : 'Rostro detectado. Parpadea para confirmar…';
                         }
                     } else {
-                        attFaceBlinkDetected = false;
-                        statusEl.textContent = 'Buscando rostro…';
+                        // Un fallo puntual de deteccion es normal justo durante el
+                        // parpadeo (los ojos cerrados dificultan la deteccion).
+                        // Solo reiniciamos si llevamos varios fallos seguidos.
+                        noFaceStreak++;
+                        if (noFaceStreak > 6) {
+                            attFaceBlinkDetected = false;
+                            statusEl.textContent = 'Buscando rostro…';
+                        }
                     }
                 } catch (e) { /* frame fallido, se reintenta en el siguiente ciclo */ }
                 await new Promise(r => setTimeout(r, 250));
