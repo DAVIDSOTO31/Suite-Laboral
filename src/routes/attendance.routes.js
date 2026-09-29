@@ -225,7 +225,7 @@ function performMark(orgId, employeeId, userId, method, ip) {
       if (a != null && b != null) breakActualMinutes = b >= a ? (b - a) : (b + 1440 - a);
     }
     const cat = rules.categorizeWorkedMinutes({
-      scheduledEntradaMin: 0,
+      scheduledEntradaMin: rules.timeToMinutes(shift.startTime),
       scheduledSalidaMin: scheduledSalidaAbsMin,
       actualEntradaMin: entradaAbsMin == null ? 0 : entradaAbsMin,
       actualSalidaMin: actualAbsMin,
