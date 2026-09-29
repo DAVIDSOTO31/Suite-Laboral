@@ -639,8 +639,29 @@ async function kioskMarkByFace(req, res) {
   sendJson(res, result.httpStatus, result.body);
 }
 
+// ---------------------------------------------------------------------------
+// GET /api/attendance/payroll-summary?from=&to=
+// Entrega, por colaborador y fecha, las horas REALMENTE trabajadas (segun
+// las marcaciones) dentro de un rango. Lo usa la pantalla de Liquidacion de
+// horas extras para reemplazar la proyeccion del turno programado por el
+// dato real, en los dias donde ya existe una marcacion completa.
+// ---------------------------------------------------------------------------
+function listPayrollAttendance(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const from = query.from || bogota.todayISOInBogota();
+  const to = query.to || from;
+  const rows = db.prepare(`
+    SELECT employee_id, shift_date, status, hod_min, hon_min, hed_min, hen_min, retraso_min, exceso_almuerzo_min, salida_anticipada_min
+    FROM attendance_days
+    WHERE organization_id = ? AND shift_date BETWEEN ? AND ? AND status = 'turno_finalizado'
+  `).all(orgId, from, to);
+  sendJson(res, 200, { rows });
+}
+
 module.exports = {
   listEmployeesToday, registerMark, listHistory, listAlerts, listFaceProfiles, enrollFaceProfile, deactivateFaceProfile, registerMarkByFace,
   listDevices, createDevice, rotateDeviceToken, deactivateDevice, getDeviceAssignments, setDeviceAssignments,
   kioskEmployeesToday, kioskMark, kioskMarkByFace,
+  listPayrollAttendance,
 };
