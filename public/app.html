@@ -4515,23 +4515,11 @@
             const result = await faceapi.detectSingleFace(videoEl, options).withFaceLandmarks().withFaceDescriptor();
             return result || null;
         }
-        // Eye Aspect Ratio (EAR): metrica estandar para detectar parpadeo a
-        // partir de los 6 puntos de cada ojo en los 68 landmarks faciales.
-        // Se usa como una prueba de vida basica (una foto impresa no parpadea).
-        function eyeAspectRatio(eyePoints) {
-            const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-            const vertical1 = dist(eyePoints[1], eyePoints[5]);
-            const vertical2 = dist(eyePoints[2], eyePoints[4]);
-            const horizontal = dist(eyePoints[0], eyePoints[3]);
-            return (vertical1 + vertical2) / (2.0 * horizontal);
-        }
-
         // -----------------------------------------------------------------
         // Modo de marcación: facial (por defecto) o manual (respaldo)
         // -----------------------------------------------------------------
         let attMarkMode = 'facial';
         let attFaceLoopActive = false;
-        let attFaceBlinkDetected = false;
 
         function attendanceSetMarkMode(mode) {
             attMarkMode = mode;
@@ -4553,7 +4541,6 @@
             const statusEl = document.getElementById('attFaceStatus');
             const video = document.getElementById('attFaceVideo');
             attFaceLoopActive = true;
-            attFaceBlinkDetected = false;
             try {
                 statusEl.textContent = 'Cargando modelo de reconocimiento…';
                 await ensureFaceModelsLoaded();
@@ -4579,33 +4566,25 @@
         async function attendanceFaceLoop() {
             const video = document.getElementById('attFaceVideo');
             const statusEl = document.getElementById('attFaceStatus');
-            let noFaceStreak = 0;
+            let stableCount = 0;
             while (attFaceLoopActive) {
                 try {
                     const det = await detectFaceOnce(video);
                     if (det) {
-                        noFaceStreak = 0;
-                        const ear = (eyeAspectRatio(det.landmarks.getLeftEye()) + eyeAspectRatio(det.landmarks.getRightEye())) / 2;
-                        if (ear < 0.22) attFaceBlinkDetected = true; // ojos cerrados en algun frame reciente
-                        if (attFaceBlinkDetected && ear > 0.25) {
-                            // parpadeo completo (se cerraron y volvieron a abrir) -> aceptar
+                        stableCount++;
+                        if (stableCount >= 3) {
+                            // Deteccion estable durante ~750ms (evita marcar por un
+                            // falso positivo de un solo frame) -> aceptar.
                             statusEl.textContent = 'Verificando…';
                             const descriptor = Array.from(det.descriptor);
                             attFaceLoopActive = false;
                             await attendanceSubmitFaceMark(descriptor);
                             return;
-                        } else {
-                            statusEl.textContent = attFaceBlinkDetected ? 'Parpadeo detectado, confirmando…' : 'Rostro detectado. Parpadea para confirmar…';
                         }
+                        statusEl.textContent = 'Rostro detectado, verificando…';
                     } else {
-                        // Un fallo puntual de deteccion es normal justo durante el
-                        // parpadeo (los ojos cerrados dificultan la deteccion).
-                        // Solo reiniciamos si llevamos varios fallos seguidos.
-                        noFaceStreak++;
-                        if (noFaceStreak > 6) {
-                            attFaceBlinkDetected = false;
-                            statusEl.textContent = 'Buscando rostro…';
-                        }
+                        stableCount = 0;
+                        statusEl.textContent = 'Buscando rostro…';
                     }
                 } catch (e) { /* frame fallido, se reintenta en el siguiente ciclo */ }
                 await new Promise(r => setTimeout(r, 250));
