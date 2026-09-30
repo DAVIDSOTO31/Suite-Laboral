@@ -148,17 +148,8 @@ async function detectFaceOnce(videoEl) {
   const result = await faceapi.detectSingleFace(videoEl, options).withFaceLandmarks().withFaceDescriptor();
   return result || null;
 }
-function eyeAspectRatio(eyePoints) {
-  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-  const vertical1 = dist(eyePoints[1], eyePoints[5]);
-  const vertical2 = dist(eyePoints[2], eyePoints[4]);
-  const horizontal = dist(eyePoints[0], eyePoints[3]);
-  return (vertical1 + vertical2) / (2.0 * horizontal);
-}
-
 let mode = 'facial';
 let faceLoopActive = false;
-let blinkDetected = false;
 
 function setMode(m) {
   mode = m;
@@ -174,7 +165,6 @@ async function startFacialMode() {
   const statusEl = document.getElementById('faceStatus');
   const video = document.getElementById('video');
   faceLoopActive = true;
-  blinkDetected = false;
   try {
     statusEl.textContent = 'Cargando modelo…';
     await ensureFaceModelsLoaded();
@@ -192,29 +182,25 @@ async function startFacialMode() {
 async function faceLoop() {
   const video = document.getElementById('video');
   const statusEl = document.getElementById('faceStatus');
-  let noFaceStreak = 0;
+  let stableCount = 0;
   while (faceLoopActive) {
     try {
       const det = await detectFaceOnce(video);
       if (det) {
-        noFaceStreak = 0;
-        const ear = (eyeAspectRatio(det.landmarks.getLeftEye()) + eyeAspectRatio(det.landmarks.getRightEye())) / 2;
-        if (ear < 0.22) blinkDetected = true;
-        if (blinkDetected && ear > 0.25) {
+        stableCount++;
+        if (stableCount >= 3) {
+          // Deteccion estable durante ~750ms (evita marcar por un falso
+          // positivo de un solo frame) -> aceptar.
           statusEl.textContent = 'Verificando…';
           const descriptor = Array.from(det.descriptor);
           faceLoopActive = false;
           await submitFaceMark(descriptor);
           return;
-        } else {
-          statusEl.textContent = blinkDetected ? 'Parpadeo detectado, confirmando…' : 'Rostro detectado. Parpadea para confirmar…';
         }
+        statusEl.textContent = 'Rostro detectado, verificando…';
       } else {
-        noFaceStreak++;
-        if (noFaceStreak > 6) {
-          blinkDetected = false;
-          statusEl.textContent = 'Buscando rostro…';
-        }
+        stableCount = 0;
+        statusEl.textContent = 'Buscando rostro…';
       }
     } catch (e) { /* reintenta */ }
     await new Promise(r => setTimeout(r, 250));
