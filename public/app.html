@@ -239,7 +239,7 @@
                         <i class="fa-solid fa-wand-magic-sparkles"></i> Restaurar Datos y Orden de Áreas
                     </button>
                     <button onclick="exportToCSV()" class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm">
-                        <i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar CSV
+                        <i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel
                     </button>
                 </div>
             </div>
@@ -1177,7 +1177,7 @@
                             <p class="text-xs text-slate-500 mt-0.5">Consolide por periodo las horas extra diurnas/nocturnas (HED/HEN) y el recargo nocturno ordinario (HON) de todos los colaboradores, para facilitar el cuadre de nómina.</p>
                         </div>
                         <button onclick="exportPayrollOvertimeCSV()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition flex items-center gap-2 shadow shrink-0">
-                            <i class="fa-solid fa-file-csv"></i> Exportar Liquidación CSV
+                            <i class="fa-solid fa-file-excel"></i> Exportar Liquidación Excel
                         </button>
                     </div>
 
@@ -3758,28 +3758,20 @@
             renderPayrollOvertimeView();
         }
 
-        function exportPayrollOvertimeCSV() {
+        async function exportPayrollOvertimeCSV() {
             const cache = appState._payrollOtCache;
             if (!cache || cache.rows.length === 0) {
                 showAppToast('No hay datos de liquidación para exportar en el periodo seleccionado.');
                 return;
             }
-
-            let csvContent = "data:text/csv;charset=utf-8,";
-            csvContent += "Colaborador,Recargo Nocturno Ordinario (HON),Hora Extra Diurna (HED),Hora Extra Nocturna (HEN),Total a Liquidar COP\n";
-
-            cache.rows.forEach(r => {
-                csvContent += `"${r.emp.name}",${r.hon.toFixed(2)},${r.hed.toFixed(2)},${r.hen.toFixed(2)},${Math.round(r.total)}\n`;
-            });
-
-            const encodedUri = encodeURI(csvContent);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `Liquidacion_Extras_Recargos_${cache.startDate || 'periodo'}_a_${cache.endDate || ''}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            showAppToast('Liquidación de extras y recargos exportada en formato CSV.');
+            const header = ['Colaborador', 'Recargo Nocturno Ordinario (HON)', 'Hora Extra Diurna (HED)', 'Hora Extra Nocturna (HEN)', 'Total a Liquidar COP'];
+            const dataRows = cache.rows.map(r => [r.emp.name, Number(r.hon.toFixed(2)), Number(r.hed.toFixed(2)), Number(r.hen.toFixed(2)), Math.round(r.total)]);
+            try {
+                await downloadXLSX(`Liquidacion_Extras_Recargos_${cache.startDate || 'periodo'}_a_${cache.endDate || ''}.xlsx`, header, dataRows, 'Liquidacion');
+                showAppToast('Liquidación de extras y recargos exportada en formato Excel (.xlsx).');
+            } catch (e) {
+                showAppToast(e.message);
+            }
         }
 
         function updateDashboardMetrics() {
@@ -4222,30 +4214,28 @@
             runLiveSimulation();
         }
 
-        function exportToCSV() {
+        async function exportToCSV() {
             const activeShifts = appState.shifts.filter(s => !s.isOffDay);
             if (activeShifts.length === 0) {
                 showAppToast('No hay datos en la planilla para exportar.');
                 return;
             }
-
-            let csvContent = "data:text/csv;charset=utf-8,";
-            csvContent += "Fecha,Colaborador,Área,Entrada,Salida,Horas Totales,HOD,HON,HED,HEN,Total Devengado COP\n";
-
-            activeShifts.forEach(s => {
-                let emp = appState.employees.find(e => e.id === s.empId) || { name: 'Operador', department: 'General' };
-                let row = `${s.date},"${emp.name}","${emp.department || ''}",${s.startTime},${s.endTime},${s.res.totalHours.toFixed(2)},${s.res.hod.toFixed(2)},${s.res.hon.toFixed(2)},${(s.res.hed+s.res.hedd).toFixed(2)},${(s.res.hen+s.res.hend).toFixed(2)},${Math.round(s.res.totalPay)}`;
-                csvContent += row + "\n";
+            const header = ['Fecha', 'Colaborador', 'Área', 'Entrada', 'Salida', 'Horas Totales', 'HOD', 'HON', 'HED', 'HEN', 'Total Devengado COP'];
+            const dataRows = activeShifts.map(s => {
+                const emp = appState.employees.find(e => e.id === s.empId) || { name: 'Operador', department: 'General' };
+                return [
+                    s.date, emp.name, emp.department || '', s.startTime, s.endTime,
+                    Number(s.res.totalHours.toFixed(2)), Number(s.res.hod.toFixed(2)), Number(s.res.hon.toFixed(2)),
+                    Number((s.res.hed + s.res.hedd).toFixed(2)), Number((s.res.hen + s.res.hend).toFixed(2)),
+                    Math.round(s.res.totalPay),
+                ];
             });
-
-            const encodedUri = encodeURI(csvContent);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `Planilla_Turnos_${appState.orgName.replace(/\s+/g, '_')}_2026.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            showAppToast('Planilla exportada en formato CSV.');
+            try {
+                await downloadXLSX(`Planilla_Turnos_${appState.orgName.replace(/\s+/g, '_')}_2026.xlsx`, header, dataRows, 'Planilla');
+                showAppToast('Planilla exportada en formato Excel (.xlsx).');
+            } catch (e) {
+                showAppToast(e.message);
+            }
         }
 
         function showAppToast(msg) {
@@ -4435,6 +4425,15 @@
             const [label, cls] = ATTENDANCE_STATUS_LABELS[s] || [s || '-', 'bg-slate-100 text-slate-500'];
             return `<span class="px-2 py-0.5 rounded-full ${cls} text-2xs font-semibold whitespace-nowrap">${label}</span>`;
         }
+        const ALERT_TYPE_STYLES = {
+            llegada_tarde: ['Llegada tarde', 'bg-red-600 text-white'],
+            exceso_almuerzo: ['Exceso de almuerzo', 'bg-red-200 text-red-800'],
+            salida_anticipada: ['Salida anticipada', 'bg-orange-500 text-white'],
+        };
+        function alertTypeBadge(type) {
+            const [label, cls] = ALERT_TYPE_STYLES[type] || [type, 'bg-slate-100 text-slate-600'];
+            return `<span class="px-2 py-0.5 rounded-full ${cls} text-2xs font-bold whitespace-nowrap">${label}</span>`;
+        }
         function attMinutesLabel(m) {
             m = Number(m) || 0;
             if (m === 0) return '-';
@@ -4467,6 +4466,33 @@
             if (tab === 'alerts') attendanceLoadAlerts();
             if (tab === 'bio') attendanceLoadBioList();
             if (tab === 'devices') attendanceLoadDevices();
+        }
+
+        // -----------------------------------------------------------------
+        // Exportacion a Excel real (.xlsx), cargado bajo demanda (SheetJS).
+        // Antes se generaba un .csv; esto crea un archivo .xlsx autentico
+        // que Excel abre sin advertencias de formato.
+        // -----------------------------------------------------------------
+        let xlsxLoadPromise = null;
+        function loadXLSXLibrary() {
+            if (window.XLSX) return Promise.resolve();
+            if (xlsxLoadPromise) return xlsxLoadPromise;
+            xlsxLoadPromise = new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+                s.onload = resolve;
+                s.onerror = () => reject(new Error('No se pudo cargar la librería para generar el archivo Excel.'));
+                document.head.appendChild(s);
+            });
+            return xlsxLoadPromise;
+        }
+        // headerRow: array de textos de encabezado. dataRows: array de arrays (una fila por registro).
+        async function downloadXLSX(filename, headerRow, dataRows, sheetName) {
+            await loadXLSXLibrary();
+            const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Datos');
+            XLSX.writeFile(wb, filename);
         }
 
         // -----------------------------------------------------------------
@@ -4696,7 +4722,7 @@
                     <tr class="border-t border-slate-100">
                         <td class="px-3 py-2 whitespace-nowrap">${r.created_at}</td>
                         <td class="px-3 py-2 font-medium">${escapeHtml(r.employee_name)}</td>
-                        <td class="px-3 py-2">${escapeHtml(r.alert_type)}</td>
+                        <td class="px-3 py-2">${alertTypeBadge(r.alert_type)}</td>
                         <td class="px-3 py-2">${r.scheduled_time || '-'}</td>
                         <td class="px-3 py-2">${r.actual_time || '-'}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.diff_minutes)}</td>
