@@ -308,11 +308,15 @@ function listAlerts(req, res, query) {
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   const from = query.from || bogota.addDaysISO(bogota.todayISOInBogota(), -7);
   const to = query.to || bogota.todayISOInBogota();
+  // El apartado de Alertas solo debe mostrar estas 3: llegada tarde, exceso
+  // de almuerzo y salida anticipada (las de "hora_extra" se siguen
+  // calculando para la Liquidacion, pero no se muestran aqui).
   const rows = db.prepare(`
     SELECT a.*, e.name as employee_name
     FROM attendance_alerts a
     JOIN employees e ON e.id = a.employee_id
     WHERE a.organization_id = ? AND a.shift_date BETWEEN ? AND ?
+      AND a.alert_type IN ('llegada_tarde', 'exceso_almuerzo', 'salida_anticipada')
     ORDER BY a.created_at DESC
   `).all(orgId, from, to);
   sendJson(res, 200, { rows });
