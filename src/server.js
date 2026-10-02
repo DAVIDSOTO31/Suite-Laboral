@@ -125,8 +125,8 @@ const server = http.createServer(async (req, res) => {
   const INLINE_SCRIPT_HASHES = [
     "'sha256-VHT9CPskO5vtuB4/dvdS04Q+SweVGZPL/1qWK+IKjFI='", // index.html
     "'sha256-dum9fwlx0dkN5ryTuRUUwv195GfaGUq71kgIuRd86vs='", // login.html
-    "'sha256-tNbDuKKhKnQ3hiFcqKkjVFZYhli4wrKB7F7qNX59mwc='", // app.html
-    "'sha256-2eA0GuTmgfngEmbL6gQ+EXe1RNUQg2ylGfzMjM/eMhk='", // kiosk.html
+    "'sha256-+8oC1r72WbiPtRyv4AZuPBJf05noo7E6XX2RGuYlE0s='", // app.html
+    "'sha256-jFjh+xQlYnmCK2nC+EGGlYAG7HTCMMRZDPZjFZz8MwE='", // kiosk.html
     "'sha256-SkZ8MDP1PB+wba8BkIrLszFlOTQ9YEjBIPu4TsJPKTo='", // superadmin.html
     "'sha256-acq3Igc1f3abTnmdP0vrk+f21ykK7GXxlTu0HAeDxD8='", // accept-invite.html
     "'sha256-p7WRDAOI/vt0mUjmPWtSZe+ugsLNJkiYzKuVx61YsjA='", // forgot-password.html
