@@ -2876,28 +2876,37 @@
                     });
                 });
 
+                // Fila del área: nombre en la primera columna y, frente a ella,
+                // el día y la fecha de cada columna (para no depender solo del
+                // encabezado superior de la tabla).
                 deptRow.innerHTML = `
-                    <td colspan="8" class="p-2.5 px-4 bg-gradient-to-r from-slate-900 via-slate-850 to-slate-800 text-white">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center gap-2.5">
-                                <span class="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-400/30 flex items-center justify-center text-xs">
+                    <td class="p-2.5 px-4 bg-gradient-to-r from-slate-900 via-slate-850 to-slate-800 text-white border-r border-slate-700">
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <span class="w-6 h-6 shrink-0 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-400/30 flex items-center justify-center text-xs">
                                     <i class="fa-solid ${dept.icon || 'fa-layer-group'}"></i>
                                 </span>
-                                <div class="flex items-center gap-2">
-                                    <span class="text-3xs text-amber-400/80 font-mono">#${groupIndex + 1}</span>
-                                    <span class="text-xs tracking-wider uppercase font-black text-amber-300">${dept.name}</span>
+                                <div class="min-w-0">
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="text-3xs text-amber-400/80 font-mono">#${groupIndex + 1}</span>
+                                        <span class="text-xs tracking-wider uppercase font-black text-amber-300 truncate" title="${dept.name}">${dept.name}</span>
+                                    </div>
+                                    <span class="text-4xs text-slate-300 font-semibold">
+                                        ${emps.length} colaborador${emps.length === 1 ? '' : 'es'}
+                                    </span>
                                 </div>
-                                <span class="text-3xs bg-slate-700/80 text-slate-300 font-semibold px-2 py-0.5 rounded-full border border-slate-600">
-                                    ${emps.length} colaborador${emps.length === 1 ? '' : 'es'}
-                                </span>
                             </div>
-                            <div class="flex items-center gap-2">
-                                <button type="button" onclick="promptEditDepartmentName('${dept.id}')" title="Renombrar área" class="text-3xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded border border-slate-600 transition flex items-center gap-1">
-                                    <i class="fa-solid fa-pen text-[9px]"></i> Renombrar
-                                </button>
-                            </div>
+                            <button type="button" onclick="promptEditDepartmentName('${dept.id}')" title="Renombrar área" class="shrink-0 text-3xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-1.5 py-1 rounded border border-slate-600 transition">
+                                <i class="fa-solid fa-pen text-[9px]"></i>
+                            </button>
                         </div>
                     </td>
+                    ${weekDays.map(d => `
+                        <td class="p-1.5 text-center border-r border-slate-700 ${d.isSunday ? 'bg-sky-950 text-sky-300' : 'bg-slate-800 text-white'}">
+                            <span class="block text-[11px] font-black tracking-wider">${d.shortName}</span>
+                            <span class="block text-3xs font-normal opacity-70">${d.displayDate}</span>
+                        </td>
+                    `).join('')}
                     <td class="p-2 text-center bg-slate-950 font-mono text-3xs text-slate-300">
                         <span class="text-amber-400 font-bold">${deptTotalWeeklyHours.toFixed(2)} h</span>
                         <span class="block text-4xs text-slate-400 uppercase">Subtotal</span>
