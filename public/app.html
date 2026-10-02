@@ -26,6 +26,20 @@
             -moz-osx-font-smoothing: grayscale;
             text-rendering: optimizeLegibility;
         }
+        /* Permisos por rol: lo que el usuario no puede usar no se muestra.
+           (El servidor igual valida cada acción; esto solo ordena la pantalla.) */
+        body:not(.perm-settings-manage) [data-perm="settings.manage"] { display: none !important; }
+        body:not(.perm-shifts-view) [data-perm="shifts.view"] { display: none !important; }
+        body:not(.perm-shifts-edit) [data-perm="shifts.edit"] { display: none !important; }
+        body:not(.perm-employees-view) [data-perm="employees.view"] { display: none !important; }
+        body:not(.perm-employees-create) [data-perm="employees.create"] { display: none !important; }
+        body:not(.perm-employees-edit_payroll) [data-perm="employees.edit_payroll"] { display: none !important; }
+        body:not(.perm-reports-view) [data-perm="reports.view"] { display: none !important; }
+        body:not(.perm-attendance-mark) [data-perm="attendance.mark"] { display: none !important; }
+        body:not(.perm-attendance-manage_biometrics) [data-perm="attendance.manage_biometrics"] { display: none !important; }
+        body:not(.perm-attendance-manage_devices) [data-perm="attendance.manage_devices"] { display: none !important; }
+        body:not(.perm-attendance-view) [data-perm="attendance.view"] { display: none !important; }
+        body:not(.perm-attendance-view_alerts) [data-perm="attendance.view_alerts"] { display: none !important; }
         /* Escala tipográfica ejecutiva: ningún texto por debajo de 10-11 px */
         .text-4xs { font-size: 10px; line-height: 13px; }
         .text-3xs { font-size: 11px; line-height: 15px; }
@@ -137,7 +151,7 @@
                     <div class="flex flex-col flex-1 min-w-0 pr-0.5">
                         <div class="flex items-center justify-between gap-1 text-[11px] text-sky-300/80 uppercase tracking-wider font-semibold leading-tight">
                             <span>Organización:</span>
-                            <span class="text-[10px] text-slate-400 flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
+                            <span data-perm="settings.manage" class="text-[10px] text-slate-400 flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
                                 <i class="fa-solid fa-pen text-[7px] text-sky-400"></i> editar
                             </span>
                         </div>
@@ -155,7 +169,7 @@
 
                 <div class="h-7 w-px bg-slate-800 mx-0.5 hidden sm:block"></div>
 
-                <button onclick="openModal('modalSettings')" title="Ajustes Normativos CST" class="px-2.5 sm:px-3 py-2 rounded-xl text-slate-300 hover:text-white bg-slate-800/70 hover:bg-slate-800 border border-slate-700/70 transition text-xs font-semibold flex items-center gap-1.5 shadow-sm">
+                <button onclick="openModal('modalSettings')" data-perm="settings.manage" title="Ajustes Normativos CST" class="px-2.5 sm:px-3 py-2 rounded-xl text-slate-300 hover:text-white bg-slate-800/70 hover:bg-slate-800 border border-slate-700/70 transition text-xs font-semibold flex items-center gap-1.5 shadow-sm">
                     <i class="fa-solid fa-scale-balanced text-sky-400"></i>
                     <span class="hidden md:inline">Parámetros CST</span>
                 </button>
@@ -178,34 +192,38 @@
             </div>
 
             <nav class="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar text-sm">
-                <a href="#shifts" onclick="switchView('shifts')" id="nav-shifts" class="sidebar-item-active flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
+                <a href="#mine" onclick="switchView('mine')" id="nav-mine" class="hidden flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
+                    <i class="fa-solid fa-id-badge text-sky-600 w-5"></i>
+                    <span>Mi horario y marcaciones</span>
+                </a>
+                <a href="#shifts" onclick="switchView('shifts')" id="nav-shifts" data-perm="shifts.view" class="sidebar-item-active flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
                     <i class="fa-solid fa-table-cells text-amber-500 w-5"></i>
                     <span>Planilla & Cuadre Semanal</span>
                 </a>
-                <a href="#payrollot" onclick="switchView('payrollot')" id="nav-payrollot" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
+                <a href="#payrollot" onclick="switchView('payrollot')" id="nav-payrollot" data-perm="reports.view" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
                     <i class="fa-solid fa-moon text-violet-600 w-5"></i>
                     <span>Liquidación Extras & Recargos</span>
                 </a>
-                <a href="#dashboard" onclick="switchView('dashboard')" id="nav-dashboard" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
+                <a href="#dashboard" onclick="switchView('dashboard')" id="nav-dashboard" data-perm="reports.view" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
                     <i class="fa-solid fa-chart-line text-blue-600 w-5"></i>
                     <span>Dashboard General</span>
                 </a>
-                <a href="#express" onclick="switchView('express')" id="nav-express" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
+                <a href="#express" onclick="switchView('express')" id="nav-express" data-perm="shifts.view" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
                     <i class="fa-solid fa-stopwatch text-indigo-500 w-5"></i>
                     <span>Calculador de Turno</span>
                 </a>
-                <a href="#employees" onclick="switchView('employees')" id="nav-employees" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
+                <a href="#employees" onclick="switchView('employees')" id="nav-employees" data-perm="employees.view" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
                     <i class="fa-solid fa-users text-emerald-600 w-5"></i>
                     <span>Colaboradores & Nómina</span>
                 </a>
-                <a href="#audit" onclick="switchView('audit')" id="nav-audit" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
+                <a href="#audit" onclick="switchView('audit')" id="nav-audit" data-perm="reports.view" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
                     <div class="relative">
                         <i class="fa-solid fa-shield-halved text-rose-500 w-5"></i>
                         <span id="auditBadgeCounter" class="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-500"></span>
                     </div>
                     <span>Auditoría Legal CST</span>
                 </a>
-                <a href="#reports" onclick="switchView('reports')" id="nav-reports" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
+                <a href="#reports" onclick="switchView('reports')" id="nav-reports" data-perm="reports.view" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
                     <i class="fa-solid fa-file-invoice-dollar text-purple-600 w-5"></i>
                     <span>Informes & Certificados</span>
                 </a>
@@ -245,16 +263,54 @@
                     <span id="breadcrumbCurrent" class="text-slate-800 font-bold">Planilla & Cuadre Semanal</span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button onclick="seedDemoData()" class="px-3 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-xs font-semibold flex items-center gap-1.5 transition">
+                    <button onclick="seedDemoData()" data-perm="settings.manage" class="px-3 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-xs font-semibold flex items-center gap-1.5 transition">
                         <i class="fa-solid fa-wand-magic-sparkles"></i> Restaurar Datos y Orden de Áreas
                     </button>
-                    <button onclick="exportToCSV()" class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm">
+                    <button onclick="exportToCSV()" data-perm="reports.view" class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm">
                         <i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel
                     </button>
                 </div>
             </div>
 
             <!-- SHIFTS VIEW (CUADRE SEMANAL DEFAULT) -->
+            <!-- MÓDULO: Mi horario y mis marcaciones (vista personal de cada usuario) -->
+            <div id="view-mine" class="app-view hidden space-y-6">
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <p class="text-2xs uppercase tracking-wider font-bold text-sky-700">Mi horario</p>
+                            <h3 class="font-bold text-slate-800 text-lg" id="mineEmpName">-</h3>
+                            <p class="text-xs text-slate-500" id="mineWeekTitle">-</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button type="button" onclick="changeMineWeek(-1)" class="px-2.5 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-xs" title="Semana anterior"><i class="fa-solid fa-chevron-left"></i></button>
+                            <button type="button" onclick="changeMineWeek(0)" class="px-3 py-1.5 rounded-lg bg-sky-50 border border-sky-200 text-sky-700 text-xs font-semibold">Semana actual</button>
+                            <button type="button" onclick="changeMineWeek(1)" class="px-2.5 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-xs" title="Semana siguiente"><i class="fa-solid fa-chevron-right"></i></button>
+                        </div>
+                    </div>
+                    <div id="mineNotLinked" class="hidden mt-4 p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm">
+                        Tu usuario todavía no está vinculado a tu ficha de colaborador. Pídele al administrador que lo vincule en <strong>Usuarios &amp; Seguridad</strong>.
+                    </div>
+                    <div id="mineWeekGrid" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mt-4"></div>
+                </div>
+
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 class="font-bold text-slate-800 text-base mb-1">Mis marcaciones</h3>
+                    <p class="text-xs text-slate-500 mb-3">Últimos 30 días.</p>
+                    <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                        <table class="w-full text-xs">
+                            <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
+                                <th class="text-left px-3 py-2">Fecha</th><th class="text-left px-3 py-2">Horario</th>
+                                <th class="text-left px-3 py-2">Entrada</th><th class="text-left px-3 py-2">Almuerzo / Pausa</th>
+                                <th class="text-left px-3 py-2">Salida</th><th class="text-left px-3 py-2">Retraso</th>
+                                <th class="text-left px-3 py-2">Estado</th>
+                            </tr></thead>
+                            <tbody id="mineHistoryBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <div id="view-shifts" class="app-view space-y-6">
                 
                 <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
@@ -277,10 +333,10 @@
                             </button>
                         </div>
 
-                        <button onclick="openModal('modalAddShift')" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm ml-auto lg:ml-0">
+                        <button onclick="openModal('modalAddShift')" data-perm="shifts.edit" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm ml-auto lg:ml-0">
                             <i class="fa-solid fa-calendar-plus"></i> Registrar Turno
                         </button>
-                        <button onclick="openModal('modalManageDepts')" class="bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm border border-slate-700" title="Reordenar, crear o renombrar áreas y departamentos">
+                        <button onclick="openModal('modalManageDepts')" data-perm="settings.manage" class="bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm border border-slate-700" title="Reordenar, crear o renombrar áreas y departamentos">
                             <i class="fa-solid fa-building-user text-amber-400"></i> Ordenar Áreas
                         </button>
                     </div>
@@ -694,7 +750,7 @@
                         <p class="text-xs text-slate-500">Administre el personal registrado, contratos y áreas asignadas.</p>
                     </div>
                     <div class="flex gap-2 w-full sm:w-auto">
-                        <button onclick="openModal('modalAddEmp')" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
+                        <button onclick="openModal('modalAddEmp')" data-perm="employees.create" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
                             <i class="fa-solid fa-user-plus"></i> Vincular Colaborador
                         </button>
                     </div>
@@ -949,19 +1005,19 @@
             <div id="view-attendance" class="app-view hidden space-y-6">
 
                 <div class="bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm inline-flex gap-1">
-                    <button id="btnAttTabMark" onclick="attendanceSetSubTab('mark')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 bg-sky-600 text-white shadow-sm">
+                    <button id="btnAttTabMark" data-perm="attendance.mark" onclick="attendanceSetSubTab('mark')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 bg-sky-600 text-white shadow-sm">
                         <i class="fa-solid fa-fingerprint"></i> Marcación rápida
                     </button>
                     <button id="btnAttTabHistory" onclick="attendanceSetSubTab('history')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
                         <i class="fa-solid fa-clock-rotate-left"></i> Historial
                     </button>
-                    <button id="btnAttTabAlerts" onclick="attendanceSetSubTab('alerts')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
+                    <button id="btnAttTabAlerts" data-perm="attendance.view_alerts" onclick="attendanceSetSubTab('alerts')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
                         <i class="fa-solid fa-triangle-exclamation"></i> Alertas
                     </button>
-                    <button id="btnAttTabBio" onclick="attendanceSetSubTab('bio')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
+                    <button id="btnAttTabBio" data-perm="attendance.manage_biometrics" onclick="attendanceSetSubTab('bio')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
                         <i class="fa-solid fa-id-badge"></i> Biometría
                     </button>
-                    <button id="btnAttTabDevices" onclick="attendanceSetSubTab('devices')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
+                    <button id="btnAttTabDevices" data-perm="attendance.manage_devices" onclick="attendanceSetSubTab('devices')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
                         <i class="fa-solid fa-tablet-screen-button"></i> Dispositivos
                     </button>
                 </div>
@@ -1152,6 +1208,7 @@
                         <table class="w-full text-sm">
                             <thead class="bg-slate-50 text-slate-500 text-xs uppercase"><tr>
                                 <th class="text-left px-4 py-2">Correo</th><th class="text-left px-4 py-2">Rol</th>
+                                <th class="text-left px-4 py-2">Colaborador vinculado</th>
                                 <th class="text-left px-4 py-2">Estado</th><th class="text-right px-4 py-2">Acciones</th>
                             </tr></thead>
                             <tbody id="orgUsersTableBody"></tbody>
@@ -1365,7 +1422,7 @@
                     <input type="number" id="newEmpSalary" value="1750905" step="10000" readonly class="w-full p-2 border rounded-lg font-mono font-bold bg-slate-100 text-slate-600 cursor-not-allowed">
                     <p class="text-3xs text-slate-400 mt-1">Política de la organización: todos los colaboradores devengan 1 SMLMV 2026 ($1.750.905 COP). Campo bloqueado.</p>
                 </div>
-                <div class="bg-purple-50/60 border border-purple-200 rounded-lg p-3">
+                <div data-perm="employees.edit_payroll" class="bg-purple-50/60 border border-purple-200 rounded-lg p-3">
                     <label class="flex items-center gap-2 font-semibold text-purple-900 cursor-pointer">
                         <input type="checkbox" id="newEmpNightSurcharge" checked class="w-4 h-4 accent-purple-600"
                             onchange="document.getElementById('newEmpNightReasonBox').classList.toggle('hidden', this.checked)">
@@ -1891,7 +1948,7 @@
                         <button type="button" onclick="moveDepartment('${dept.id}', 1)" ${isLast ? 'disabled class="p-1.5 text-slate-200 cursor-not-allowed"' : 'class="p-1.5 text-slate-500 hover:text-sky-600 hover:bg-sky-50 rounded transition"'} title="Bajar en la lista">
                             <i class="fa-solid fa-arrow-down text-3xs"></i>
                         </button>
-                        <button type="button" onclick="promptEditDepartmentName('${dept.id}')" title="Renombrar área" class="p-1.5 text-slate-400 hover:text-sky-600 transition">
+                        <button type="button" onclick="promptEditDepartmentName('${dept.id}')" data-perm="settings.manage" title="Renombrar área" class="p-1.5 text-slate-400 hover:text-sky-600 transition">
                             <i class="fa-solid fa-pen text-3xs"></i>
                         </button>
                         <button type="button" onclick="deleteDepartment('${dept.id}')" title="Eliminar área" class="p-1.5 text-slate-400 hover:text-rose-600 transition">
@@ -2133,6 +2190,7 @@
         }
 
         function handleRosterCellClick(empId, dateISO, empName, dateFormatted) {
+            if (!CAN('shifts.edit')) return;
             if (appState.quickBrushMode === 'manual') {
                 openRosterQuickAssignModal(empId, dateISO, empName, dateFormatted);
                 return;
@@ -2741,7 +2799,11 @@
             setSafeText('detailEmpSalary', `$${emp.salary.toLocaleString('es-CO')} COP`);
             setSafeText('detailEmpHourlyRate', `$${Math.round(hourlyRate).toLocaleString('es-CO')}/h`);
             const nightChk = document.getElementById('detailEmpNightSurcharge');
-            if (nightChk) nightChk.checked = empNightSurcharge(emp);
+            if (nightChk) {
+                nightChk.checked = empNightSurcharge(emp);
+                nightChk.disabled = !CAN('employees.edit_payroll');
+                nightChk.title = nightChk.disabled ? 'Solo el administrador puede cambiar el recargo nocturno' : '';
+            }
             const nightReasonEl = document.getElementById('detailEmpNightReason');
             if (nightReasonEl) {
                 const off = !empNightSurcharge(emp);
@@ -2905,7 +2967,7 @@
                                     </span>
                                 </div>
                             </div>
-                            <button type="button" onclick="promptEditDepartmentName('${dept.id}')" title="Renombrar área" class="shrink-0 text-3xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-1.5 py-1 rounded border border-slate-600 transition">
+                            <button type="button" onclick="promptEditDepartmentName('${dept.id}')" data-perm="settings.manage" title="Renombrar área" class="shrink-0 text-3xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-1.5 py-1 rounded border border-slate-600 transition">
                                 <i class="fa-solid fa-pen text-[9px]"></i>
                             </button>
                         </div>
@@ -3108,6 +3170,7 @@
         function toggleEmployeeNightSurcharge(chk) {
             const emp = appState.employees.find(e => e.id === appState.selectedEmpId);
             if (!emp) return;
+            if (!CAN('employees.edit_payroll')) { chk.checked = empNightSurcharge(emp); return; }
             if (!chk.checked) {
                 const reason = (window.prompt(`¿Por qué NO aplica recargo nocturno a ${emp.name}?\n(Obligatorio. Ej.: cargo de dirección, confianza y manejo)`) || '').trim();
                 if (!reason) {
@@ -3943,17 +4006,17 @@
                             <td class="p-2.5 font-bold text-slate-800">${r.emp.name}</td>
                             <td class="p-2.5 text-center">
                                 <input type="number" step="0.01" min="0" value="${r.hon.toFixed(2)}"
-                                    onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hon', this.value)"
+                                    onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hon', this.value)" ${CAN('employees.edit_payroll') ? '' : 'disabled title="Solo lectura"'}
                                     class="w-20 text-center font-mono border border-purple-200 rounded-lg p-1.5 bg-purple-50/50 text-purple-900 font-bold focus:ring-2 focus:ring-purple-400 focus:outline-none">
                             </td>
                             <td class="p-2.5 text-center">
                                 <input type="number" step="0.01" min="0" value="${r.hed.toFixed(2)}"
-                                    onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hed', this.value)"
+                                    onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hed', this.value)" ${CAN('employees.edit_payroll') ? '' : 'disabled title="Solo lectura"'}
                                     class="w-20 text-center font-mono border border-amber-200 rounded-lg p-1.5 bg-amber-50/50 text-amber-900 font-bold focus:ring-2 focus:ring-amber-400 focus:outline-none">
                             </td>
                             <td class="p-2.5 text-center">
                                 <input type="number" step="0.01" min="0" value="${r.hen.toFixed(2)}"
-                                    onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hen', this.value)"
+                                    onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hen', this.value)" ${CAN('employees.edit_payroll') ? '' : 'disabled title="Solo lectura"'}
                                     class="w-20 text-center font-mono border border-rose-200 rounded-lg p-1.5 bg-rose-50/50 text-rose-900 font-bold focus:ring-2 focus:ring-rose-400 focus:outline-none">
                             </td>
                             <td class="p-2.5 text-right">
@@ -4367,6 +4430,7 @@
                 employees: 'Colaboradores & Nómina',
                 shifts: 'Planilla & Cuadre Semanal',
                 payrollot: 'Liquidación de Extras & Recargos',
+                mine: 'Mi horario y marcaciones',
                 audit: 'Auditoría Legal CST',
                 reports: 'Informes & Certificados',
                 orgadmin: 'Usuarios & Seguridad',
@@ -4386,6 +4450,7 @@
             if (viewId === 'reports') renderReportsView();
             if (viewId === 'orgadmin') loadOrgAdminPanel();
             if (viewId === 'attendance') initAttendanceView();
+            if (viewId === 'mine') renderMyView();
 
             if (window.innerWidth < 1024) {
                 document.getElementById('appSidebar').classList.add('-translate-x-full');
@@ -4599,17 +4664,98 @@
         // sus propias funciones; ver README para el detalle de este enfoque)
         function scheduleDataSync() {
             if (!BOOTSTRAPPED) return;
+            if (!CAN('shifts.edit') && !CAN('employees.edit')) return; // este rol no guarda cambios
             clearTimeout(dataSyncTimer);
             dataSyncTimer = setTimeout(() => {
                 apiFetch('/api/org/sync', {
                     method: 'POST',
                     body: JSON.stringify({ employees: appState.employees, shifts: appState.shifts }),
+                }).then(r => {
+                    if (r && Array.isArray(r.ignored) && r.ignored.length) {
+                        showAppToast('Algunos cambios no se guardaron por permisos: ' + r.ignored.join('; ') + '.');
+                    }
                 }).catch(e => console.warn('No se pudo sincronizar con el servidor:', e.message));
             }, 900);
         }
 
+        // ¿El usuario actual tiene este permiso?
+        function CAN(code) {
+            return !!(CURRENT_USER && (CURRENT_USER.isSuperAdmin || (CURRENT_USER.permissions || []).includes(code)));
+        }
+
+        // ---- Vista "Mi horario y marcaciones" ----
+        let mineMonday = null;
+        function myEmployee() {
+            const id = appState.viewer && appState.viewer.employeeId;
+            return id != null ? appState.employees.find(e => Number(e.id) === Number(id)) : null;
+        }
+        function changeMineWeek(delta) {
+            mineMonday = delta === 0 ? getMondayOfDate(new Date()) : addDays(mineMonday || getMondayOfDate(new Date()), delta * 7);
+            renderMyView(false);
+        }
+        async function renderMyView(loadHistory = true) {
+            if (!mineMonday) mineMonday = getMondayOfDate(new Date());
+            const emp = myEmployee();
+            document.getElementById('mineNotLinked').classList.toggle('hidden', !!emp);
+            document.getElementById('mineEmpName').textContent = emp ? emp.name : (CURRENT_USER ? CURRENT_USER.email : '-');
+            document.getElementById('mineWeekTitle').textContent = rosterWeekTitle(mineMonday);
+            const grid = document.getElementById('mineWeekGrid');
+            const dayNames = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+            grid.innerHTML = !emp ? '' : dayNames.map((name, i) => {
+                const date = addDays(mineMonday, i);
+                const iso = formatDateISO(date);
+                const sh = appState.shifts.find(s => Number(s.empId) === Number(emp.id) && s.date === iso);
+                let body, cls;
+                if (sh && sh.absenceType && ABSENCE_TYPES[sh.absenceType]) {
+                    const a = ABSENCE_TYPES[sh.absenceType];
+                    cls = SHIFT_COLOR_THEMES[a.color].bg;
+                    body = `<div class="font-extrabold uppercase text-xs">${a.label}</div>`;
+                } else if (sh && !sh.isOffDay) {
+                    const theme = SHIFT_COLOR_THEMES[sh.color] || SHIFT_COLOR_THEMES.emerald;
+                    cls = theme.bg;
+                    body = `<div class="font-black text-sm leading-tight">${shiftTimeLabel(sh)}</div>
+                            ${sh.functionTag ? `<div class="text-3xs font-semibold mt-1 break-words">${escapeHtml(sh.functionTag)}</div>` : ''}`;
+                } else {
+                    cls = 'bg-rose-50 text-rose-700 border-rose-200';
+                    body = `<div class="font-extrabold uppercase text-xs">Descanso</div>`;
+                }
+                const isToday = iso === formatDateISO(new Date());
+                return `<div class="rounded-lg border p-3 text-center ${cls} ${isToday ? 'ring-2 ring-sky-500' : ''}">
+                            <div class="text-3xs font-bold uppercase opacity-80">${name} ${date.getDate()}/${date.getMonth() + 1}${isToday ? ' · Hoy' : ''}</div>
+                            <div class="mt-1">${body}</div>
+                        </div>`;
+            }).join('');
+            if (!loadHistory) return;
+            const tbody = document.getElementById('mineHistoryBody');
+            tbody.innerHTML = '<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>';
+            try {
+                const r = await apiFetch('/api/attendance/my-history');
+                if (!r.linked) { tbody.innerHTML = '<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">Sin ficha de colaborador vinculada.</td></tr>'; return; }
+                tbody.innerHTML = r.rows.map(d => `
+                    <tr class="border-t border-slate-100">
+                        <td class="px-3 py-2 whitespace-nowrap font-medium">${d.shift_date}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${d.scheduled_entrada || '-'} - ${d.scheduled_salida || '-'}</td>
+                        <td class="px-3 py-2">${d.entrada_real || '-'}</td>
+                        <td class="px-3 py-2">${d.inicio_almuerzo_real || '-'} → ${d.fin_almuerzo_real || '-'}${d.is_split ? '<span class="block text-3xs font-semibold text-cyan-700">Pausa entre etapas</span>' : ''}</td>
+                        <td class="px-3 py-2">${d.salida_real || '-'}</td>
+                        <td class="px-3 py-2">${attMinutesLabel(d.retraso_min)}</td>
+                        <td class="px-3 py-2">${attStatusBadge(d.status, d.is_split)}</td>
+                    </tr>`).join('') || '<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">Sin marcaciones en los últimos 30 días.</td></tr>';
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">${escapeHtml(e.message)}</td></tr>`;
+            }
+        }
+
         function applyPermissionVisibility(perms) {
             const has = (p) => CURRENT_USER.isSuperAdmin || perms.includes(p);
+            // Una clase por permiso en <body>: el CSS oculta lo que no corresponde.
+            (perms || []).forEach(p => document.body.classList.add('perm-' + p.replace(/\./g, '-')));
+            if (!has('settings.manage')) {
+                const orgInput = document.getElementById('headerOrgNameInput');
+                if (orgInput) { orgInput.readOnly = true; orgInput.title = ''; }
+                const logoInput = document.getElementById('companyLogoFileInput');
+                if (logoInput) logoInput.disabled = true;
+            }
             const navOrgAdmin = document.getElementById('nav-orgadmin');
             if (has('users.view') || has('audit.view')) navOrgAdmin.classList.remove('hidden');
             const btnInvite = document.getElementById('btnInviteOrgUser');
@@ -4646,16 +4792,18 @@
             appState.shiftPresets = (data.shiftPresets && data.shiftPresets.length) ? data.shiftPresets : loadShiftPresets();
             if (!appState.shiftPresets.some(p => p.id === SPLIT_PRESET_ID)) {
                 appState.shiftPresets.push(defaultSplitPreset());
-                saveShiftPresets();
+                if (CAN('shifts.edit')) saveShiftPresets();
             }
             // El turno partido pasa del cian original al amarillo vivo.
             const splitPreset = appState.shiftPresets.find(p => p.id === SPLIT_PRESET_ID);
-            if (splitPreset && splitPreset.color === 'cyan') { splitPreset.color = 'vivid_yellow'; saveShiftPresets(); }
-            appState.shifts.forEach(sh => { if (sh.isSplit && sh.color === 'cyan') sh.color = 'vivid_yellow'; });
+            if (splitPreset && splitPreset.color === 'cyan') { splitPreset.color = 'vivid_yellow'; if (CAN('shifts.edit')) saveShiftPresets(); }
             renderColorPalette('rosterColorPalette', 'roster-color-btn', 'selectShiftColor');
             renderColorPalette('presetColorPalette', 'preset-color-btn', 'selectPresetColor');
             appState.employees = (data.employees || []).map(e => ({ ...e, nightSurcharge: e.nightSurcharge !== false, nightSurchargeReason: e.nightSurchargeReason || '' }));
             appState.shifts = data.shifts || [];
+            appState.viewer = data.viewer || { scope: 'all', employeeId: null };
+            // Turnos partidos ya asignados que quedaron en cian -> amarillo vivo.
+            appState.shifts.forEach(sh => { if (sh.isSplit && sh.color === 'cyan') sh.color = 'vivid_yellow'; });
             appState.employees.filter(e => !e.nightSurcharge).forEach(e => recomputeShiftsForEmployee(e.id));
             if (appState.employees.length) {
                 appState.selectedEmpId = appState.employees[0].id;
@@ -4665,12 +4813,21 @@
             renderQuickBrushBar();
             renderDepartmentOptions();
             renderDepartmentsManagerList();
-            switchView('shifts');
+            // Vista personal: visible para quien tiene su usuario vinculado a una
+            // ficha de colaborador, y es la UNICA vista del Empleado.
+            const navMine = document.getElementById('nav-mine');
+            const isSelfScope = appState.viewer.scope === 'self';
+            if (isSelfScope || appState.viewer.employeeId != null) navMine.classList.remove('hidden');
+            if (isSelfScope) {
+                switchView('mine');
+            } else {
+                switchView('shifts');
+            }
             runLiveSimulation();
 
             BOOTSTRAPPED = true; // a partir de aquí, las mutaciones sí se sincronizan al servidor
 
-            if (data.isEmpty) {
+            if (data.isEmpty && CAN('settings.manage')) {
                 showAppToast('Esta organización aún no tiene datos. Usa "Restaurar Datos y Orden de Áreas" para cargar un ejemplo.');
             }
         }
@@ -4686,16 +4843,31 @@
             const auditBody = document.getElementById('orgAuditTableBody');
             try {
                 const { users } = await apiFetch('/api/org/users');
+                const isMe = (u) => CURRENT_USER && u.id === CURRENT_USER.id;
+                const canEditUsers = CAN('users.edit');
+                const empOptions = (selectedId) => '<option value="">— Sin vincular —</option>' +
+                    [...appState.employees].sort((a, b) => a.name.localeCompare(b.name))
+                        .map(e => `<option value="${e.id}" ${Number(selectedId) === Number(e.id) ? 'selected' : ''}>${escapeHtml(e.name)}</option>`).join('');
+                const roleSelect = (u) => {
+                    const current = (u.roles || [])[0] || 'empleado';
+                    if (!canEditUsers || isMe(u)) return escapeHtml(ORG_ROLE_LABELS[current] || current);
+                    return `<select onchange="updateOrgUserField('${u.id}', 'role', this.value)" class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white">
+                        ${Object.entries(ORG_ROLE_LABELS).map(([k, v]) => `<option value="${k}" ${k === current ? 'selected' : ''}>${v}</option>`).join('')}
+                    </select>`;
+                };
                 usersBody.innerHTML = users.map(u => `
                     <tr class="border-t border-slate-100">
                         <td class="px-4 py-2 font-medium">${escapeHtml(u.email)}</td>
-                        <td class="px-4 py-2 text-slate-500">${escapeHtml((u.roles || []).join(', ') || '-')}</td>
+                        <td class="px-4 py-2 text-slate-500">${roleSelect(u)}</td>
+                        <td class="px-4 py-2">${canEditUsers
+                            ? `<select onchange="updateOrgUserField('${u.id}', 'employeeId', this.value)" class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white max-w-[200px]">${empOptions(u.employeeId)}</select>`
+                            : escapeHtml(u.employeeName || '—')}</td>
                         <td class="px-4 py-2">${orgUserStatusBadge(u.status)}</td>
                         <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
                             <button onclick="toggleOrgUserStatus('${u.id}')" class="text-xs px-2 py-1 rounded bg-slate-100 hover:bg-slate-200">${u.status === 'active' ? 'Desactivar' : 'Activar'}</button>
                             <button onclick="resetOrgUserPw('${u.id}')" class="text-xs px-2 py-1 rounded bg-sky-50 text-sky-700 hover:bg-sky-100">Restablecer clave</button>
                         </td>
-                    </tr>`).join('') || `<tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">Sin usuarios registrados.</td></tr>`;
+                    </tr>`).join('') || `<tr><td colspan="5" class="px-4 py-6 text-center text-slate-400">Sin usuarios registrados.</td></tr>`;
             } catch (e) {
                 usersBody.innerHTML = `<tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">No tienes permiso para ver esta sección.</td></tr>`;
             }
@@ -4764,6 +4936,7 @@
         }
 
         function initAttendanceView() {
+            if (currentAttendanceSubTab === 'mark' && !CAN('attendance.mark')) currentAttendanceSubTab = 'history';
             attendanceSetSubTab(currentAttendanceSubTab || 'mark');
             const today = new Date().toISOString().slice(0, 10);
             if (!document.getElementById('attHistoryFrom').value) {
@@ -5340,6 +5513,19 @@
                 const d = await apiFetch(`/api/org/users/${id}/reset-password`, { method: 'POST' });
                 alert('Enlace de restablecimiento generado (también impreso en la consola del servidor):\n' + d.resetLink);
             } catch (e) { showAppToast('Error: ' + e.message); }
+        }
+
+        const ORG_ROLE_LABELS = { org_admin: 'Administrador', supervisor: 'Supervisor', empleado: 'Empleado' };
+        // Cambia el rol o el colaborador vinculado de un usuario de la organización.
+        async function updateOrgUserField(userId, field, value) {
+            const body = field === 'employeeId' ? { employeeId: value === '' ? null : Number(value) } : { role: value };
+            try {
+                await apiFetch(`/api/org/users/${userId}`, { method: 'PUT', body: JSON.stringify(body) });
+                showAppToast(field === 'role' ? 'Rol actualizado. El usuario verá el cambio al recargar la página.' : 'Colaborador vinculado actualizado.');
+            } catch (e) {
+                showAppToast('Error: ' + e.message);
+            }
+            loadOrgAdminPanel();
         }
 
         function openOrgUserModal() {
