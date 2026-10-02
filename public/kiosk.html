@@ -69,6 +69,9 @@
 
 <script>
 const MARK_LABELS = { entrada: 'Entrada', inicio_almuerzo: 'Inicio de almuerzo', fin_almuerzo: 'Fin de almuerzo', salida: 'Salida' };
+// Turno partido: mismas 4 marcaciones, con nombres de etapas.
+const SPLIT_MARK_LABELS = { entrada: 'Inicio Etapa 1', inicio_almuerzo: 'Final Etapa 1', fin_almuerzo: 'Inicio Etapa 2', salida: 'Final Etapa 2' };
+function markLabel(markType, isSplit) { return (isSplit ? SPLIT_MARK_LABELS : MARK_LABELS)[markType]; }
 const FACE_MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
 
 function getToken() { return localStorage.getItem('kioskDeviceToken'); }
@@ -250,9 +253,9 @@ function renderResult(r) {
   box.className = 'mt-4 bg-slate-800 border border-slate-700 rounded-xl p-4';
   box.innerHTML = `
     <p class="font-bold text-lg">${escapeHtml(r.employeeName)}</p>
-    <p class="text-sky-400 font-extrabold text-2xl">${MARK_LABELS[r.markType]}</p>
+    <p class="text-sky-400 font-extrabold text-2xl">${markLabel(r.markType, r.isSplit)}</p>
     <p class="text-sm text-slate-300">Hora: <strong>${r.actualTime}</strong></p>
-    ${r.alert ? `<p class="text-rose-400 text-xs mt-2"><i class="fa-solid fa-triangle-exclamation"></i> ${escapeHtml(r.alert.type)}</p>` : ''}
+    ${r.alert ? `<p class="text-rose-400 text-xs mt-2"><i class="fa-solid fa-triangle-exclamation"></i> ${escapeHtml(r.isSplit && r.alert.type === 'exceso_almuerzo' ? 'Regresó tarde a la Etapa 2' : r.alert.type)}</p>` : ''}
   `;
   box.classList.remove('hidden');
 }
@@ -267,7 +270,7 @@ async function loadEmployeesForManual() {
     sel.innerHTML = employees.map(e => {
       if (!e.hasShift) return `<option value="${e.id}" data-noshift="1">${escapeHtml(e.name)} — sin turno hoy</option>`;
       if (e.completed) return `<option value="${e.id}" data-noshift="1">${escapeHtml(e.name)} — turno completo</option>`;
-      return `<option value="${e.id}">${escapeHtml(e.name)} — ${MARK_LABELS[e.nextMark]}</option>`;
+      return `<option value="${e.id}">${escapeHtml(e.name)} — ${markLabel(e.nextMark, e.isSplit)}</option>`;
     }).join('');
   } catch (e) {
     sel.innerHTML = `<option value="">${escapeHtml(e.message)}</option>`;
