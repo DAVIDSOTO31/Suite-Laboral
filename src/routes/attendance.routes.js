@@ -374,6 +374,39 @@ function listHistory(req, res, query) {
 }
 
 // ---------------------------------------------------------------------------
+// GET /api/attendance/my-history?from=YYYY-MM-DD&to=YYYY-MM-DD
+// "Mis marcaciones": el usuario ve SOLO los dias de su propia ficha de
+// colaborador (la vinculada a su usuario). Nunca acepta otro employeeId.
+// ---------------------------------------------------------------------------
+function listMyHistory(req, res, query) {
+  const orgId = req.user.organizationId;
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const employeeId = req.user.employeeId != null ? Number(req.user.employeeId) : null;
+  if (employeeId == null) return sendJson(res, 200, { linked: false, rows: [] });
+  const to = query.to || bogota.todayISOInBogota();
+  const from = query.from || bogota.addDaysISO(to, -30);
+  const rows = db.prepare(`
+    SELECT d.shift_date, d.status, d.scheduled_entrada, d.scheduled_salida,
+           d.entrada_real, d.inicio_almuerzo_real, d.fin_almuerzo_real, d.salida_real,
+           d.retraso_min, d.exceso_almuerzo_min, d.salida_anticipada_min, d.hed_min, d.hen_min, d.hon_min,
+           e.name AS employee_name
+    FROM attendance_days d
+    JOIN employees e ON e.id = d.employee_id
+    WHERE d.organization_id = ? AND d.employee_id = ? AND d.shift_date BETWEEN ? AND ?
+    ORDER BY d.shift_date DESC
+  `).all(orgId, employeeId, from, to);
+  const splitDates = new Set();
+  for (const r of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId)) {
+    try {
+      const sh = JSON.parse(r.data_json);
+      if (sh && sh.isSplit && !sh.isOffDay && Number(sh.empId) === employeeId) splitDates.add(sh.date);
+    } catch { /* fila invalida: se ignora */ }
+  }
+  for (const row of rows) row.is_split = splitDates.has(row.shift_date) ? 1 : 0;
+  sendJson(res, 200, { linked: true, from, to, rows });
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/attendance/alerts?from=YYYY-MM-DD&to=YYYY-MM-DD
 // ---------------------------------------------------------------------------
 function listAlerts(req, res, query) {
@@ -753,7 +786,7 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(HOURS_ENGINE_
 
 module.exports = {
   recalculateFinalizedDays,
-  listEmployeesToday, registerMark, listHistory, listAlerts, listFaceProfiles, enrollFaceProfile, deactivateFaceProfile, registerMarkByFace,
+  listEmployeesToday, registerMark, listHistory, listMyHistory, listAlerts, listFaceProfiles, enrollFaceProfile, deactivateFaceProfile, registerMarkByFace,
   listDevices, createDevice, rotateDeviceToken, deactivateDevice, getDeviceAssignments, setDeviceAssignments,
   kioskEmployeesToday, kioskMark, kioskMarkByFace,
   listPayrollAttendance,
