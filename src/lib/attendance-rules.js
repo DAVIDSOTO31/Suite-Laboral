@@ -164,53 +164,43 @@ function nightMinutesInInterval(fromMin, toMin) {
 }
 
 /**
- * Calcula hod/hon/hed/hen (en MINUTOS ENTEROS) para un turno.
- * Todos los valores van en el mismo sistema de referencia: minutos desde la
- * medianoche (hora Bogota) del dia del turno; un turno que cruza medianoche
- * simplemente da valores > 1440.
- *
+ * Calcula hod/hon/hed/hen para un turno, a partir de los minutos absolutos
+ * (mismo sistema de referencia: 0 = inicio de la entrada programada) de:
  *   - scheduledEntradaMin, scheduledSalidaMin: turno programado
  *   - actualEntradaMin, actualSalidaMin: marcas reales
- *   - breakMinutes: duracion del almuerzo (real si se marco, si no la programada)
- *   - nightSurchargeEnabled: si es false, el tiempo ordinario nocturno se
- *     reporta como ordinario diurno (hod) y hon queda en 0. Las horas extra
- *     nocturnas (hen) NO se ven afectadas.
+ *   - breakMinutes: minutos de almuerzo (se descuentan del tiempo trabajado)
  *
- * Reglas:
- *   - Jornada ordinaria = desde max(entrada real, entrada programada) hasta
- *     min(salida real, salida programada). Solo ahi se cuenta el recargo
- *     nocturno (hon).
- *   - Lo trabajado DESPUES de la salida programada es hora extra: hed (dia)
- *     o hen (noche, 19:00-06:00).
- *   - Lo trabajado ANTES de la entrada programada no se computa.
- *   - Politica de la organizacion: el almuerzo NUNCA reduce el recargo
- *     nocturno, sin importar si se tomo de dia o de noche. Se descuenta solo
- *     de las horas ordinarias diurnas (hod); el recargo nocturno se paga
- *     completo.
+ * Regla aplicada:
+ *   - Tiempo trabajado DENTRO del horario programado -> hod (dia) u hon (noche).
+ *   - Tiempo trabajado DESPUES de la salida programada -> hed (dia) o hen (noche).
+ *   - El tiempo trabajado ANTES de la entrada programada no se cuenta como
+ *     extra automatica (no fue autorizado por el turno); esta version no lo
+ *     computa como hed/hen, solo como "anticipacion" (ver classifyEntrada).
  */
-function categorizeWorkedMinutes({
-  scheduledEntradaMin, scheduledSalidaMin, actualEntradaMin, actualSalidaMin,
-  breakMinutes = 0, nightSurchargeEnabled = true,
-}) {
+function categorizeWorkedMinutes({ scheduledEntradaMin, scheduledSalidaMin, actualEntradaMin, actualSalidaMin, breakMinutes }) {
   const workStart = Math.max(actualEntradaMin, scheduledEntradaMin);
   const workEnd = Math.max(workStart, actualSalidaMin);
 
   const ordinaryEnd = Math.min(workEnd, scheduledSalidaMin);
-  const ordinaryGross = Math.max(0, ordinaryEnd - workStart);
-  const ordinaryNight = ordinaryGross > 0 ? nightMinutesInInterval(workStart, ordinaryEnd) : 0;
-  let hod = Math.max(0, ordinaryGross - ordinaryNight);
-  let hon = ordinaryNight;
+  const ordinaryMinutesGross = Math.max(0, ordinaryEnd - workStart);
+  const ordinaryNight = ordinaryMinutesGross > 0 ? nightMinutesInInterval(workStart, ordinaryEnd) : 0;
+  const ordinaryDay = Math.max(0, ordinaryMinutesGross - ordinaryNight);
 
   const extraStart = Math.max(workStart, scheduledSalidaMin);
-  const extraGross = Math.max(0, workEnd - extraStart);
-  const extraNight = extraGross > 0 ? nightMinutesInInterval(extraStart, workEnd) : 0;
-  const extraDay = Math.max(0, extraGross - extraNight);
+  const extraMinutesGross = Math.max(0, workEnd - extraStart);
+  const extraNight = extraMinutesGross > 0 ? nightMinutesInInterval(extraStart, workEnd) : 0;
+  const extraDay = Math.max(0, extraMinutesGross - extraNight);
 
-  hod -= Math.min(hod, Math.max(0, breakMinutes || 0));
-
-  if (!nightSurchargeEnabled) {
-    hod += hon;
-    hon = 0;
+  // El almuerzo se descuenta proporcionalmente del tiempo ordinario (el caso
+  // normal: el almuerzo ocurre dentro de la jornada programada, nunca en la
+  // extra).
+  const breakToSubtractFromOrdinary = Math.min(breakMinutes, ordinaryDay + ordinaryNight);
+  let hod = ordinaryDay;
+  let hon = ordinaryNight;
+  if (breakToSubtractFromOrdinary > 0 && (ordinaryDay + ordinaryNight) > 0) {
+    const ratioDay = ordinaryDay / (ordinaryDay + ordinaryNight);
+    hod -= Math.round(breakToSubtractFromOrdinary * ratioDay);
+    hon -= (breakToSubtractFromOrdinary - Math.round(breakToSubtractFromOrdinary * ratioDay));
   }
 
   return {
