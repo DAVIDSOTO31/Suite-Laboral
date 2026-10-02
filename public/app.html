@@ -4839,6 +4839,25 @@
                 box.className = 'bg-white rounded-xl border border-slate-200 overflow-hidden';
                 const clone = table.cloneNode(true);
                 clone.style.width = '100%';
+                // En la copia para el PDF los textos no se recortan: la
+                // herramienta que "fotografía" el cuadro corta las palabras que
+                // en pantalla van en una sola línea con "…". Aquí se dejan
+                // completos (en varias líneas si hace falta) y la columna de
+                // nombres es más ancha.
+                clone.querySelectorAll('.truncate, .line-clamp-2').forEach(el => {
+                    const wasBadge = el.classList.contains('line-clamp-2');
+                    el.classList.remove('truncate', 'line-clamp-2');
+                    el.style.whiteSpace = 'normal';
+                    el.style.overflow = 'visible';
+                    el.style.textOverflow = 'clip';
+                    el.style.wordBreak = 'break-word';
+                    el.style.maxWidth = wasBadge ? '160px' : 'none';
+                    el.style.display = wasBadge ? 'inline-block' : 'block';
+                });
+                clone.querySelectorAll('.overflow-hidden, .min-w-0').forEach(el => { el.style.overflow = 'visible'; el.style.minWidth = 'auto'; });
+                clone.querySelectorAll('*').forEach(el => { el.style.lineHeight = el.style.lineHeight || '1.35'; });
+                const firstTh = clone.querySelector('thead th');
+                if (firstTh) { firstTh.style.width = '300px'; firstTh.style.minWidth = '300px'; }
                 box.appendChild(clone);
                 wrap.appendChild(header);
                 wrap.appendChild(box);
