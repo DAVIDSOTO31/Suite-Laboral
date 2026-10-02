@@ -2941,7 +2941,7 @@
                     tr.className = 'hover:bg-sky-50/30 transition border-b border-slate-200';
 
                     let empTd = `
-                        <td class="py-1.5 pr-3 border-r border-slate-200 bg-slate-50/60 pl-6">
+                        <td class="py-1 pr-3 border-r border-slate-200 bg-slate-50/60 pl-4">
                             <span class="font-bold text-xs text-slate-800 block leading-tight" style="overflow-wrap:anywhere;" title="${emp.name}">${emp.name}</span>
                         </td>
                     `;
@@ -2956,20 +2956,16 @@
                             const userColorKey = shift.color || 'emerald';
                             const theme = SHIFT_COLOR_THEMES[userColorKey] || SHIFT_COLOR_THEMES.emerald;
                             const funcBadge = shift.functionTag 
-                                ? `<span class="text-4xs px-1.5 py-0.2 rounded ${theme.badgeBg} font-bold uppercase line-clamp-2 break-words max-w-[120px] inline-block mt-0.5" title="Función: ${escapeHtml(shift.functionTag)}">${escapeHtml(shift.functionTag)}</span>` 
+                                ? `<span class="text-4xs px-1 rounded ${theme.badgeBg} font-bold uppercase line-clamp-1 break-all min-w-0" title="Función: ${escapeHtml(shift.functionTag)}">${escapeHtml(shift.functionTag)}</span>` 
                                 : '';
 
                             return `
-                                <td class="p-1.5 border-r border-slate-200 text-center align-middle">
-                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="Clic para asignar (${shift.res.totalHours.toFixed(2)}h)" class="p-1.5 rounded-lg border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs text-center group">
-                                        <div class="flex items-center justify-center gap-1 text-3xs font-black">
-                                            <i class="fa-solid ${theme.icon} text-2xs"></i>
-                                            <span>${shiftTimeLabel(shift)}</span>
-                                        </div>
-                                        ${funcBadge}
-                                        <div class="flex items-center justify-between text-4xs font-medium mt-0.5 px-0.5 opacity-90">
-                                            <span class="font-bold font-mono">${shift.res.totalHours.toFixed(2)}h</span>
-                                            <span class="group-hover:inline hidden text-[11px] font-semibold text-slate-600"><i class="fa-solid fa-pen text-[7px]"></i> Editar</span>
+                                <td class="p-1 border-r border-slate-200 text-center align-middle">
+                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${escapeHtml(shiftTimeLabel(shift))} · ${shift.res.totalHours.toFixed(2)}h${shift.functionTag ? ' · ' + escapeHtml(shift.functionTag) : ''} — Clic para editar" class="px-1 py-0.5 rounded-md border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs text-center">
+                                        <div class="text-3xs font-black leading-tight">${shiftTimeLabel(shift)}</div>
+                                        <div class="flex items-center justify-center gap-1 text-4xs leading-tight">
+                                            <span class="font-bold font-mono shrink-0">${shift.res.totalHours.toFixed(1)}h</span>
+                                            ${funcBadge}
                                         </div>
                                     </div>
                                 </td>
@@ -2978,25 +2974,20 @@
                             const a = ABSENCE_TYPES[shift.absenceType];
                             const theme = SHIFT_COLOR_THEMES[a.color];
                             return `
-                                <td class="p-1.5 border-r border-slate-200 text-center align-middle">
-                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${a.label}: sin marcación este día. Clic para cambiar" class="p-2 rounded-lg border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs flex flex-col items-center justify-center gap-0.5">
-                                        <div class="flex items-center gap-1 font-extrabold text-3xs uppercase tracking-wider">
-                                            <i class="fa-solid ${a.icon} text-2xs"></i>
+                                <td class="p-1 border-r border-slate-200 text-center align-middle">
+                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${a.label}: sin marcación este día${shift.functionTag && shift.functionTag !== a.label ? ' · ' + escapeHtml(shift.functionTag) : ''}. Clic para cambiar" class="px-1 py-1 rounded-md border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs flex flex-col items-center justify-center">
+                                        <div class="font-extrabold text-3xs uppercase leading-tight">
                                             <span>${a.label}</span>
                                         </div>
-                                        ${shift.functionTag && shift.functionTag !== a.label ? `<span class="text-4xs font-semibold opacity-80 line-clamp-2 break-words max-w-[120px]">${escapeHtml(shift.functionTag)}</span>` : ''}
+                                        ${shift.functionTag && shift.functionTag !== a.label ? `<span class="text-4xs font-semibold opacity-80 line-clamp-1 break-all leading-tight">${escapeHtml(shift.functionTag)}</span>` : ''}
                                     </div>
                                 </td>
                             `;
                         } else {
                             return `
-                                <td class="p-1.5 border-r border-slate-200 text-center align-middle">
-                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="Día de descanso. Clic para asignar turno o cambiar estado" class="p-2 rounded-lg border border-rose-300 bg-rose-100 hover:bg-rose-200 text-rose-800 cursor-pointer transition-all hover:scale-105 shadow-xs flex flex-col items-center justify-center gap-0.5 group">
-                                        <div class="flex items-center gap-1 font-extrabold text-3xs uppercase tracking-wider text-rose-700">
-                                            <i class="fa-solid fa-bed text-rose-600 text-2xs"></i>
-                                            <span>DESCANSO</span>
-                                        </div>
-                                        <span class="text-4xs text-rose-600 font-semibold opacity-80 group-hover:opacity-100">Día Libre</span>
+                                <td class="p-1 border-r border-slate-200 text-center align-middle">
+                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="Día de descanso (día libre). Clic para asignar turno o cambiar estado" class="px-1 py-1 rounded-md border border-rose-300 bg-rose-100 hover:bg-rose-200 text-rose-700 cursor-pointer transition-all hover:scale-105 shadow-xs text-center font-extrabold text-3xs uppercase leading-tight">
+                                        Descanso
                                     </div>
                                 </td>
                             `;
@@ -3007,17 +2998,17 @@
                     const isOverLimit = empWeeklyHours > limit;
 
                     let totalTd = `
-                        <td class="p-2.5 text-center bg-slate-50 font-mono">
-                            <div class="flex flex-col items-center">
+                        <td class="px-1 py-1 text-center bg-slate-50 font-mono">
+                            <div class="flex flex-col items-center leading-tight">
                                 <span class="font-black text-xs ${isOverLimit ? 'text-rose-600' : 'text-slate-800'}">
                                     ${empWeeklyHours.toFixed(2)} h
                                 </span>
                                 ${isOverLimit ? `
-                                    <span class="text-3xs bg-rose-100 text-rose-800 font-bold px-1.5 py-0.2 rounded mt-0.5 flex items-center gap-0.5" title="Excede las 42 horas máximas permitidas por semana">
+                                    <span class="text-4xs bg-rose-100 text-rose-800 font-bold px-1.5 rounded flex items-center gap-0.5" title="Excede las 42 horas máximas permitidas por semana">
                                         <i class="fa-solid fa-triangle-exclamation"></i> >42h
                                     </span>
                                 ` : `
-                                    <span class="text-3xs bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded mt-0.5">
+                                    <span class="text-4xs bg-emerald-100 text-emerald-800 font-bold px-1.5 rounded">
                                         Cumple CST
                                     </span>
                                 `}
@@ -4854,9 +4845,9 @@
                 // en pantalla van en una sola línea con "…". Aquí se dejan
                 // completos (en varias líneas si hace falta) y la columna de
                 // nombres es más ancha.
-                clone.querySelectorAll('.truncate, .line-clamp-2').forEach(el => {
-                    const wasBadge = el.classList.contains('line-clamp-2');
-                    el.classList.remove('truncate', 'line-clamp-2');
+                clone.querySelectorAll('.truncate, .line-clamp-2, .line-clamp-1').forEach(el => {
+                    const wasBadge = el.classList.contains('line-clamp-2') || el.classList.contains('line-clamp-1');
+                    el.classList.remove('truncate', 'line-clamp-2', 'line-clamp-1');
                     el.style.whiteSpace = 'normal';
                     el.style.overflow = 'visible';
                     el.style.textOverflow = 'clip';
