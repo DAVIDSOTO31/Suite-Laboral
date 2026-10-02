@@ -4678,6 +4678,13 @@
         // MÓDULO DE ASISTENCIA (nuevo, aislado del resto de la app)
         // ---------------------------------------------------------------
         const ATTENDANCE_MARK_LABELS = { entrada: 'Entrada', inicio_almuerzo: 'Inicio de almuerzo', fin_almuerzo: 'Fin de almuerzo', salida: 'Salida' };
+        // Turno partido: mismas 4 marcaciones, con nombres de etapas.
+        const ATTENDANCE_SPLIT_MARK_LABELS = { entrada: 'Inicio Etapa 1', inicio_almuerzo: 'Final Etapa 1', fin_almuerzo: 'Inicio Etapa 2', salida: 'Final Etapa 2' };
+        function attMarkLabel(markType, isSplit) { return (isSplit ? ATTENDANCE_SPLIT_MARK_LABELS : ATTENDANCE_MARK_LABELS)[markType]; }
+        const ATTENDANCE_SPLIT_STATUS_LABELS = {
+            en_almuerzo: ['Entre etapas', 'bg-cyan-100 text-cyan-700'],
+            exceso_almuerzo: ['Regresó tarde a la Etapa 2', 'bg-rose-100 text-rose-700'],
+        };
         const ATTENDANCE_STATUS_LABELS = {
             llegada_tarde: ['Llegada tarde', 'bg-rose-100 text-rose-700'],
             llegada_anticipada: ['Llegada anticipada/puntual', 'bg-emerald-100 text-emerald-700'],
@@ -4689,8 +4696,8 @@
             turno_finalizado: ['Turno finalizado', 'bg-slate-100 text-slate-600'],
             pendiente_entrada: ['Pendiente de entrada', 'bg-slate-100 text-slate-500'],
         };
-        function attStatusBadge(s) {
-            const [label, cls] = ATTENDANCE_STATUS_LABELS[s] || [s || '-', 'bg-slate-100 text-slate-500'];
+        function attStatusBadge(s, isSplit) {
+            const [label, cls] = (isSplit && ATTENDANCE_SPLIT_STATUS_LABELS[s]) || ATTENDANCE_STATUS_LABELS[s] || [s || '-', 'bg-slate-100 text-slate-500'];
             return `<span class="px-2 py-0.5 rounded-full ${cls} text-2xs font-semibold whitespace-nowrap">${label}</span>`;
         }
         const ALERT_TYPE_STYLES = {
@@ -4824,14 +4831,15 @@
 
         function renderMarkResult(r) {
             const resultBox = document.getElementById('attMarkResult');
-            const alertHtml = r.alert ? `<div class="mt-2 text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 text-xs"><i class="fa-solid fa-triangle-exclamation"></i> Alerta generada: ${escapeHtml(r.alert.type)} (${attMinutesLabel(r.alert.diffMinutes)})</div>` : '';
+            const alertText = r.alert ? (r.isSplit && r.alert.type === 'exceso_almuerzo' ? 'Regresó tarde a la Etapa 2' : r.alert.type) : '';
+            const alertHtml = r.alert ? `<div class="mt-2 text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 text-xs"><i class="fa-solid fa-triangle-exclamation"></i> Alerta generada: ${escapeHtml(alertText)} (${attMinutesLabel(r.alert.diffMinutes)})</div>` : '';
             resultBox.className = 'mt-4 bg-slate-50 border border-slate-200 rounded-lg p-4';
             resultBox.innerHTML = `
                 <p class="font-bold text-slate-800">${escapeHtml(r.employeeName)}</p>
                 <p class="text-xs text-slate-500 mb-2">Turno: ${r.shift.startTime} - ${r.shift.endTime}</p>
-                <p class="text-lg font-extrabold text-sky-700">${ATTENDANCE_MARK_LABELS[r.markType]}</p>
+                <p class="text-lg font-extrabold text-sky-700">${attMarkLabel(r.markType, r.isSplit)}</p>
                 <p class="text-sm text-slate-600">Hora registrada: <strong>${r.actualTime}</strong></p>
-                <div class="mt-2">${attStatusBadge(r.status)}</div>
+                <div class="mt-2">${attStatusBadge(r.status, r.isSplit)}</div>
                 ${alertHtml}
             `;
             resultBox.classList.remove('hidden');
@@ -4849,7 +4857,7 @@
                 sel.innerHTML = employees.map(e => {
                     if (!e.hasShift) return `<option value="${e.id}" data-noshift="1">${escapeHtml(e.name)} — sin turno asignado hoy</option>`;
                     if (e.completed) return `<option value="${e.id}" data-noshift="1">${escapeHtml(e.name)} — turno de hoy ya completo</option>`;
-                    return `<option value="${e.id}">${escapeHtml(e.name)} — turno ${e.shift.startTime}-${e.shift.endTime} — siguiente: ${ATTENDANCE_MARK_LABELS[e.nextMark]}</option>`;
+                    return `<option value="${e.id}">${escapeHtml(e.name)} — turno ${e.shift.startTime}-${e.shift.endTime} — siguiente: ${attMarkLabel(e.nextMark, e.isSplit)}</option>`;
                 }).join('');
             } catch (e) {
                 sel.innerHTML = `<option value="">Error cargando colaboradores.</option>`;
@@ -4867,7 +4875,7 @@
             try {
                 const r = await apiFetch('/api/attendance/mark', { method: 'POST', body: JSON.stringify({ employeeId: Number(employeeId) }) });
                 renderMarkResult(r);
-                showAppToast(`Marcación registrada: ${ATTENDANCE_MARK_LABELS[r.markType]} (${r.actualTime}).`);
+                showAppToast(`Marcación registrada: ${attMarkLabel(r.markType, r.isSplit)} (${r.actualTime}).`);
                 attendanceLoadEmployeesToday();
             } catch (e) {
                 resultBox.className = 'mt-4 bg-rose-50 border border-rose-200 rounded-lg p-4 text-rose-700 text-sm';
@@ -4911,7 +4919,7 @@
                         <td class="px-3 py-2 whitespace-nowrap">${r.shift_date}</td>
                         <td class="px-3 py-2">${r.scheduled_entrada || '-'}</td>
                         <td class="px-3 py-2">${r.entrada_real || '-'}</td>
-                        <td class="px-3 py-2">${r.inicio_almuerzo_real || '-'} → ${r.fin_almuerzo_real || '-'}</td>
+                        <td class="px-3 py-2">${r.inicio_almuerzo_real || '-'} → ${r.fin_almuerzo_real || '-'}${r.is_split ? '<span class="block text-3xs font-semibold text-cyan-700">Pausa entre etapas</span>' : ''}</td>
                         <td class="px-3 py-2">${r.scheduled_salida || '-'}</td>
                         <td class="px-3 py-2">${r.salida_real || '-'}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.retraso_min)}</td>
@@ -4920,7 +4928,7 @@
                         <td class="px-3 py-2">${attRecargoCell(r)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.hed_min)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.hen_min)}</td>
-                        <td class="px-3 py-2">${attStatusBadge(r.status)}</td>
+                        <td class="px-3 py-2">${attStatusBadge(r.status, r.is_split)}</td>
                     </tr>`).join('') || `<tr><td colspan="14" class="px-3 py-6 text-center text-slate-400">Sin marcaciones en este rango de fechas.</td></tr>`;
 
                 const closed = rows.filter(r => r.status === 'turno_finalizado');
