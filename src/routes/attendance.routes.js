@@ -87,10 +87,74 @@ function insertAlert(orgId, employeeId, shiftDateISO, alertType, scheduledTime, 
 }
 
 function hhmmFromAbsMinutes(now) {
-  const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(now);
+  const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now);
   const h = p.find(x => x.type === 'hour').value;
   const m = p.find(x => x.type === 'minute').value;
   return `${h}:${m}`;
+}
+
+
+// ---------------------------------------------------------------------------
+// Calculo de horas (hod/hon/hed/hen) de un dia, a partir de los instantes
+// exactos guardados en attendance_marks.actual_at. Lo usan el cierre del
+// turno (marca de salida) y el recalculo de dias ya cerrados.
+// ---------------------------------------------------------------------------
+function computeDayHours({ employeeId, shiftDateISO, scheduledStart, scheduledEnd, salidaAbsMin, scheduledBreakMinutes, nightEnabled }) {
+  const marks = db.prepare(
+    'SELECT mark_type, actual_at FROM attendance_marks WHERE employee_id = ? AND shift_date = ? ORDER BY actual_at ASC'
+  ).all(employeeId, shiftDateISO);
+  const absOf = (type) => {
+    const m = marks.find(x => x.mark_type === type);
+    return m ? bogota.minutesSinceShiftMidnight(new Date(m.actual_at), shiftDateISO) : null;
+  };
+
+  const scheduledEntradaMin = rules.timeToMinutes(scheduledStart);
+  const scheduledSalidaMin = rules.scheduledAbsoluteMinutes(scheduledEnd, scheduledStart);
+  const entradaAbs = absOf('entrada');
+  const salidaAbs = salidaAbsMin != null ? salidaAbsMin : absOf('salida');
+  const almIni = absOf('inicio_almuerzo');
+  const almFin = absOf('fin_almuerzo');
+  const breakMinutes = (almIni != null && almFin != null && almFin >= almIni)
+    ? (almFin - almIni)
+    : (scheduledBreakMinutes || 0);
+
+  return rules.categorizeWorkedMinutes({
+    scheduledEntradaMin,
+    scheduledSalidaMin,
+    actualEntradaMin: entradaAbs == null ? scheduledEntradaMin : entradaAbs,
+    actualSalidaMin: salidaAbs == null ? scheduledSalidaMin : salidaAbs,
+    breakMinutes,
+    nightSurchargeEnabled: nightEnabled !== 0,
+  });
+}
+
+// Recalcula hod/hon/hed/hen de los dias YA CERRADOS con el motor corregido
+// (solo se ejecuta una vez, cuando la migracion lo pide). No toca las
+// marcaciones ni las alertas (son inmutables); solo los totales derivados.
+function recalculateFinalizedDays() {
+  const days = db.prepare(`
+    SELECT d.*, e.night_surcharge AS emp_night_surcharge
+    FROM attendance_days d JOIN employees e ON e.id = d.employee_id
+    WHERE d.status = 'turno_finalizado' AND d.scheduled_entrada IS NOT NULL AND d.scheduled_salida IS NOT NULL
+  `).all();
+  const update = db.prepare(
+    "UPDATE attendance_days SET hod_min = ?, hon_min = ?, hed_min = ?, hen_min = ?, updated_at = datetime('now') WHERE id = ?"
+  );
+  let count = 0;
+  for (const d of days) {
+    const shift = getShiftForEmployeeDate(d.organization_id, d.employee_id, d.shift_date);
+    const cat = computeDayHours({
+      employeeId: d.employee_id, shiftDateISO: d.shift_date,
+      scheduledStart: d.scheduled_entrada, scheduledEnd: d.scheduled_salida,
+      salidaAbsMin: null,
+      scheduledBreakMinutes: shift ? Number(shift.breakM) || 0 : 0,
+      nightEnabled: d.emp_night_surcharge === 0 ? 0 : 1,
+    });
+    const hedFinal = rules.applyEarlyLeaveDeduction(cat.hed, d.salida_anticipada_min || 0);
+    update.run(cat.hod, cat.hon, hedFinal, cat.hen, d.id);
+    count++;
+  }
+  return count;
 }
 
 // ---------------------------------------------------------------------------
@@ -214,22 +278,16 @@ function performMark(orgId, employeeId, userId, method, ip) {
       alert = { type: 'salida_anticipada', diffMinutes: clsSalida.adeudadoMinutes };
     }
 
-    // Categorizacion de horas (Regla 14) usando las marcas reales del dia.
-    const dayRow = db.prepare('SELECT * FROM attendance_days WHERE employee_id = ? AND shift_date = ?').get(employeeId, shiftDateISO);
-    const entradaClock = dayRow ? dayRow.entrada_real : shift.startTime;
-    const entradaAbsMin = rules.scheduledAbsoluteMinutes(entradaClock, shift.startTime);
-    let breakActualMinutes = Number(shift.breakM) || 0;
-    if (dayRow && dayRow.inicio_almuerzo_real && dayRow.fin_almuerzo_real) {
-      const a = rules.timeToMinutes(dayRow.inicio_almuerzo_real);
-      const b = rules.timeToMinutes(dayRow.fin_almuerzo_real);
-      if (a != null && b != null) breakActualMinutes = b >= a ? (b - a) : (b + 1440 - a);
-    }
-    const cat = rules.categorizeWorkedMinutes({
-      scheduledEntradaMin: rules.timeToMinutes(shift.startTime),
-      scheduledSalidaMin: scheduledSalidaAbsMin,
-      actualEntradaMin: entradaAbsMin == null ? 0 : entradaAbsMin,
-      actualSalidaMin: actualAbsMin,
-      breakMinutes: breakActualMinutes,
+    // Categorizacion de horas (Regla 14) usando las marcas reales del dia,
+    // con el instante exacto de cada marca (no el reloj HH:MM), para que una
+    // entrada anticipada o un turno que cruza medianoche no se confundan.
+    const nightEnabled = employee.night_surcharge === 0 ? 0 : 1;
+    const cat = computeDayHours({
+      employeeId, shiftDateISO,
+      scheduledStart: shift.startTime, scheduledEnd: shift.endTime,
+      salidaAbsMin: actualAbsMin,
+      scheduledBreakMinutes: Number(shift.breakM) || 0,
+      nightEnabled,
     });
     const hedFinal = rules.applyEarlyLeaveDeduction(cat.hed, clsSalida.adeudadoMinutes);
     patch.hod_min = cat.hod;
@@ -290,13 +348,15 @@ function listHistory(req, res, query) {
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   const from = query.from || bogota.todayISOInBogota();
   const to = query.to || from;
+  const employeeId = query.employeeId ? Number(query.employeeId) : null;
   const rows = db.prepare(`
-    SELECT d.*, e.name as employee_name
+    SELECT d.*, e.name as employee_name, e.night_surcharge as employee_night_surcharge
     FROM attendance_days d
     JOIN employees e ON e.id = d.employee_id
     WHERE d.organization_id = ? AND d.shift_date BETWEEN ? AND ?
+      AND (? IS NULL OR d.employee_id = ?)
     ORDER BY d.shift_date DESC, e.name ASC
-  `).all(orgId, from, to);
+  `).all(orgId, from, to, employeeId, employeeId);
   sendJson(res, 200, { rows });
 }
 
@@ -663,7 +723,23 @@ function listPayrollAttendance(req, res, query) {
   sendJson(res, 200, { rows });
 }
 
+// Recalculo unico de los dias ya cerrados cada vez que cambia una regla del
+// motor de horas. Cada version se registra en app_migrations para que se
+// ejecute UNA sola vez, aunque el servicio se reinicie.
+const HOURS_ENGINE_VERSION = 'horas_v3_recargo_por_colaborador';
+db.exec('CREATE TABLE IF NOT EXISTS app_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime(\'now\')))');
+if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(HOURS_ENGINE_VERSION)) {
+  try {
+    const n = recalculateFinalizedDays();
+    db.prepare('INSERT INTO app_migrations (name) VALUES (?)').run(HOURS_ENGINE_VERSION);
+    console.log(`[asistencia] Recalculo de horas (${HOURS_ENGINE_VERSION}) aplicado a ${n} dia(s) cerrado(s).`);
+  } catch (e) {
+    console.error('[asistencia] No se pudo recalcular los dias cerrados:', e.message);
+  }
+}
+
 module.exports = {
+  recalculateFinalizedDays,
   listEmployeesToday, registerMark, listHistory, listAlerts, listFaceProfiles, enrollFaceProfile, deactivateFaceProfile, registerMarkByFace,
   listDevices, createDevice, rotateDeviceToken, deactivateDevice, getDeviceAssignments, setDeviceAssignments,
   kioskEmployeesToday, kioskMark, kioskMarkByFace,
