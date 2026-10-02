@@ -288,7 +288,7 @@
                                 <span class="text-3xs text-slate-400 hidden sm:inline">Seleccione un turno y haga clic en cualquier día del colaborador</span>
                             </div>
                             <div class="flex items-center gap-2">
-                                <button type="button" onclick="openModal('modalAddPreset')" class="text-3xs text-sky-700 hover:text-sky-900 font-bold bg-sky-50 hover:bg-sky-100 px-2 py-1 rounded border border-sky-200 transition flex items-center gap-1">
+                                <button type="button" onclick="resetPresetModalToNew(); openModal('modalAddPreset')" class="text-3xs text-sky-700 hover:text-sky-900 font-bold bg-sky-50 hover:bg-sky-100 px-2 py-1 rounded border border-sky-200 transition flex items-center gap-1">
                                     <i class="fa-solid fa-plus text-3xs"></i> Nuevo Preset
                                 </button>
                                 <button type="button" onclick="resetDefaultPresets()" class="text-3xs text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded transition flex items-center gap-1" title="Restaurar turnos estándar">
@@ -1455,7 +1455,7 @@
             <div class="space-y-2">
                 <div class="flex items-center justify-between">
                     <label class="block text-3xs uppercase font-bold text-slate-500 tracking-wider">Turnos Predeterminados (Clic para aplicar):</label>
-                    <button type="button" onclick="openModal('modalAddPreset')" class="text-3xs text-sky-600 hover:text-sky-800 font-bold flex items-center gap-1">
+                    <button type="button" onclick="resetPresetModalToNew(); openModal('modalAddPreset')" class="text-3xs text-sky-600 hover:text-sky-800 font-bold flex items-center gap-1">
                         <i class="fa-solid fa-plus text-3xs"></i> Nuevo Preset
                     </button>
                 </div>
@@ -1490,9 +1490,26 @@
                     </div>
                 </div>
 
+                <div class="bg-cyan-50/60 border border-cyan-200 rounded-lg p-2.5 space-y-2">
+                    <label class="flex items-center space-x-2 text-xs font-semibold text-cyan-900 cursor-pointer">
+                        <input type="checkbox" id="rosterAssignIsSplit" class="rounded h-4 w-4" onchange="toggleRosterSplitFields()">
+                        <span>Turno partido (sale y regresa en el día)</span>
+                    </label>
+                    <div id="rosterAssignSplitFields" class="hidden grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block font-semibold text-slate-700 mb-1">Sale a las</label>
+                            <input type="time" id="rosterAssignSplitOut" value="12:00" onchange="toggleRosterSplitFields()" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-700 mb-1">Regresa a las</label>
+                            <input type="time" id="rosterAssignSplitIn" value="14:00" onchange="toggleRosterSplitFields()" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                        </div>
+                    </div>
+                </div>
+
                 <div>
-                    <label class="block font-semibold text-slate-700 mb-1">Función / Puesto Específico en el Turno</label>
-                    <input type="text" id="rosterAssignFunction" list="rosterFunctionSuggestions" placeholder="Ej. Cocina Caliente, Mesas, Recepción..." class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    <label class="block font-semibold text-slate-700 mb-1">Función / Nota del Turno (texto libre)</label>
+                    <textarea id="rosterAssignFunction" rows="2" maxlength="200" placeholder="Ej. Cocina Caliente, Mesas, Recepción... o cualquier nota" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none resize-y"></textarea>
                     <datalist id="rosterFunctionSuggestions">
                         <option value="Cocina Caliente"></option>
                         <option value="Preparación / Mise en place"></option>
@@ -1555,9 +1572,10 @@
                 <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
                     <i class="fa-solid fa-clock-rotate-left text-sky-600"></i> Nuevo Turno Predeterminado
                 </h3>
-                <button onclick="closeModal('modalAddPreset')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+                <button onclick="closeModal('modalAddPreset'); resetPresetModalToNew();" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
 
+            <input type="hidden" id="editPresetId" value="">
             <div class="space-y-3 text-xs">
                 <div>
                     <label class="block font-semibold text-slate-700 mb-1">Nombre del Turno</label>
@@ -1572,6 +1590,17 @@
                     <div>
                         <label class="block font-semibold text-slate-700 mb-1">Hora Salida</label>
                         <input type="time" id="newPresetEnd" value="16:00" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div id="newPresetSplitFields" class="hidden grid grid-cols-2 gap-3 bg-cyan-50/60 border border-cyan-200 rounded-lg p-2.5">
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Sale a las</label>
+                        <input type="time" id="newPresetSplitOut" value="12:00" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Regresa a las</label>
+                        <input type="time" id="newPresetSplitIn" value="14:00" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
                     </div>
                 </div>
 
@@ -1609,7 +1638,7 @@
             </div>
 
             <div class="flex justify-end gap-2 border-t pt-3">
-                <button onclick="closeModal('modalAddPreset')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                <button onclick="closeModal('modalAddPreset'); resetPresetModalToNew();" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
                 <button onclick="saveNewShiftPreset()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow flex items-center gap-1.5">
                     <i class="fa-solid fa-plus"></i> Guardar Predeterminado
                 </button>
@@ -1691,7 +1720,7 @@
             employees: [], 
             shifts: [],    
             selectedEmpId: null,
-            rosterCurrentMonday: getMondayOfDate(new Date('2026-08-31')),
+            rosterCurrentMonday: getMondayOfDate(new Date()),
             shiftPresets: [],
             quickBrushMode: 'office'
         };
@@ -1907,8 +1936,67 @@
             amber:   { bg: 'bg-amber-100 text-amber-900 border-amber-300', badgeBg: 'bg-amber-200 text-amber-900', icon: 'fa-utensils', text: 'Ámbar' },
             teal:    { bg: 'bg-teal-100 text-teal-900 border-teal-300', badgeBg: 'bg-teal-200 text-teal-900', icon: 'fa-spray-can-sparkles', text: 'Turquesa' },
             rose:    { bg: 'bg-rose-100 text-rose-900 border-rose-300', badgeBg: 'bg-rose-200 text-rose-900', icon: 'fa-bell-concierge', text: 'Rosa' },
-            slate:   { bg: 'bg-slate-100 text-slate-900 border-slate-300', badgeBg: 'bg-slate-200 text-slate-900', icon: 'fa-shield-halved', text: 'Pizarra' }
+            slate:   { bg: 'bg-slate-100 text-slate-900 border-slate-300', badgeBg: 'bg-slate-200 text-slate-900', icon: 'fa-shield-halved', text: 'Pizarra' },
+            cyan:    { bg: 'bg-cyan-100 text-cyan-900 border-cyan-300', badgeBg: 'bg-cyan-200 text-cyan-900', icon: 'fa-arrows-split-up-and-left', text: 'Cian' },
+            yellow:  { bg: 'bg-yellow-100 text-yellow-900 border-yellow-400', badgeBg: 'bg-yellow-200 text-yellow-900', icon: 'fa-umbrella-beach', text: 'Amarillo' },
+            orange:  { bg: 'bg-orange-100 text-orange-900 border-orange-300', badgeBg: 'bg-orange-200 text-orange-900', icon: 'fa-briefcase-medical', text: 'Naranja' },
+            gray:    { bg: 'bg-gray-200 text-gray-800 border-gray-400', badgeBg: 'bg-gray-300 text-gray-800', icon: 'fa-user-slash', text: 'Gris' }
         };
+
+        // Novedades de día completo (sin horario de trabajo): el colaborador
+        // NO marca asistencia ese día y no suma horas en la planilla.
+        const ABSENCE_TYPES = {
+            vacaciones:  { label: 'Vacaciones',  color: 'yellow', icon: 'fa-umbrella-beach' },
+            incapacidad: { label: 'Incapacidad', color: 'orange', icon: 'fa-briefcase-medical' },
+            sin_horario: { label: 'Sin Horario', color: 'gray',   icon: 'fa-user-slash' },
+        };
+
+        // Turno partido predeterminado (editable): 08:00-12:00 / 14:00-18:00.
+        const SPLIT_PRESET_ID = 'split_shift';
+        function defaultSplitPreset() {
+            return { id: SPLIT_PRESET_ID, name: 'Turno Partido', startTime: '08:00', splitOut: '12:00', splitIn: '14:00', endTime: '18:00',
+                     breakM: 120, limit: 8, color: 'cyan', functionTag: 'Turno partido', isOvernight: false, isSplit: true };
+        }
+        function minutesBetween(a, b) {
+            const [ah, am] = String(a).split(':').map(Number);
+            const [bh, bm] = String(b).split(':').map(Number);
+            if ([ah, am, bh, bm].some(isNaN)) return 0;
+            let d = (bh * 60 + bm) - (ah * 60 + am);
+            if (d < 0) d += 1440;
+            return d;
+        }
+        // Texto del horario: "08:00-12:00 / 14:00-18:00" para turno partido.
+        function shiftTimeLabel(x) {
+            if (x && x.isSplit && x.splitOut && x.splitIn) return `${x.startTime}-${x.splitOut} / ${x.splitIn}-${x.endTime}`;
+            return `${x.startTime} - ${x.endTime}`;
+        }
+        function buildAbsenceShift(empId, dateISO, type) {
+            const a = ABSENCE_TYPES[type];
+            return {
+                empId, date: dateISO, startTime: '--:--', endTime: '--:--', breakM: 0, limit: 8,
+                color: a.color, shiftTitle: a.label, functionTag: a.label, isOffDay: true, absenceType: type,
+                res: {
+                    totalHours: 0, hod: 0, hon: 0, hed: 0, hen: 0, hedd: 0, hend: 0,
+                    hourlyRate: 0, baseOrdinaryPay: 0, honSurcharge: 0, hedTotalPay: 0,
+                    henTotalPay: 0, domOrdinarySurcharge: 0, totalSurcharges: 0, totalPay: 0,
+                    isSunday: new Date(dateISO + 'T00:00:00').getDay() === 0
+                }
+            };
+        }
+        function buildShiftFromPreset(preset, empId, dateISO) {
+            const emp = appState.employees.find(e => e.id === empId);
+            const isSunday = new Date(dateISO + 'T00:00:00').getDay() === 0;
+            const salary = emp ? emp.salary : appState.settings.smlmv2026;
+            const breakM = preset.isSplit ? minutesBetween(preset.splitOut, preset.splitIn) : preset.breakM;
+            const res = calculateShift(preset.startTime, preset.endTime, breakM, preset.limit || 8, isSunday, preset.isOvernight || false, salary, empNightSurcharge(emp));
+            const shift = {
+                empId, date: dateISO, startTime: preset.startTime, endTime: preset.endTime, breakM,
+                limit: preset.limit || 8, color: preset.color, shiftTitle: preset.name, functionTag: preset.functionTag,
+                isOffDay: false, res
+            };
+            if (preset.isSplit) Object.assign(shift, { isSplit: true, splitOut: preset.splitOut, splitIn: preset.splitIn });
+            return shift;
+        }
 
         let selectedPresetColorKey = 'emerald';
         let selectedModalColorKey = 'emerald';
@@ -1921,7 +2009,8 @@
                 { id: 'morning_recep', name: 'Mañana Recep.', startTime: '06:00', endTime: '14:20', breakM: 20, limit: 8, color: 'emerald', functionTag: 'Recepción', isOvernight: false },
                 { id: 'evening_recep', name: 'Tarde Recep.', startTime: '13:40', endTime: '22:00', breakM: 20, limit: 8, color: 'purple', functionTag: 'Recepción', isOvernight: false },
                 { id: 'night', name: 'Noche', startTime: '22:00', endTime: '06:00', breakM: 60, limit: 8, color: 'indigo', functionTag: 'Operaciones', isOvernight: true },
-                { id: 'half_day', name: 'Medio Día', startTime: '08:00', endTime: '12:00', breakM: 0, limit: 4, color: 'amber', functionTag: 'Apoyo', isOvernight: false }
+                { id: 'half_day', name: 'Medio Día', startTime: '08:00', endTime: '12:00', breakM: 0, limit: 4, color: 'amber', functionTag: 'Apoyo', isOvernight: false },
+                defaultSplitPreset()
             ];
         }
 
@@ -1975,6 +2064,17 @@
             btnOff.innerHTML = `<i class="fa-solid fa-bed text-rose-600 text-2xs"></i> <span>Descanso (Libre)</span>`;
             container.appendChild(btnOff);
 
+            Object.entries(ABSENCE_TYPES).forEach(([key, a]) => {
+                const theme = SHIFT_COLOR_THEMES[a.color];
+                const isSel = appState.quickBrushMode === key;
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.onclick = () => selectQuickBrush(key);
+                b.className = `px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border shadow-xs ${theme.bg} ${isSel ? 'ring-2 ring-sky-600 ring-offset-1 font-black shadow' : 'opacity-90 hover:opacity-100'}`;
+                b.innerHTML = `<i class="fa-solid ${a.icon} text-2xs"></i> <span>${a.label}</span>`;
+                container.appendChild(b);
+            });
+
             appState.shiftPresets.forEach(preset => {
                 const isSelected = appState.quickBrushMode === preset.id;
                 const theme = SHIFT_COLOR_THEMES[preset.color] || SHIFT_COLOR_THEMES.emerald;
@@ -1985,11 +2085,14 @@
                     <button type="button" onclick="selectQuickBrush('${preset.id}')" class="px-2.5 py-1.5 flex items-center gap-1.5">
                         <i class="fa-solid ${theme.icon} text-2xs"></i>
                         <span>${preset.name}</span>
-                        <span class="text-3xs font-mono font-normal opacity-80">(${preset.startTime}-${preset.endTime})</span>
+                        <span class="text-3xs font-mono font-normal opacity-80">(${shiftTimeLabel(preset).replace(/ - /g, '-')})</span>
                     </button>
-                    <button type="button" onclick="deleteShiftPreset('${preset.id}', event)" title="Eliminar este preset" class="pr-2 pl-0.5 py-1 text-slate-400 hover:text-rose-600 transition">
+                    <button type="button" onclick="openEditShiftPreset('${preset.id}', event)" title="Editar horario de este turno" class="pl-0.5 pr-1 py-1 text-slate-400 hover:text-sky-700 transition">
+                        <i class="fa-solid fa-pen text-3xs"></i>
+                    </button>
+                    ${preset.id === SPLIT_PRESET_ID ? '<span class="pr-1.5"></span>' : `<button type="button" onclick="deleteShiftPreset('${preset.id}', event)" title="Eliminar este preset" class="pr-2 pl-0.5 py-1 text-slate-400 hover:text-rose-600 transition">
                         <i class="fa-solid fa-xmark text-3xs"></i>
-                    </button>
+                    </button>`}
                 `;
                 container.appendChild(btn);
             });
@@ -2033,28 +2136,25 @@
                 return;
             }
 
+            if (ABSENCE_TYPES[appState.quickBrushMode]) {
+                const a = ABSENCE_TYPES[appState.quickBrushMode];
+                appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
+                appState.shifts.push(buildAbsenceShift(empId, dateISO, appState.quickBrushMode));
+                showAppToast(`${a.label} asignado a ${empName}.`);
+                renderWeeklyRoster();
+                updateDashboardMetrics();
+                renderSelectedEmployeeLedger();
+                return;
+            }
+
             const preset = appState.shiftPresets.find(p => p.id === appState.quickBrushMode);
             if (preset) {
                 const emp = appState.employees.find(e => e.id === empId);
                 const dateObj = new Date(dateISO + 'T00:00:00');
                 const isSunday = dateObj.getDay() === 0;
                 const salary = emp ? emp.salary : appState.settings.smlmv2026;
-                const res = calculateShift(preset.startTime, preset.endTime, preset.breakM, preset.limit || 8, isSunday, preset.isOvernight || false, salary, empNightSurcharge(emp));
-
                 appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
-                appState.shifts.push({
-                    empId,
-                    date: dateISO,
-                    startTime: preset.startTime,
-                    endTime: preset.endTime,
-                    breakM: preset.breakM,
-                    limit: preset.limit || 8,
-                    color: preset.color,
-                    shiftTitle: preset.name,
-                    functionTag: preset.functionTag,
-                    isOffDay: false,
-                    res
-                });
+                appState.shifts.push(buildShiftFromPreset(preset, empId, dateISO));
 
                 showAppToast(`Turno "${preset.name}" asignado a ${empName}.`);
                 renderWeeklyRoster();
@@ -2077,6 +2177,10 @@
             renderModalRosterPresets(empId, dateISO);
 
             const existing = appState.shifts.find(s => s.empId === empId && s.date === dateISO);
+            document.getElementById('rosterAssignIsSplit').checked = !!(existing && existing.isSplit);
+            document.getElementById('rosterAssignSplitOut').value = (existing && existing.splitOut) || '12:00';
+            document.getElementById('rosterAssignSplitIn').value = (existing && existing.splitIn) || '14:00';
+            toggleRosterSplitFields();
             if (existing && !existing.isOffDay) {
                 document.getElementById('rosterAssignStart').value = existing.startTime;
                 document.getElementById('rosterAssignEnd').value = existing.endTime;
@@ -2110,12 +2214,12 @@
                 btn.className = `p-2 rounded-lg border flex items-center justify-between text-left text-xs transition ${theme.bg} hover:shadow`;
                 btn.innerHTML = `
                     <div onclick="quickApplyPresetAndClose('${preset.id}', ${empId}, '${dateISO}')" class="flex-1 cursor-pointer">
-                        <span class="font-bold block">${preset.name} (${preset.startTime} - ${preset.endTime})</span>
+                        <span class="font-bold block">${preset.name} (${shiftTimeLabel(preset)})</span>
                         <span class="text-3xs opacity-80 block">${preset.functionTag} • ${preset.breakM}m desc.</span>
                     </div>
-                    <button type="button" onclick="deleteShiftPreset('${preset.id}', event); renderModalRosterPresets(${empId}, '${dateISO}');" title="Eliminar preset" class="p-1 text-slate-400 hover:text-rose-600 transition">
+                    ${preset.id === SPLIT_PRESET_ID ? '' : `<button type="button" onclick="deleteShiftPreset('${preset.id}', event); renderModalRosterPresets(${empId}, '${dateISO}');" title="Eliminar preset" class="p-1 text-slate-400 hover:text-rose-600 transition">
                         <i class="fa-solid fa-trash-can text-3xs"></i>
-                    </button>
+                    </button>`}
                 `;
                 container.appendChild(btn);
             });
@@ -2129,22 +2233,8 @@
             const dateObj = new Date(dateISO + 'T00:00:00');
             const isSunday = dateObj.getDay() === 0;
             const salary = emp ? emp.salary : appState.settings.smlmv2026;
-            const res = calculateShift(preset.startTime, preset.endTime, preset.breakM, preset.limit || 8, isSunday, preset.isOvernight || false, salary, empNightSurcharge(emp));
-
             appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
-            appState.shifts.push({
-                empId,
-                date: dateISO,
-                startTime: preset.startTime,
-                endTime: preset.endTime,
-                breakM: preset.breakM,
-                limit: preset.limit || 8,
-                color: preset.color,
-                shiftTitle: preset.name,
-                functionTag: preset.functionTag,
-                isOffDay: false,
-                res
-            });
+            appState.shifts.push(buildShiftFromPreset(preset, empId, dateISO));
 
             closeModal('modalRosterQuickAssign');
             showAppToast(`Turno "${preset.name}" asignado.`);
@@ -2175,6 +2265,16 @@
             });
         }
 
+        // Muestra / oculta las horas del turno partido; el descanso se calcula solo.
+        function toggleRosterSplitFields() {
+            const on = document.getElementById('rosterAssignIsSplit').checked;
+            document.getElementById('rosterAssignSplitFields').classList.toggle('hidden', !on);
+            const brk = document.getElementById('rosterAssignBreak');
+            brk.disabled = on;
+            brk.classList.toggle('bg-slate-100', on);
+            if (on) brk.value = minutesBetween(document.getElementById('rosterAssignSplitOut').value, document.getElementById('rosterAssignSplitIn').value);
+        }
+
         function saveRosterQuickAssignment() {
             const empId = parseInt(document.getElementById('rosterAssignEmpId').value);
             const dateISO = document.getElementById('rosterAssignDate').value;
@@ -2185,6 +2285,10 @@
             const isSunday = document.getElementById('rosterAssignIsSunday').checked;
             const isOvernight = document.getElementById('rosterAssignIsOvernight').checked;
             const functionTag = document.getElementById('rosterAssignFunction').value.trim() || 'General';
+            const isSplit = document.getElementById('rosterAssignIsSplit').checked;
+            const splitOut = document.getElementById('rosterAssignSplitOut').value;
+            const splitIn = document.getElementById('rosterAssignSplitIn').value;
+            const breakFinal = isSplit ? minutesBetween(splitOut, splitIn) : breakM;
 
             const emp = appState.employees.find(e => e.id === empId);
             if (!emp) {
@@ -2192,22 +2296,24 @@
                 return;
             }
 
-            const res = calculateShift(start, end, breakM, limit, isSunday, isOvernight, emp.salary, empNightSurcharge(emp));
+            const res = calculateShift(start, end, breakFinal, limit, isSunday, isOvernight, emp.salary, empNightSurcharge(emp));
 
             appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
-            appState.shifts.push({
+            const newShift = {
                 empId,
                 date: dateISO,
                 startTime: start,
                 endTime: end,
-                breakM,
+                breakM: breakFinal,
                 limit,
                 color: selectedModalColorKey,
                 shiftTitle: functionTag,
                 functionTag,
                 isOffDay: false,
                 res
-            });
+            };
+            if (isSplit) Object.assign(newShift, { isSplit: true, splitOut, splitIn });
+            appState.shifts.push(newShift);
 
             closeModal('modalRosterQuickAssign');
             showAppToast(`Turno asignado a ${emp.name}.`);
@@ -2249,7 +2355,68 @@
             renderSelectedEmployeeLedger();
         }
 
+        // Abre el modal de presets en modo EDICIÓN para cambiar el horario de un
+        // turno existente (así no hay que crear un turno nuevo por cada horario).
+        // Los turnos ya asignados en el cuadro no cambian.
+        let editingPresetIsSplit = false;
+        function openEditShiftPreset(presetId, e) {
+            if (e) e.stopPropagation();
+            const p = appState.shiftPresets.find(item => item.id === presetId);
+            if (!p) return;
+            openModal('modalAddPreset');
+            document.getElementById('editPresetId').value = p.id;
+            editingPresetIsSplit = !!p.isSplit;
+            document.getElementById('newPresetName').value = p.name || '';
+            document.getElementById('newPresetStart').value = p.startTime;
+            document.getElementById('newPresetEnd').value = p.endTime;
+            document.getElementById('newPresetBreak').value = p.breakM || 0;
+            document.getElementById('newPresetFunction').value = p.functionTag || '';
+            document.getElementById('newPresetIsOvernight').checked = !!p.isOvernight;
+            document.getElementById('newPresetSplitFields').classList.toggle('hidden', !p.isSplit);
+            document.getElementById('newPresetBreak').disabled = !!p.isSplit;
+            if (p.isSplit) {
+                document.getElementById('newPresetSplitOut').value = p.splitOut || '12:00';
+                document.getElementById('newPresetSplitIn').value = p.splitIn || '14:00';
+            }
+            selectPresetColor(p.color || 'emerald');
+        }
+
+        function resetPresetModalToNew() {
+            document.getElementById('editPresetId').value = '';
+            editingPresetIsSplit = false;
+            document.getElementById('newPresetSplitFields').classList.add('hidden');
+            document.getElementById('newPresetBreak').disabled = false;
+        }
+
         function saveNewShiftPreset() {
+            const editId = document.getElementById('editPresetId').value;
+            if (editId) {
+                const p = appState.shiftPresets.find(item => item.id === editId);
+                if (p) {
+                    const name = document.getElementById('newPresetName').value.trim();
+                    if (!name) { showAppToast('Por favor ingrese un nombre para el turno.'); return; }
+                    p.name = name;
+                    p.startTime = document.getElementById('newPresetStart').value;
+                    p.endTime = document.getElementById('newPresetEnd').value;
+                    p.functionTag = document.getElementById('newPresetFunction').value.trim() || p.functionTag;
+                    p.isOvernight = document.getElementById('newPresetIsOvernight').checked;
+                    p.color = selectedPresetColorKey;
+                    if (p.isSplit) {
+                        p.splitOut = document.getElementById('newPresetSplitOut').value;
+                        p.splitIn = document.getElementById('newPresetSplitIn').value;
+                        p.breakM = minutesBetween(p.splitOut, p.splitIn);
+                    } else {
+                        p.breakM = parseFloat(document.getElementById('newPresetBreak').value) || 0;
+                    }
+                    saveShiftPresets();
+                    renderQuickBrushBar();
+                    closeModal('modalAddPreset');
+                    resetPresetModalToNew();
+                    document.getElementById('newPresetName').value = '';
+                    showAppToast(`Turno "${p.name}" actualizado.`);
+                }
+                return;
+            }
             const name = document.getElementById('newPresetName').value.trim();
             const start = document.getElementById('newPresetStart').value;
             const end = document.getElementById('newPresetEnd').value;
@@ -2745,7 +2912,7 @@
                             const userColorKey = shift.color || 'emerald';
                             const theme = SHIFT_COLOR_THEMES[userColorKey] || SHIFT_COLOR_THEMES.emerald;
                             const funcBadge = shift.functionTag 
-                                ? `<span class="text-4xs px-1.5 py-0.2 rounded ${theme.badgeBg} font-bold uppercase truncate max-w-[95px] inline-block mt-0.5" title="Función: ${shift.functionTag}">${shift.functionTag}</span>` 
+                                ? `<span class="text-4xs px-1.5 py-0.2 rounded ${theme.badgeBg} font-bold uppercase line-clamp-2 break-words max-w-[120px] inline-block mt-0.5" title="Función: ${escapeHtml(shift.functionTag)}">${escapeHtml(shift.functionTag)}</span>` 
                                 : '';
 
                             return `
@@ -2753,13 +2920,27 @@
                                     <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="Clic para asignar (${shift.res.totalHours.toFixed(2)}h)" class="p-1.5 rounded-lg border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs text-center group">
                                         <div class="flex items-center justify-center gap-1 text-3xs font-black">
                                             <i class="fa-solid ${theme.icon} text-2xs"></i>
-                                            <span>${shift.startTime} - ${shift.endTime}</span>
+                                            <span>${shiftTimeLabel(shift)}</span>
                                         </div>
                                         ${funcBadge}
                                         <div class="flex items-center justify-between text-4xs font-medium mt-0.5 px-0.5 opacity-90">
                                             <span class="font-bold font-mono">${shift.res.totalHours.toFixed(2)}h</span>
                                             <span class="group-hover:inline hidden text-[9px] font-semibold text-slate-600"><i class="fa-solid fa-pen text-[7px]"></i> Editar</span>
                                         </div>
+                                    </div>
+                                </td>
+                            `;
+                        } else if (shift && shift.absenceType && ABSENCE_TYPES[shift.absenceType]) {
+                            const a = ABSENCE_TYPES[shift.absenceType];
+                            const theme = SHIFT_COLOR_THEMES[a.color];
+                            return `
+                                <td class="p-1.5 border-r border-slate-200 text-center align-middle">
+                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${a.label}: sin marcación este día. Clic para cambiar" class="p-2 rounded-lg border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs flex flex-col items-center justify-center gap-0.5">
+                                        <div class="flex items-center gap-1 font-extrabold text-3xs uppercase tracking-wider">
+                                            <i class="fa-solid ${a.icon} text-2xs"></i>
+                                            <span>${a.label}</span>
+                                        </div>
+                                        ${shift.functionTag && shift.functionTag !== a.label ? `<span class="text-4xs font-semibold opacity-80 line-clamp-2 break-words max-w-[120px]">${escapeHtml(shift.functionTag)}</span>` : ''}
                                     </div>
                                 </td>
                             `;
@@ -4156,7 +4337,11 @@
 
             if (viewId === 'dashboard') updateDashboardMetrics();
             if (viewId === 'employees') renderEmployeesView();
-            if (viewId === 'shifts') renderShiftsView();
+            if (viewId === 'shifts') {
+                // Al entrar al módulo siempre se muestra la semana actual.
+                appState.rosterCurrentMonday = getMondayOfDate(new Date());
+                renderShiftsView();
+            }
             if (viewId === 'payrollot') renderPayrollOvertimeView();
             if (viewId === 'audit') runAuditInspection();
             if (viewId === 'reports') renderReportsView();
@@ -4420,6 +4605,10 @@
             appState.settings.smlmv2026 = data.orgSettings.minimumWage || 1750905;
             appState.departments = (data.departments && data.departments.length) ? data.departments : getPredefinedDepartments();
             appState.shiftPresets = (data.shiftPresets && data.shiftPresets.length) ? data.shiftPresets : loadShiftPresets();
+            if (!appState.shiftPresets.some(p => p.id === SPLIT_PRESET_ID)) {
+                appState.shiftPresets.push(defaultSplitPreset());
+                saveShiftPresets();
+            }
             appState.employees = (data.employees || []).map(e => ({ ...e, nightSurcharge: e.nightSurcharge !== false, nightSurchargeReason: e.nightSurchargeReason || '' }));
             appState.shifts = data.shifts || [];
             appState.employees.filter(e => !e.nightSurcharge).forEach(e => recomputeShiftsForEmployee(e.id));
