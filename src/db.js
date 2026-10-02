@@ -316,6 +316,8 @@ const PERMISSIONS = [
   ['attendance.manage', 'Administrar configuracion del modulo de asistencia'],
   ['attendance.manage_biometrics', 'Registrar y administrar perfiles biometricos faciales de colaboradores'],
   ['attendance.manage_devices', 'Registrar y administrar dispositivos autorizados para marcar asistencia'],
+  ['employees.edit_payroll', 'Editar salario y recargo nocturno de los colaboradores'],
+  ['self.view', 'Ver su propio horario y sus propias marcaciones'],
 ];
 
 const insertPerm = db.prepare('INSERT OR IGNORE INTO permissions (id, code, description) VALUES (?, ?, ?)');
@@ -331,8 +333,12 @@ function permIdByCode(code) {
 // System-wide default org role templates, cloned into every new organization.
 const DEFAULT_ORG_ROLES = {
   org_admin: PERMISSIONS.map(p => p[0]), // all permissions within the org
-  supervisor: ['employees.view', 'employees.create', 'employees.edit', 'shifts.view', 'shifts.create', 'shifts.edit', 'reports.view', 'attendance.view', 'attendance.view_alerts'],
-  empleado: ['employees.view', 'shifts.view', 'reports.view'],
+  // Supervisor: todas las areas; turnos y asistencia; ve salarios y nomina
+  // (reports.view) pero NO los edita (sin employees.edit_payroll) ni elimina
+  // colaboradores (sin employees.delete).
+  supervisor: ['employees.view', 'employees.create', 'employees.edit', 'shifts.view', 'shifts.create', 'shifts.edit', 'reports.view', 'attendance.view', 'attendance.view_alerts', 'self.view'],
+  // Empleado: solo su propio horario y sus propias marcaciones.
+  empleado: ['self.view'],
 };
 
 function createDefaultRolesForOrg(organizationId) {
@@ -381,6 +387,40 @@ function getOrgRoleByName(organizationId, name) {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// MIGRATION (roles v2): permisos por rol definidos en octubre 2026.
+//  - Administrador: recibe los permisos nuevos (todos).
+//  - Supervisor: recibe los permisos que le falten de su lista.
+//  - Empleado: queda SOLO con "self.view" (su horario y sus marcaciones);
+//    antes podia ver colaboradores, salarios, turnos y reportes de todos.
+// Se aplica UNA sola vez (tabla app_migrations).
+// ---------------------------------------------------------------------------
+db.exec("CREATE TABLE IF NOT EXISTS app_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))");
+if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get('roles_v2_permisos_por_rol')) {
+  const insertRolePerm = db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)');
+  const rolesByName = (name) => db.prepare('SELECT id FROM roles WHERE name = ? AND organization_id IS NOT NULL').all(name);
+  for (const roleName of ['org_admin', 'supervisor']) {
+    for (const role of rolesByName(roleName)) {
+      for (const code of DEFAULT_ORG_ROLES[roleName]) {
+        const pid = permIdByCode(code);
+        if (pid) insertRolePerm.run(role.id, pid);
+      }
+    }
+  }
+  for (const role of rolesByName('empleado')) {
+    db.prepare('DELETE FROM role_permissions WHERE role_id = ?').run(role.id);
+    for (const code of DEFAULT_ORG_ROLES.empleado) {
+      const pid = permIdByCode(code);
+      if (pid) insertRolePerm.run(role.id, pid);
+    }
+  }
+  db.prepare('INSERT INTO app_migrations (name) VALUES (?)').run('roles_v2_permisos_por_rol');
+}
+
+// Vinculo usuario -> ficha de colaborador (para que el Empleado vea solo lo suyo).
+const userColumns = db.prepare('PRAGMA table_info(users)').all().map(c => c.name);
+if (!userColumns.includes('employee_id')) db.exec('ALTER TABLE users ADD COLUMN employee_id INTEGER NULL');
 
 // ---------------------------------------------------------------------------
 // BOOTSTRAP: super admin role + super admin user (first run only)
