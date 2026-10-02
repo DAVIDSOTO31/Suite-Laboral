@@ -317,6 +317,10 @@
                             <div class="h-6 w-px bg-slate-200 mx-1"></div>
 
                             <input type="date" id="rosterWeekDateInput" onchange="onRosterDateInputPicked(this.value)" class="text-xs p-1.5 border border-slate-300 rounded-lg text-slate-700 focus:ring-2 focus:ring-sky-500 focus:outline-none">
+
+                            <button type="button" id="rosterPdfBtn" onclick="downloadRosterPdf()" title="Descargar el cuadro de esta semana en PDF" class="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                                <i class="fa-solid fa-file-pdf"></i> Descargar PDF
+                            </button>
                         </div>
 
                         <div class="text-center md:text-right">
@@ -4784,6 +4788,82 @@
         // Antes se generaba un .csv; esto crea un archivo .xlsx autentico
         // que Excel abre sin advertencias de formato.
         // -----------------------------------------------------------------
+        // -----------------------------------------------------------------
+        // Descarga del cuadro de turnos en PDF: toma una "foto" del cuadro tal
+        // como se ve en pantalla y la pone en un PDF con el encabezado de la
+        // semana. Las librerías se cargan solo al presionar el botón.
+        // -----------------------------------------------------------------
+        const MONTHS_ES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+        function rosterWeekTitle(monday) {
+            const sunday = addDays(monday, 6);
+            const d1 = monday.getDate(), m1 = MONTHS_ES[monday.getMonth()], y1 = monday.getFullYear();
+            const d2 = sunday.getDate(), m2 = MONTHS_ES[sunday.getMonth()], y2 = sunday.getFullYear();
+            if (y1 !== y2) return `Semana del ${d1} de ${m1} de ${y1} al ${d2} de ${m2} de ${y2}`;
+            if (m1 !== m2) return `Semana del ${d1} de ${m1} al ${d2} de ${m2} de ${y2}`;
+            return `Semana del ${d1} al ${d2} de ${m2} de ${y2}`;
+        }
+        function loadScriptOnce(src, globalCheck) {
+            if (globalCheck()) return Promise.resolve();
+            return new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = src;
+                s.onload = resolve;
+                s.onerror = () => reject(new Error('No se pudo cargar la librería para generar el PDF. Revise su conexión a internet.'));
+                document.head.appendChild(s);
+            });
+        }
+        async function downloadRosterPdf() {
+            const btn = document.getElementById('rosterPdfBtn');
+            const table = document.getElementById('rosterTableBody')?.closest('table');
+            if (!table) return;
+            if (btn) { btn.disabled = true; btn.classList.add('opacity-60'); }
+            showAppToast('Generando PDF del cuadro de turnos…');
+            let wrap = null;
+            try {
+                await loadScriptOnce('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js', () => !!window.html2canvas);
+                await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
+
+                const monday = appState.rosterCurrentMonday;
+                const title = rosterWeekTitle(monday);
+
+                // Copia del cuadro fuera de la pantalla, a un ancho fijo, para
+                // que el PDF salga completo (sin barras de desplazamiento).
+                wrap = document.createElement('div');
+                wrap.style.cssText = 'position:fixed; left:-20000px; top:0; width:1500px; background:#ffffff; padding:24px;';
+                const header = document.createElement('div');
+                header.style.cssText = 'text-align:center; margin-bottom:16px;';
+                header.innerHTML = `
+                    <div style="font-size:24px; font-weight:800; color:#0f172a;">Cuadro de Turnos — ${escapeHtml(appState.orgName || '')}</div>
+                    <div style="font-size:18px; font-weight:700; color:#0369a1; margin-top:4px;">${escapeHtml(title)}</div>`;
+                const box = document.createElement('div');
+                box.className = 'bg-white rounded-xl border border-slate-200 overflow-hidden';
+                const clone = table.cloneNode(true);
+                clone.style.width = '100%';
+                box.appendChild(clone);
+                wrap.appendChild(header);
+                wrap.appendChild(box);
+                document.body.appendChild(wrap);
+                if (document.fonts && document.fonts.ready) await document.fonts.ready;
+
+                const canvas = await window.html2canvas(wrap, { scale: 2, backgroundColor: '#ffffff', logging: false });
+
+                // Una sola página del tamaño del cuadro: se ve completo y
+                // cómodo al abrirlo en el celular (WhatsApp).
+                const pageW = 297; // mm (ancho de una hoja A4 horizontal)
+                const pageH = Math.round(pageW * canvas.height / canvas.width);
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF({ orientation: pageW >= pageH ? 'landscape' : 'portrait', unit: 'mm', format: [pageW, pageH] });
+                pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pageW, pageH);
+                pdf.save(`Turnos_${formatDateISO(monday)}_al_${formatDateISO(addDays(monday, 6))}.pdf`);
+                showAppToast('PDF descargado.');
+            } catch (e) {
+                showAppToast('No se pudo generar el PDF: ' + e.message);
+            } finally {
+                if (wrap) wrap.remove();
+                if (btn) { btn.disabled = false; btn.classList.remove('opacity-60'); }
+            }
+        }
+
         let xlsxLoadPromise = null;
         function loadXLSXLibrary() {
             if (window.XLSX) return Promise.resolve();
