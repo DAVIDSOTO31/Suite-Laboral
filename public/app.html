@@ -947,28 +947,11 @@
                     </button>
                 </div>
 
-                <!-- Sub-vista: Marcación rápida -->
+                <!-- Sub-vista: Marcación rápida (respaldo de emergencia del administrador — solo manual) -->
                 <div id="attSubtab-mark">
                     <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm max-w-xl">
-                        <div class="flex gap-2 mb-4">
-                            <button id="attModeBtnFacial" onclick="attendanceSetMarkMode('facial')" class="flex-1 px-3 py-2 rounded-lg text-xs font-bold bg-sky-600 text-white">
-                                <i class="fa-solid fa-camera"></i> Reconocimiento facial
-                            </button>
-                            <button id="attModeBtnManual" onclick="attendanceSetMarkMode('manual')" class="flex-1 px-3 py-2 rounded-lg text-xs font-bold bg-slate-100 text-slate-600">
-                                <i class="fa-solid fa-hand-pointer"></i> Selección manual
-                            </button>
-                        </div>
-
-                        <!-- Modo facial -->
-                        <div id="attMarkFacialBox">
-                            <p class="text-xs text-slate-500 mb-3">Colócate frente a la cámara. El sistema te identifica automáticamente y detecta qué marcación corresponde.</p>
-                            <video id="attFaceVideo" autoplay muted playsinline class="w-full rounded-lg bg-slate-900" style="max-height:280px; object-fit:cover;"></video>
-                            <canvas id="attFaceCanvas" class="hidden"></canvas>
-                            <p id="attFaceStatus" class="text-center text-sm font-semibold text-slate-600 mt-3">Iniciando cámara…</p>
-                        </div>
-
-                        <!-- Modo manual (respaldo si la cámara falla) -->
-                        <div id="attMarkManualBox" class="hidden">
+                        <p class="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4"><i class="fa-solid fa-circle-info"></i> Esta marcación manual es un respaldo de emergencia (solo para el administrador). La marcación normal del día a día se hace desde los dispositivos registrados en <code>/kiosk.html</code>.</p>
+                        <div id="attMarkManualBox">
                             <p class="text-xs text-slate-500 mb-4">
                                 Selecciona el colaborador y confirma. El sistema detecta automáticamente el turno del día y qué marcación corresponde — no se elige manualmente.
                             </p>
@@ -4461,7 +4444,7 @@
                 const btn = document.getElementById(`btnAttTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
                 btn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 ' + (t === tab ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900');
             });
-            if (tab === 'mark') attendanceSetMarkMode(attMarkMode);
+            if (tab === 'mark') attendanceLoadEmployeesToday();
             if (tab === 'history') attendanceLoadHistory();
             if (tab === 'alerts') attendanceLoadAlerts();
             if (tab === 'bio') attendanceLoadBioList();
@@ -4542,93 +4525,16 @@
             return result || null;
         }
         // -----------------------------------------------------------------
-        // Modo de marcación: facial (por defecto) o manual (respaldo)
+        // Marcación manual (respaldo de emergencia del administrador).
+        // El reconocimiento facial NO esta disponible aqui a proposito: solo
+        // existe en los dispositivos registrados (/kiosk.html).
         // -----------------------------------------------------------------
-        let attMarkMode = 'facial';
-        let attFaceLoopActive = false;
-
-        function attendanceSetMarkMode(mode) {
-            attMarkMode = mode;
-            document.getElementById('attModeBtnFacial').className = 'flex-1 px-3 py-2 rounded-lg text-xs font-bold ' + (mode === 'facial' ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-600');
-            document.getElementById('attModeBtnManual').className = 'flex-1 px-3 py-2 rounded-lg text-xs font-bold ' + (mode === 'manual' ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-600');
-            document.getElementById('attMarkFacialBox').classList.toggle('hidden', mode !== 'facial');
-            document.getElementById('attMarkManualBox').classList.toggle('hidden', mode !== 'manual');
-            document.getElementById('attMarkResult').classList.add('hidden');
-            if (mode === 'facial') {
-                attendanceStartFacialMode();
-            } else {
-                attendanceStopFacialMode();
-                attendanceLoadEmployeesToday();
-            }
-        }
-
-        async function attendanceStartFacialMode() {
-            if (currentAttendanceSubTab !== 'mark' || attMarkMode !== 'facial') return;
-            const statusEl = document.getElementById('attFaceStatus');
-            const video = document.getElementById('attFaceVideo');
-            attFaceLoopActive = true;
-            try {
-                statusEl.textContent = 'Cargando modelo de reconocimiento…';
-                await ensureFaceModelsLoaded();
-                if (!attFaceLoopActive) return; // el usuario cambio de pestana mientras cargaba
-                statusEl.textContent = 'Iniciando cámara…';
-                await startCameraOn(video);
-                if (!attFaceLoopActive) { stopCameraStream(video); return; }
-                statusEl.textContent = 'Buscando rostro…';
-                attendanceFaceLoop();
-            } catch (e) {
-                statusEl.textContent = 'No se pudo activar la cámara: ' + e.message + ' — usa la selección manual.';
-            }
-        }
-
         function attendanceStopFacialMode() {
-            attFaceLoopActive = false;
-            const video = document.getElementById('attFaceVideo');
-            if (video) stopCameraStream(video);
+            // Se conserva este nombre de función porque se llama desde
+            // switchView()/attendanceSetSubTab() al salir de la vista, para
+            // apagar la cámara del modal de Biometría si quedó abierta.
             const enrollVideo = document.getElementById('attEnrollVideo');
             if (enrollVideo) stopCameraStream(enrollVideo);
-        }
-
-        async function attendanceFaceLoop() {
-            const video = document.getElementById('attFaceVideo');
-            const statusEl = document.getElementById('attFaceStatus');
-            let stableCount = 0;
-            while (attFaceLoopActive) {
-                try {
-                    const det = await detectFaceOnce(video);
-                    if (det) {
-                        stableCount++;
-                        if (stableCount >= 3) {
-                            // Deteccion estable durante ~750ms (evita marcar por un
-                            // falso positivo de un solo frame) -> aceptar.
-                            statusEl.textContent = 'Verificando…';
-                            const descriptor = Array.from(det.descriptor);
-                            attFaceLoopActive = false;
-                            await attendanceSubmitFaceMark(descriptor);
-                            return;
-                        }
-                        statusEl.textContent = 'Rostro detectado, verificando…';
-                    } else {
-                        stableCount = 0;
-                        statusEl.textContent = 'Buscando rostro…';
-                    }
-                } catch (e) { /* frame fallido, se reintenta en el siguiente ciclo */ }
-                await new Promise(r => setTimeout(r, 250));
-            }
-        }
-
-        async function attendanceSubmitFaceMark(descriptor) {
-            const statusEl = document.getElementById('attFaceStatus');
-            try {
-                const r = await apiFetch('/api/attendance/mark-by-face', { method: 'POST', body: JSON.stringify({ descriptor }) });
-                renderMarkResult(r);
-                showAppToast(`Marcación registrada: ${ATTENDANCE_MARK_LABELS[r.markType]} (${r.actualTime}).`);
-                statusEl.textContent = '¡Listo! Preparando para el siguiente colaborador…';
-            } catch (e) {
-                statusEl.textContent = e.message;
-            }
-            stopCameraStream(document.getElementById('attFaceVideo'));
-            setTimeout(() => { if (currentAttendanceSubTab === 'mark' && attMarkMode === 'facial') attendanceStartFacialMode(); }, 3000);
         }
 
         function renderMarkResult(r) {
