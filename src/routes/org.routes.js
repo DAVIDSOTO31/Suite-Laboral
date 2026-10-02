@@ -21,8 +21,7 @@ function getOrgData(req, res, query) {
   const settingsRow = db.prepare('SELECT * FROM org_settings WHERE organization_id = ?').get(orgId);
   const departments = db.prepare('SELECT id, name, icon FROM departments WHERE organization_id = ? ORDER BY position ASC').all(orgId);
   const presetRows = db.prepare('SELECT data_json FROM shift_presets WHERE organization_id = ?').all(orgId);
-  const employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason FROM employees WHERE organization_id = ?').all(orgId)
-    .map(({ night_surcharge, night_surcharge_reason, ...e }) => ({ ...e, nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '' }));
+  const employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary FROM employees WHERE organization_id = ?').all(orgId);
   const shiftRows = db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId);
 
   sendJson(res, 200, {
@@ -122,28 +121,12 @@ async function syncEmployeesAndShifts(req, res) {
       db.prepare(`DELETE FROM employees WHERE organization_id = ? AND id NOT IN (${placeholders})`).run(orgId, ...incomingIds);
     }
     const upsert = db.prepare(`
-      INSERT INTO employees (id, organization_id, name, role, department, department_id, salary, night_surcharge, night_surcharge_reason)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, department = excluded.department, department_id = excluded.department_id, salary = excluded.salary,
-        night_surcharge = excluded.night_surcharge, night_surcharge_reason = excluded.night_surcharge_reason
+      INSERT INTO employees (id, organization_id, name, role, department, department_id, salary)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, department = excluded.department, department_id = excluded.department_id, salary = excluded.salary
     `);
-    const previous = new Map(
-      db.prepare('SELECT id, name, night_surcharge FROM employees WHERE organization_id = ?').all(orgId).map(r => [r.id, r])
-    );
     for (const e of body.employees) {
-      const nightSurcharge = e.nightSurcharge === false ? 0 : 1;
-      const reason = nightSurcharge ? null : (String(e.nightSurchargeReason || '').slice(0, 300) || null);
-      upsert.run(e.id, orgId, String(e.name || '').slice(0, 120), String(e.role || '').slice(0, 120), e.department || null, e.departmentId || null, Number(e.salary) || 0, nightSurcharge, reason);
-      // Trazabilidad: cada cambio del recargo nocturno queda en la auditoria.
-      const prev = previous.get(Number(e.id));
-      const prevValue = prev ? (prev.night_surcharge === 0 ? 0 : 1) : 1;
-      if ((prev && prevValue !== nightSurcharge) || (!prev && nightSurcharge === 0)) {
-        logAction({
-          organizationId: orgId, userId: req.user.id, action: 'employee.night_surcharge_changed',
-          resourceType: 'employee', resourceId: String(e.id), ip: getClientIp(req),
-          metadata: { employeeName: e.name, aplica: !!nightSurcharge, motivo: reason },
-        });
-      }
+      upsert.run(e.id, orgId, String(e.name || '').slice(0, 120), String(e.role || '').slice(0, 120), e.department || null, e.departmentId || null, Number(e.salary) || 0);
     }
   }
   if (Array.isArray(body.shifts)) {
