@@ -14,6 +14,32 @@ const org = require('./routes/org.routes');
 const attendance = require('./routes/attendance.routes');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+
+// ---------------------------------------------------------------------------
+// Hashes de los <script> inline de /public, calculados AUTOMATICAMENTE al
+// arrancar el servidor a partir de los archivos reales. Asi, cuando se
+// modifica una pagina (por ejemplo app.html), su nuevo hash se incluye solo
+// en la politica de seguridad y el navegador no bloquea el script.
+// (El navegador normaliza los saltos de linea CRLF a LF antes de calcular el
+// hash, por eso se hace lo mismo aqui.)
+// ---------------------------------------------------------------------------
+function computeInlineScriptHashes() {
+  const hashes = new Set();
+  let files = [];
+  try { files = fs.readdirSync(PUBLIC_DIR).filter(f => f.endsWith('.html')); } catch { return []; }
+  const re = /<script(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)<\/script>/gi;
+  for (const f of files) {
+    let html;
+    try { html = fs.readFileSync(path.join(PUBLIC_DIR, f), 'utf8').replace(/\r\n?/g, '\n'); } catch { continue; }
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const digest = require('node:crypto').createHash('sha256').update(m[1], 'utf8').digest('base64');
+      hashes.add(`'sha256-${digest}'`);
+    }
+  }
+  return [...hashes];
+}
+const AUTO_INLINE_SCRIPT_HASHES = computeInlineScriptHashes();
 const router = new Router();
 
 // ---------------------------------------------------------------------------
@@ -131,7 +157,7 @@ const server = http.createServer(async (req, res) => {
     "'sha256-acq3Igc1f3abTnmdP0vrk+f21ykK7GXxlTu0HAeDxD8='", // accept-invite.html
     "'sha256-p7WRDAOI/vt0mUjmPWtSZe+ugsLNJkiYzKuVx61YsjA='", // forgot-password.html
     "'sha256-mZ3lS9DOiVRo7hkAzBXkRD0YGddIYpBoAsC0YnepqJQ='", // reset-password.html
-  ].join(' ');
+  ].concat(AUTO_INLINE_SCRIPT_HASHES.map(h => h)).filter((h, i, all) => all.indexOf(h) === i).join(' ');
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
     "img-src 'self' data:; " +
