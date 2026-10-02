@@ -43,6 +43,9 @@ function loadUserFromRequest(req) {
     id: user.id,
     email: user.email,
     organizationId: user.organization_id,
+    // Ficha de colaborador vinculada a este usuario (null si no tiene).
+    // Permite que el Empleado vea solo su propio horario y marcaciones.
+    employeeId: user.employee_id != null ? Number(user.employee_id) : null,
     organization,
     isSuperAdmin: !!user.is_super_admin,
     permissions,
