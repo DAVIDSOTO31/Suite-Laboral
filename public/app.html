@@ -711,6 +711,11 @@
                                     <span class="text-3xs font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded" id="detailEmpStatus">Activo</span>
                                 </div>
                                 <p class="text-xs text-slate-500 mt-0.5" id="detailEmpRole">Puesto / Área</p>
+                                <label class="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-purple-900 cursor-pointer bg-purple-50 border border-purple-200 rounded-lg px-2.5 py-1">
+                                    <input type="checkbox" id="detailEmpNightSurcharge" class="w-4 h-4 accent-purple-600" onchange="toggleEmployeeNightSurcharge(this)">
+                                    Aplica recargo nocturno
+                                </label>
+                                <p class="text-3xs text-slate-500 mt-1 hidden" id="detailEmpNightReason"></p>
                             </div>
                             <div class="text-left sm:text-right bg-slate-50 sm:bg-transparent p-2 sm:p-0 rounded-lg">
                                 <span class="text-3xs uppercase tracking-wider text-slate-400 block font-semibold">Salario Ordinario</span>
@@ -1070,6 +1075,12 @@
                                 <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Hasta</label>
                                 <input type="date" id="attHistoryTo" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
                             </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Colaborador</label>
+                                <select id="attHistoryEmployee" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[200px]">
+                                    <option value="">Todos los colaboradores</option>
+                                </select>
+                            </div>
                             <button onclick="attendanceLoadHistory()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
                         </div>
                         <div class="overflow-x-auto border border-slate-200 rounded-lg">
@@ -1080,10 +1091,12 @@
                                     <th class="text-left px-3 py-2">Almuerzo</th><th class="text-left px-3 py-2">Salida prog.</th>
                                     <th class="text-left px-3 py-2">Salida real</th><th class="text-left px-3 py-2">Retraso</th>
                                     <th class="text-left px-3 py-2">Exceso alm.</th><th class="text-left px-3 py-2">Salida antic.</th>
+                                    <th class="text-left px-3 py-2 text-purple-700">Recargo noct.</th>
                                     <th class="text-left px-3 py-2">Extra diurna</th><th class="text-left px-3 py-2">Extra nocturna</th>
                                     <th class="text-left px-3 py-2">Estado</th>
                                 </tr></thead>
                                 <tbody id="attHistoryTableBody"></tbody>
+                                <tfoot id="attHistoryTableFoot" class="bg-slate-50 font-semibold"></tfoot>
                             </table>
                         </div>
                     </div>
@@ -1337,6 +1350,17 @@
                     <label class="block font-semibold text-slate-700 mb-1">Salario Mensual Base ($ COP)</label>
                     <input type="number" id="newEmpSalary" value="1750905" step="10000" readonly class="w-full p-2 border rounded-lg font-mono font-bold bg-slate-100 text-slate-600 cursor-not-allowed">
                     <p class="text-3xs text-slate-400 mt-1">Política de la organización: todos los colaboradores devengan 1 SMLMV 2026 ($1.750.905 COP). Campo bloqueado.</p>
+                </div>
+                <div class="bg-purple-50/60 border border-purple-200 rounded-lg p-3">
+                    <label class="flex items-center gap-2 font-semibold text-purple-900 cursor-pointer">
+                        <input type="checkbox" id="newEmpNightSurcharge" checked class="w-4 h-4 accent-purple-600"
+                            onchange="document.getElementById('newEmpNightReasonBox').classList.toggle('hidden', this.checked)">
+                        Aplica recargo nocturno (+35%, 19:00 - 06:00)
+                    </label>
+                    <div id="newEmpNightReasonBox" class="hidden mt-2">
+                        <label class="block text-3xs font-semibold text-slate-600 mb-1">Motivo por el que NO aplica (obligatorio, queda en auditoría)</label>
+                        <input type="text" id="newEmpNightReason" maxlength="300" placeholder="Ej. Cargo de dirección, confianza y manejo" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-purple-400 focus:outline-none">
+                    </div>
                 </div>
             </div>
 
@@ -2015,7 +2039,7 @@
                 const dateObj = new Date(dateISO + 'T00:00:00');
                 const isSunday = dateObj.getDay() === 0;
                 const salary = emp ? emp.salary : appState.settings.smlmv2026;
-                const res = calculateShift(preset.startTime, preset.endTime, preset.breakM, preset.limit || 8, isSunday, preset.isOvernight || false, salary);
+                const res = calculateShift(preset.startTime, preset.endTime, preset.breakM, preset.limit || 8, isSunday, preset.isOvernight || false, salary, empNightSurcharge(emp));
 
                 appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
                 appState.shifts.push({
@@ -2105,7 +2129,7 @@
             const dateObj = new Date(dateISO + 'T00:00:00');
             const isSunday = dateObj.getDay() === 0;
             const salary = emp ? emp.salary : appState.settings.smlmv2026;
-            const res = calculateShift(preset.startTime, preset.endTime, preset.breakM, preset.limit || 8, isSunday, preset.isOvernight || false, salary);
+            const res = calculateShift(preset.startTime, preset.endTime, preset.breakM, preset.limit || 8, isSunday, preset.isOvernight || false, salary, empNightSurcharge(emp));
 
             appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
             appState.shifts.push({
@@ -2168,7 +2192,7 @@
                 return;
             }
 
-            const res = calculateShift(start, end, breakM, limit, isSunday, isOvernight, emp.salary);
+            const res = calculateShift(start, end, breakM, limit, isSunday, isOvernight, emp.salary, empNightSurcharge(emp));
 
             appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
             appState.shifts.push({
@@ -2290,6 +2314,12 @@
         }
 
         // Convierte horas decimales exactas (ej. 7.4167) a formato "7h 25min" para verificación visual
+        // Igual que formatHM pero conserva el signo (saldos negativos de HED).
+        function formatHMSigned(decimalHours) {
+            const v = decimalHours || 0;
+            return (v < 0 ? '-' : '') + formatHM(Math.abs(v));
+        }
+
         function formatHM(decimalHours) {
             const totalMinutes = Math.round((decimalHours || 0) * 60);
             const h = Math.floor(totalMinutes / 60);
@@ -2297,7 +2327,26 @@
             return `${h}h ${m.toString().padStart(2, '0')}min`;
         }
 
-        function calculateShift(startTimeStr, endTimeStr, breakMinutes, dailyLimit, isSunday, isNextDayOvernight, salary) {
+        // ¿Al colaborador le aplica recargo nocturno? (por defecto SÍ)
+        function empNightSurcharge(empOrId) {
+            const emp = typeof empOrId === 'object' ? empOrId : appState.employees.find(e => e.id === empOrId);
+            return !emp || emp.nightSurcharge !== false;
+        }
+
+        // Recalcula los turnos guardados de un colaborador con su configuración
+        // vigente de recargo nocturno (se usa al activarlo/desactivarlo).
+        function recomputeShiftsForEmployee(empId) {
+            const emp = appState.employees.find(e => e.id === empId);
+            if (!emp) return;
+            appState.shifts.forEach(s => {
+                if (s.empId !== empId || s.isOffDay || !s.res || !s.startTime || !s.endTime) return;
+                const overnight = (s.res.endMin || 0) >= 1440;
+                s.res = calculateShift(s.startTime, s.endTime, Number(s.breakM) || 0, Number(s.limit) || 8,
+                    !!s.res.isSunday, overnight, emp.salary, empNightSurcharge(emp));
+            });
+        }
+
+        function calculateShift(startTimeStr, endTimeStr, breakMinutes, dailyLimit, isSunday, isNextDayOvernight, salary, nightSurcharge = true) {
             let [sH, sM] = startTimeStr.split(':').map(Number);
             let [eH, eM] = endTimeStr.split(':').map(Number);
 
@@ -2366,6 +2415,13 @@
                 }
             }
 
+            // Colaborador SIN recargo nocturno: su tiempo ordinario nocturno se
+            // liquida como ordinario simple (las horas extra nocturnas no cambian).
+            if (!nightSurcharge) {
+                hodMin += honMin;
+                honMin = 0;
+            }
+
             let totalHours = grossWorkedMinutes / 60;
             let hod = hodMin / 60;
             let hon = honMin / 60;
@@ -2416,17 +2472,28 @@
                 showAppToast('Por favor ingrese el nombre y cargo del colaborador.');
                 return;
             }
+            const nightSurcharge = document.getElementById('newEmpNightSurcharge')?.checked !== false;
+            const nightSurchargeReason = (document.getElementById('newEmpNightReason')?.value || '').trim();
+            if (!nightSurcharge && !nightSurchargeReason) {
+                showAppToast('Indique el motivo por el que no aplica el recargo nocturno.');
+                return;
+            }
 
             let id = Date.now();
             const foundDept = appState.departments.find(d => d.name === dept);
             const deptId = foundDept ? foundDept.id : 'dept_cocina';
 
-            appState.employees.push({ id, name, role, department: dept, departmentId: deptId, salary });
+            appState.employees.push({ id, name, role, department: dept, departmentId: deptId, salary, nightSurcharge, nightSurchargeReason: nightSurcharge ? '' : nightSurchargeReason });
             appState.selectedEmpId = id;
 
             closeModal('modalAddEmp');
             document.getElementById('newEmpName').value = '';
             document.getElementById('newEmpRole').value = '';
+            if (document.getElementById('newEmpNightSurcharge')) {
+                document.getElementById('newEmpNightSurcharge').checked = true;
+                document.getElementById('newEmpNightReason').value = '';
+                document.getElementById('newEmpNightReasonBox').classList.add('hidden');
+            }
 
             showAppToast(`Colaborador ${name} vinculado al área ${dept}.`);
             renderEmployeesView();
@@ -2461,6 +2528,14 @@
             setSafeText('detailEmpRole', `${emp.role} • ${emp.department || 'General'}`);
             setSafeText('detailEmpSalary', `$${emp.salary.toLocaleString('es-CO')} COP`);
             setSafeText('detailEmpHourlyRate', `$${Math.round(hourlyRate).toLocaleString('es-CO')}/h`);
+            const nightChk = document.getElementById('detailEmpNightSurcharge');
+            if (nightChk) nightChk.checked = empNightSurcharge(emp);
+            const nightReasonEl = document.getElementById('detailEmpNightReason');
+            if (nightReasonEl) {
+                const off = !empNightSurcharge(emp);
+                nightReasonEl.classList.toggle('hidden', !off);
+                nightReasonEl.textContent = off ? `Sin recargo nocturno. Motivo: ${emp.nightSurchargeReason || 'no registrado'}` : '';
+            }
 
             let empShifts = appState.shifts.filter(s => s.empId === emp.id && !s.isOffDay);
             setSafeText('empShiftsCountLabel', `${empShifts.length} turno(s)`);
@@ -2473,10 +2548,10 @@
                 hen += s.res.hen + s.res.hend;
             });
 
-            setSafeText('empHodTotal', `${hod.toFixed(2)} h`);
-            setSafeText('empHonTotal', `${hon.toFixed(2)} h`);
-            setSafeText('empHedTotal', `${hed.toFixed(2)} h`);
-            setSafeText('empHenTotal', `${hen.toFixed(2)} h`);
+            setSafeText('empHodTotal', formatHM(hod));
+            setSafeText('empHonTotal', empNightSurcharge(emp) ? formatHM(hon) : 'No aplica');
+            setSafeText('empHedTotal', formatHM(hed));
+            setSafeText('empHenTotal', formatHM(hen));
 
             const tbody = document.getElementById('empIndividualShiftsTableBody');
             if (!tbody) return;
@@ -2494,9 +2569,9 @@
                     <td class="p-2.5 font-medium">${s.date} ${s.res.isSunday ? '<span class="text-blue-600 font-bold">(Dom)</span>' : ''}</td>
                     <td class="p-2.5 font-mono text-slate-600">${s.startTime} - ${s.endTime}</td>
                     <td class="p-2.5 text-center font-bold font-mono">${s.res.totalHours.toFixed(2)}h</td>
-                    <td class="p-2.5 text-center font-mono text-purple-700 font-bold">${s.res.hon.toFixed(2)}h</td>
-                    <td class="p-2.5 text-center font-mono text-amber-700 font-bold">${(s.res.hed + s.res.hedd).toFixed(2)}h</td>
-                    <td class="p-2.5 text-center font-mono text-rose-700 font-bold">${(s.res.hen + s.res.hend).toFixed(2)}h</td>
+                    <td class="p-2.5 text-center font-mono text-purple-700 font-bold">${empNightSurcharge(emp) ? formatHM(s.res.hon) : 'No aplica'}</td>
+                    <td class="p-2.5 text-center font-mono text-amber-700 font-bold">${formatHM(s.res.hed + s.res.hedd)}</td>
+                    <td class="p-2.5 text-center font-mono text-rose-700 font-bold">${formatHM(s.res.hen + s.res.hend)}</td>
                     <td class="p-2.5 text-right font-black font-mono text-slate-900">$${Math.round(s.res.totalPay).toLocaleString('es-CO')}</td>
                     <td class="p-2.5 text-center">
                         <button onclick="deleteShiftRecord(${s.empId}, '${s.date}')" title="Eliminar registro" class="text-slate-400 hover:text-rose-600 transition p-1">
@@ -2814,6 +2889,32 @@
             renderSelectedEmployeeLedger();
         }
 
+        // Activa / desactiva el recargo nocturno del colaborador seleccionado.
+        // Al desactivarlo se exige un motivo, que queda en la auditoría.
+        function toggleEmployeeNightSurcharge(chk) {
+            const emp = appState.employees.find(e => e.id === appState.selectedEmpId);
+            if (!emp) return;
+            if (!chk.checked) {
+                const reason = (window.prompt(`¿Por qué NO aplica recargo nocturno a ${emp.name}?\n(Obligatorio. Ej.: cargo de dirección, confianza y manejo)`) || '').trim();
+                if (!reason) {
+                    chk.checked = true;
+                    showAppToast('Se requiere un motivo para desactivar el recargo nocturno.');
+                    return;
+                }
+                emp.nightSurcharge = false;
+                emp.nightSurchargeReason = reason.slice(0, 300);
+                showAppToast(`Recargo nocturno desactivado para ${emp.name}.`);
+            } else {
+                emp.nightSurcharge = true;
+                emp.nightSurchargeReason = '';
+                showAppToast(`Recargo nocturno activado para ${emp.name}.`);
+            }
+            recomputeShiftsForEmployee(emp.id);
+            renderEmployeesView();
+            renderWeeklyRoster();
+            updateDashboardMetrics();
+        }
+
         function selectEmployee(id) {
             appState.selectedEmpId = id;
             renderEmployeesView();
@@ -2954,7 +3055,7 @@
                 return;
             }
 
-            let res = calculateShift(start, end, breakM, limit, isSunday, isOvernight, emp.salary);
+            let res = calculateShift(start, end, breakM, limit, isSunday, isOvernight, emp.salary, empNightSurcharge(emp));
             appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === date));
             appState.shifts.push({ 
                 empId, 
@@ -2994,7 +3095,7 @@
             let salary = parseFloat(document.getElementById('simBaseSalary').value) || appState.settings.smlmv2026;
 
             let emp = appState.employees.find(e => e.id === appState.selectedEmpId) || appState.employees[0];
-            let res = calculateShift(start, end, breakM, limit, isSunday, isNextDay, salary);
+            let res = calculateShift(start, end, breakM, limit, isSunday, isNextDay, salary, empNightSurcharge(emp));
 
             let today = formatDateISO(new Date());
             appState.shifts = appState.shifts.filter(s => !(s.empId === emp.id && s.date === today));
@@ -3514,7 +3615,7 @@
                 acc.shiftsCount++;
 
                 const real = realByKey[`${emp.id}_${s.date}`];
-                let hon, hed, hen, honPay, hedPay, henPay, origin;
+                let hon, hed, hen, honPay, hedPay, henPay, origin, honApplies = true;
                 if (real) {
                     // Datos REALES (de la marcacion de asistencia): ya vienen en minutos,
                     // e incluyen el descuento por salida anticipada (regla 6/7), que
@@ -3526,6 +3627,7 @@
                     hedPay = hed * acc.hourlyRate * (1 + appState.settings.percHED);
                     henPay = hen * acc.hourlyRate * (1 + appState.settings.percHEN);
                     origin = 'real';
+                    honApplies = empNightSurcharge(emp);
                 } else {
                     // Sin marcacion real todavia: se usa el turno programado como estimado.
                     hon = s.res.hon;
@@ -3535,6 +3637,7 @@
                     hedPay = s.res.hedTotalPay;
                     henPay = s.res.henTotalPay;
                     origin = 'estimado';
+                    honApplies = empNightSurcharge(emp);
                 }
                 acc.hon += hon;
                 acc.hed += hed;
@@ -3545,7 +3648,7 @@
                 if (s.res.isSunday) {
                     acc.domPay += s.res.domOrdinarySurcharge;
                 }
-                acc.detail.push({ date: s.date, hon, hed, hen, origin });
+                acc.detail.push({ date: s.date, hon, hed, hen, origin, honApplies });
             });
 
             // Aplica ajustes manuales guardados (si el usuario ya editó alguna celda de este colaborador)
@@ -3630,16 +3733,19 @@
                                 <input type="number" step="0.01" min="0" value="${r.hon.toFixed(2)}"
                                     onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hon', this.value)"
                                     class="w-20 text-center font-mono border border-purple-200 rounded-lg p-1.5 bg-purple-50/50 text-purple-900 font-bold focus:ring-2 focus:ring-purple-400 focus:outline-none">
+                                <span class="block text-3xs font-mono text-purple-600 mt-0.5">${formatHM(r.hon)}</span>${empNightSurcharge(r.emp) ? '' : '<span class="block text-3xs text-slate-400">Sin recargo</span>'}
                             </td>
                             <td class="p-2.5 text-center">
                                 <input type="number" step="0.01" min="0" value="${r.hed.toFixed(2)}"
                                     onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hed', this.value)"
                                     class="w-20 text-center font-mono border border-amber-200 rounded-lg p-1.5 bg-amber-50/50 text-amber-900 font-bold focus:ring-2 focus:ring-amber-400 focus:outline-none">
+                                <span class="block text-3xs font-mono text-amber-600 mt-0.5">${formatHM(r.hed)}</span>
                             </td>
                             <td class="p-2.5 text-center">
                                 <input type="number" step="0.01" min="0" value="${r.hen.toFixed(2)}"
                                     onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hen', this.value)"
                                     class="w-20 text-center font-mono border border-rose-200 rounded-lg p-1.5 bg-rose-50/50 text-rose-900 font-bold focus:ring-2 focus:ring-rose-400 focus:outline-none">
+                                <span class="block text-3xs font-mono text-rose-600 mt-0.5">${formatHM(r.hen)}</span>
                             </td>
                             <td class="p-2.5 text-right">
                                 <input type="number" step="1" min="0" value="${Math.round(r.total)}"
@@ -3659,9 +3765,9 @@
                 tfoot.innerHTML = `
                     <tr>
                         <td class="p-3 uppercase text-3xs tracking-wider">Totales del Periodo</td>
-                        <td class="p-3 text-center font-mono text-purple-300">${sumHON.toFixed(2)}h</td>
-                        <td class="p-3 text-center font-mono text-amber-300">${sumHED.toFixed(2)}h</td>
-                        <td class="p-3 text-center font-mono text-rose-300">${sumHEN.toFixed(2)}h</td>
+                        <td class="p-3 text-center font-mono text-purple-300">${formatHM(sumHON)}</td>
+                        <td class="p-3 text-center font-mono text-amber-300">${formatHM(sumHED)}</td>
+                        <td class="p-3 text-center font-mono text-rose-300">${formatHM(sumHEN)}</td>
                         <td class="p-3 text-right font-mono text-emerald-400 text-sm">$${Math.round(sumTotalPay).toLocaleString('es-CO')}</td>
                         <td class="p-3"></td>
                     </tr>
@@ -3681,9 +3787,9 @@
             document.getElementById('payrollOtDetailTableBody').innerHTML = sorted.map(d => `
                 <tr class="border-t border-slate-100">
                     <td class="px-3 py-2 whitespace-nowrap">${d.date}</td>
-                    <td class="px-3 py-2 text-center font-mono">${d.hon.toFixed(2)}h</td>
-                    <td class="px-3 py-2 text-center font-mono ${d.hed < 0 ? 'text-rose-600' : ''}">${d.hed.toFixed(2)}h</td>
-                    <td class="px-3 py-2 text-center font-mono">${d.hen.toFixed(2)}h</td>
+                    <td class="px-3 py-2 text-center font-mono">${d.honApplies === false ? 'No aplica' : formatHMSigned(d.hon)}</td>
+                    <td class="px-3 py-2 text-center font-mono ${d.hed < 0 ? 'text-rose-600' : ''}">${formatHMSigned(d.hed)}</td>
+                    <td class="px-3 py-2 text-center font-mono">${formatHMSigned(d.hen)}</td>
                     <td class="px-3 py-2 text-center">${d.origin === 'real' ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-2xs font-semibold">Real</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-2xs font-semibold">Estimado</span>'}</td>
                 </tr>`).join('') || `<tr><td colspan="5" class="px-3 py-6 text-center text-slate-400">Sin turnos en este periodo.</td></tr>`;
             document.getElementById('payrollOtDetailModal').classList.remove('hidden');
@@ -4325,8 +4431,9 @@
             appState.settings.smlmv2026 = data.orgSettings.minimumWage || 1750905;
             appState.departments = (data.departments && data.departments.length) ? data.departments : getPredefinedDepartments();
             appState.shiftPresets = (data.shiftPresets && data.shiftPresets.length) ? data.shiftPresets : loadShiftPresets();
-            appState.employees = data.employees || [];
+            appState.employees = (data.employees || []).map(e => ({ ...e, nightSurcharge: e.nightSurcharge !== false, nightSurchargeReason: e.nightSurchargeReason || '' }));
             appState.shifts = data.shifts || [];
+            appState.employees.filter(e => !e.nightSurcharge).forEach(e => recomputeShiftsForEmployee(e.id));
             if (appState.employees.length) {
                 appState.selectedEmpId = appState.employees[0].id;
             }
@@ -4591,13 +4698,35 @@
             }
         }
 
+        // Llena el selector de colaboradores del historial (conserva la selección).
+        function attendanceFillHistoryEmployees() {
+            const sel = document.getElementById('attHistoryEmployee');
+            if (!sel) return;
+            const current = sel.value;
+            sel.innerHTML = '<option value="">Todos los colaboradores</option>' +
+                [...appState.employees].sort((a, b) => a.name.localeCompare(b.name))
+                    .map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
+            sel.value = current;
+        }
+
+        function attRecargoCell(r) {
+            if (r.status !== 'turno_finalizado') return '<span class="text-slate-400">En curso</span>';
+            if (r.employee_night_surcharge === 0) return '<span class="text-slate-400">No aplica</span>';
+            return `<span class="font-semibold text-purple-700">${attMinutesLabel(r.hon_min)}</span>`;
+        }
+
         async function attendanceLoadHistory() {
+            attendanceFillHistoryEmployees();
             const body = document.getElementById('attHistoryTableBody');
+            const foot = document.getElementById('attHistoryTableFoot');
             const from = document.getElementById('attHistoryFrom').value;
             const to = document.getElementById('attHistoryTo').value;
-            body.innerHTML = `<tr><td colspan="13" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
+            const empId = document.getElementById('attHistoryEmployee')?.value || '';
+            body.innerHTML = `<tr><td colspan="14" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
+            if (foot) foot.innerHTML = '';
             try {
-                const { rows } = await apiFetch(`/api/attendance/history?from=${from}&to=${to}`);
+                const qs = `from=${from}&to=${to}` + (empId ? `&employeeId=${encodeURIComponent(empId)}` : '');
+                const { rows } = await apiFetch(`/api/attendance/history?${qs}`);
                 body.innerHTML = rows.map(r => `
                     <tr class="border-t border-slate-100">
                         <td class="px-3 py-2 font-medium">${escapeHtml(r.employee_name)}</td>
@@ -4610,12 +4739,28 @@
                         <td class="px-3 py-2">${attMinutesLabel(r.retraso_min)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.exceso_almuerzo_min)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.salida_anticipada_min)}</td>
+                        <td class="px-3 py-2">${attRecargoCell(r)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.hed_min)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.hen_min)}</td>
                         <td class="px-3 py-2">${attStatusBadge(r.status)}</td>
-                    </tr>`).join('') || `<tr><td colspan="13" class="px-3 py-6 text-center text-slate-400">Sin marcaciones en este rango de fechas.</td></tr>`;
+                    </tr>`).join('') || `<tr><td colspan="14" class="px-3 py-6 text-center text-slate-400">Sin marcaciones en este rango de fechas.</td></tr>`;
+
+                // Totales del rango consultado (solo turnos cerrados)
+                const closed = rows.filter(r => r.status === 'turno_finalizado');
+                if (foot && closed.length) {
+                    const sum = (f) => closed.reduce((a, r) => a + (Number(r[f]) || 0), 0);
+                    const sumHon = closed.filter(r => r.employee_night_surcharge !== 0).reduce((a, r) => a + (Number(r.hon_min) || 0), 0);
+                    foot.innerHTML = `
+                        <tr class="border-t-2 border-slate-200">
+                            <td class="px-3 py-2 uppercase text-2xs text-slate-500" colspan="10">Totales (${closed.length} turno(s) cerrado(s))</td>
+                            <td class="px-3 py-2 text-purple-700">${attMinutesLabel(sumHon) === '-' ? '0min' : attMinutesLabel(sumHon)}</td>
+                            <td class="px-3 py-2">${attMinutesLabel(sum('hed_min'))}</td>
+                            <td class="px-3 py-2">${attMinutesLabel(sum('hen_min'))}</td>
+                            <td class="px-3 py-2"></td>
+                        </tr>`;
+                }
             } catch (e) {
-                body.innerHTML = `<tr><td colspan="13" class="px-3 py-6 text-center text-slate-400">No tienes permiso para ver esta sección.</td></tr>`;
+                body.innerHTML = `<tr><td colspan="14" class="px-3 py-6 text-center text-slate-400">No tienes permiso para ver esta sección.</td></tr>`;
             }
         }
 
