@@ -182,6 +182,7 @@ function listEmployeesToday(req, res, query) {
       name: emp.name,
       role: emp.role,
       hasShift: true,
+      isSplit: !!shift.isSplit,
       shift: { date: shiftDateISO, startTime: shift.startTime, endTime: shift.endTime },
       nextMark,
       completed: nextMark === null,
@@ -316,6 +317,9 @@ function performMark(orgId, employeeId, userId, method, ip) {
       ok: true,
       employeeName: employee.name,
       markType,
+      // Turno partido: la suite y el kiosco muestran "Inicio/Final Etapa 1/2"
+      // en lugar de Entrada/Almuerzo/Salida. El registro interno no cambia.
+      isSplit: !!shift.isSplit,
       actualTime: actualClock,
       shift: { startTime: shift.startTime, endTime: shift.endTime },
       status: statusLabel,
@@ -357,6 +361,15 @@ function listHistory(req, res, query) {
       AND (? IS NULL OR d.employee_id = ?)
     ORDER BY d.shift_date DESC, e.name ASC
   `).all(orgId, from, to, employeeId, employeeId);
+  // Marca qué dias eran turno partido (para mostrar "Etapa 1 / Etapa 2").
+  const splitKeys = new Set();
+  for (const r of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId)) {
+    try {
+      const sh = JSON.parse(r.data_json);
+      if (sh && sh.isSplit && !sh.isOffDay) splitKeys.add(`${sh.empId}|${sh.date}`);
+    } catch { /* fila invalida: se ignora */ }
+  }
+  for (const row of rows) row.is_split = splitKeys.has(`${row.employee_id}|${row.shift_date}`) ? 1 : 0;
   sendJson(res, 200, { rows });
 }
 
@@ -653,7 +666,7 @@ function kioskEmployeesToday(req, res) {
     if (!shift || shift.isOffDay) return { id: emp.id, name: emp.name, hasShift: false, nextMark: null };
     const marksDone = getExistingMarkTypes(emp.id, shiftDateISO);
     const nextMark = rules.nextExpectedMarkType(marksDone);
-    return { id: emp.id, name: emp.name, hasShift: true, nextMark, completed: nextMark === null };
+    return { id: emp.id, name: emp.name, hasShift: true, isSplit: !!shift.isSplit, nextMark, completed: nextMark === null };
   });
   sendJson(res, 200, { deviceName: device.device_name, employees: result });
 }
