@@ -95,7 +95,8 @@ route('GET', '/api/superadmin/audit', [requireSuperAdmin], (req, res, params, qu
 
 // ---- Organization-scoped endpoints ----
 route('GET', '/api/org/data', [], (req, res, params, query) => org.getOrgData(req, res, query));
-route('POST', '/api/org/seed-demo', [requirePermission('employees.create')], (req, res, params, query) => org.seedDemo(req, res, query));
+// Reemplaza TODOS los datos por un ejemplo: solo quien administra la configuracion.
+route('POST', '/api/org/seed-demo', [requirePermission('settings.manage')], (req, res, params, query) => org.seedDemo(req, res, query));
 route('PUT', '/api/org/settings', [requirePermission('settings.manage')], (req, res) => org.updateSettings(req, res));
 route('PUT', '/api/org/departments', [requirePermission('settings.manage')], (req, res) => org.replaceDepartments(req, res));
 route('PUT', '/api/org/shift-presets', [requirePermission('shifts.edit')], (req, res) => org.replaceShiftPresets(req, res));
@@ -111,6 +112,8 @@ route('GET', '/api/org/audit', [requirePermission('audit.view')], (req, res) => 
 route('GET', '/api/attendance/employees-today', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listEmployeesToday(req, res, query));
 route('POST', '/api/attendance/mark', [requirePermission('attendance.mark')], (req, res) => attendance.registerMark(req, res));
 route('GET', '/api/attendance/history', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listHistory(req, res, query));
+// "Mis marcaciones": cada usuario ve solo las de su propia ficha de colaborador.
+route('GET', '/api/attendance/my-history', [requirePermission('self.view')], (req, res, params, query) => attendance.listMyHistory(req, res, query));
 route('GET', '/api/attendance/alerts', [requirePermission('attendance.view_alerts')], (req, res, params, query) => attendance.listAlerts(req, res, query));
 route('GET', '/api/attendance/payroll-summary', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listPayrollAttendance(req, res, query));
 route('GET', '/api/attendance/face-profiles', [requirePermission('attendance.manage_biometrics')], (req, res, params, query) => attendance.listFaceProfiles(req, res, query));
