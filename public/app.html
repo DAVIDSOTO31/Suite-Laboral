@@ -2800,17 +2800,12 @@
             if (theadRow) {
                 theadRow.innerHTML = `
                     <th class="p-3 w-56 font-bold uppercase tracking-wider text-[11px] border-r border-slate-800 bg-slate-900 text-white">
-                        <div class="flex items-center justify-between">
-                            <span>Colaborador / Cargo</span>
-                            <i class="fa-solid fa-users text-slate-400"></i>
-                        </div>
+                        <span>Colaborador</span>
                     </th>
-                    ${weekDays.map(d => `
-                        <th class="p-2.5 text-center font-bold text-[11px] border-r border-slate-800 ${d.isSunday ? 'bg-sky-950 text-sky-300' : 'bg-slate-900 text-white'}">
-                            <span class="block">${d.shortName}</span>
-                            <span class="text-3xs font-normal opacity-70">${d.displayDate}</span>
-                        </th>
-                    `).join('')}
+                    <th colspan="7" class="p-2.5 text-center border-r border-slate-800 bg-slate-900 text-white">
+                        <span class="block text-sm italic font-semibold">"Ninguno de nosotros es tan bueno como todos nosotros juntos."</span>
+                        <span class="block text-3xs font-normal text-slate-400 mt-0.5">— Ray Kroc</span>
+                    </th>
                     <th class="p-2.5 text-center font-bold text-[11px] w-28 bg-slate-950 text-white">
                         <span>Horas Semanales</span>
                         <span class="block text-3xs font-normal text-emerald-400">Ley 2101 (42h)</span>
@@ -2932,19 +2927,8 @@
                     tr.className = 'hover:bg-sky-50/30 transition border-b border-slate-200';
 
                     let empTd = `
-                        <td class="p-3 border-r border-slate-200 bg-slate-50/60 pl-6">
-                            <div class="flex items-center gap-2.5">
-                                <div class="w-7 h-7 rounded-lg bg-sky-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
-                                    ${emp.name.charAt(0)}
-                                </div>
-                                <div class="overflow-hidden">
-                                    <span class="font-bold text-xs text-slate-800 block truncate" title="${emp.name}">${emp.name}</span>
-                                    <div class="flex items-center gap-1.5">
-                                        <span class="text-3xs text-slate-500 block truncate">${emp.role}</span>
-                                        <span class="text-4xs text-sky-700 bg-sky-100/80 px-1.5 py-0.2 rounded font-semibold truncate max-w-[90px]">${dept.name}</span>
-                                    </div>
-                                </div>
-                            </div>
+                        <td class="py-1.5 pr-3 border-r border-slate-200 bg-slate-50/60 pl-6">
+                            <span class="font-bold text-xs text-slate-800 block truncate" title="${emp.name}">${emp.name}</span>
                         </td>
                     `;
 
