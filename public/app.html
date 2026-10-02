@@ -2956,17 +2956,21 @@
                             const userColorKey = shift.color || 'emerald';
                             const theme = SHIFT_COLOR_THEMES[userColorKey] || SHIFT_COLOR_THEMES.emerald;
                             const funcBadge = shift.functionTag 
-                                ? `<span class="text-4xs px-1 rounded ${theme.badgeBg} font-bold uppercase line-clamp-1 break-all min-w-0" title="Función: ${escapeHtml(shift.functionTag)}">${escapeHtml(shift.functionTag)}</span>` 
+                                ? `<span class="text-[9px] px-1 rounded ${theme.badgeBg} font-semibold tracking-tight whitespace-nowrap overflow-hidden text-ellipsis min-w-0" title="Función: ${escapeHtml(shift.functionTag)}">${escapeHtml(shift.functionTag)}</span>` 
                                 : '';
 
                             return `
                                 <td class="p-1 border-r border-slate-200 text-center align-middle">
                                     <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${escapeHtml(shiftTimeLabel(shift))} · ${shift.res.totalHours.toFixed(2)}h${shift.functionTag ? ' · ' + escapeHtml(shift.functionTag) : ''} — Clic para editar" class="px-1 py-0.5 rounded-md border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs text-center">
+                                        ${shift.isSplit && shift.splitOut && shift.splitIn ? `
+                                        <div class="text-3xs font-black leading-tight">${shift.startTime}-${shift.splitOut} /</div>
+                                        <div class="text-3xs font-black leading-tight">${shift.splitIn}-${shift.endTime} <span class="font-bold font-mono text-[9px] opacity-80">${shift.res.totalHours.toFixed(1)}h</span></div>
+                                        <div class="flex justify-center leading-tight">${funcBadge}</div>` : `
                                         <div class="text-3xs font-black leading-tight">${shiftTimeLabel(shift)}</div>
-                                        <div class="flex items-center justify-center gap-1 text-4xs leading-tight">
-                                            <span class="font-bold font-mono shrink-0">${shift.res.totalHours.toFixed(1)}h</span>
+                                        <div class="flex items-center justify-center gap-0.5 text-4xs leading-tight">
+                                            <span class="font-bold font-mono shrink-0 text-[9px]">${shift.res.totalHours.toFixed(1)}h</span>
                                             ${funcBadge}
-                                        </div>
+                                        </div>`}
                                     </div>
                                 </td>
                             `;
