@@ -282,6 +282,22 @@ DROP TRIGGER IF EXISTS trg_attendance_marks_no_delete;
 `);
 
 // ---------------------------------------------------------------------------
+// MIGRATION: recargo nocturno por colaborador
+//  - employees.night_surcharge (1 = aplica, 0 = no aplica) + motivo.
+//  - attendance_days.recargo_nocturno_aplica: se congela por dia al cerrar
+//    el turno, para que cambiar la configuracion del colaborador NO altere
+//    retroactivamente dias ya liquidados.
+// ---------------------------------------------------------------------------
+const empColumns = db.prepare('PRAGMA table_info(employees)').all().map(c => c.name);
+if (!empColumns.includes('night_surcharge')) db.exec('ALTER TABLE employees ADD COLUMN night_surcharge INTEGER NOT NULL DEFAULT 1');
+if (!empColumns.includes('night_surcharge_reason')) db.exec('ALTER TABLE employees ADD COLUMN night_surcharge_reason TEXT');
+
+const attDayColumns = db.prepare('PRAGMA table_info(attendance_days)').all().map(c => c.name);
+if (!attDayColumns.includes('recargo_nocturno_aplica')) {
+  db.exec('ALTER TABLE attendance_days ADD COLUMN recargo_nocturno_aplica INTEGER NOT NULL DEFAULT 1');
+}
+
+// ---------------------------------------------------------------------------
 // PERMISSIONS CATALOG (idempotent upsert)
 // ---------------------------------------------------------------------------
 const PERMISSIONS = [
