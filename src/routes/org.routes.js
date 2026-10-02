@@ -14,6 +14,11 @@ function resolveOrgId(req, extra) {
   return null;
 }
 
+// ¿El usuario tiene este permiso? (el Super Admin los tiene todos)
+function can(req, code) {
+  return !!(req.user.isSuperAdmin || (req.user.permissions && req.user.permissions.has(code)));
+}
+
 function getOrgData(req, res, query) {
   const orgId = resolveOrgId(req, query);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
@@ -21,9 +26,25 @@ function getOrgData(req, res, query) {
   const settingsRow = db.prepare('SELECT * FROM org_settings WHERE organization_id = ?').get(orgId);
   const departments = db.prepare('SELECT id, name, icon FROM departments WHERE organization_id = ? ORDER BY position ASC').all(orgId);
   const presetRows = db.prepare('SELECT data_json FROM shift_presets WHERE organization_id = ?').all(orgId);
-  const employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason FROM employees WHERE organization_id = ?').all(orgId)
+  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason FROM employees WHERE organization_id = ?').all(orgId)
     .map(({ night_surcharge, night_surcharge_reason, ...e }) => ({ ...e, nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '' }));
-  const shiftRows = db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId);
+  let shifts = db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId).map(r => JSON.parse(r.data_json));
+
+  // Alcance segun el rol:
+  //  - Administrador / Supervisor: toda la organizacion.
+  //  - Empleado: SOLO su propia ficha y sus propios turnos (si su usuario esta
+  //    vinculado a una ficha de colaborador); nada de los demas.
+  const scope = (can(req, 'employees.view') || can(req, 'shifts.view')) ? 'all' : 'self';
+  const selfEmployeeId = req.user.employeeId != null ? Number(req.user.employeeId) : null;
+  if (scope === 'self') {
+    employees = selfEmployeeId != null ? employees.filter(e => Number(e.id) === selfEmployeeId) : [];
+    shifts = selfEmployeeId != null ? shifts.filter(sh => Number(sh.empId) === selfEmployeeId) : [];
+  }
+  // Salarios y datos de nomina solo para quien puede ver reportes/nomina.
+  const canSeePayroll = can(req, 'reports.view');
+  if (!canSeePayroll) {
+    employees = employees.map(({ salary, nightSurchargeReason, ...e }) => e);
+  }
 
   sendJson(res, 200, {
     organizationId: orgId,
@@ -31,8 +52,9 @@ function getOrgData(req, res, query) {
     departments,
     shiftPresets: presetRows.map(r => JSON.parse(r.data_json)),
     employees,
-    shifts: shiftRows.map(r => JSON.parse(r.data_json)),
-    isEmpty: employees.length === 0 && departments.length === 0,
+    shifts,
+    viewer: { scope, employeeId: selfEmployeeId, canSeePayroll },
+    isEmpty: scope === 'all' && employees.length === 0 && departments.length === 0,
   });
 }
 
@@ -103,39 +125,65 @@ async function syncEmployeesAndShifts(req, res) {
   const orgId = resolveOrgId(req, body);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
 
+  // Cada cambio se aplica SOLO si el usuario tiene el permiso correspondiente.
+  // Lo que no tenga permiso se ignora (no se borra ni se modifica nada) y se
+  // informa en la respuesta, en lugar de rechazar toda la sincronizacion.
+  const ignored = [];
+  const canCreate = can(req, 'employees.create');
+  const canEdit = can(req, 'employees.edit');
+  const canDelete = can(req, 'employees.delete');
+  const canPayroll = can(req, 'employees.edit_payroll');
+  const canShifts = can(req, 'shifts.edit');
+
   if (Array.isArray(body.employees)) {
-    // IMPORTANTE (fix): antes esto borraba TODOS los empleados de la
-    // organizacion y los volvia a insertar en cada sincronizacion. Eso
-    // funcionaba bien hasta que se agrego el modulo de Asistencia: al
-    // borrar un empleado, la base de datos borraba en cascada su historial
-    // de marcaciones/alertas -- pero esas tablas son inmutables (Regla 8),
-    // asi que la operacion completa fallaba con error 500.
-    // Ahora se ACTUALIZAN los empleados que siguen existiendo (sin
-    // borrarlos, para no arrastrar en cascada su historial ni su perfil
-    // biometrico facial) y solo se eliminan los que de verdad ya no vienen
-    // en la lista (los que el usuario borro desde Colaboradores).
-    const incomingIds = body.employees.map(e => e.id);
-    if (incomingIds.length === 0) {
-      db.prepare('DELETE FROM employees WHERE organization_id = ?').run(orgId);
-    } else {
-      const placeholders = incomingIds.map(() => '?').join(',');
-      db.prepare(`DELETE FROM employees WHERE organization_id = ? AND id NOT IN (${placeholders})`).run(orgId, ...incomingIds);
+    // Los empleados se ACTUALIZAN (no se borran y recrean) para no arrastrar en
+    // cascada su historial de asistencia ni su perfil biometrico.
+    const existing = new Map(
+      db.prepare('SELECT id, name, salary, night_surcharge, night_surcharge_reason FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
+    );
+    const incomingIds = new Set(body.employees.map(e => Number(e.id)));
+    const toDelete = [...existing.keys()].filter(id => !incomingIds.has(id));
+    if (toDelete.length) {
+      if (canDelete) {
+        const del = db.prepare('DELETE FROM employees WHERE organization_id = ? AND id = ?');
+        for (const id of toDelete) del.run(orgId, id);
+      } else {
+        ignored.push(`eliminar ${toDelete.length} colaborador(es): requiere permiso de eliminar colaboradores`);
+      }
     }
+    const settingsRow = db.prepare('SELECT minimum_wage FROM org_settings WHERE organization_id = ?').get(orgId);
+    const defaultSalary = (settingsRow && settingsRow.minimum_wage) || 1750905;
     const upsert = db.prepare(`
       INSERT INTO employees (id, organization_id, name, role, department, department_id, salary, night_surcharge, night_surcharge_reason)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, department = excluded.department, department_id = excluded.department_id, salary = excluded.salary,
         night_surcharge = excluded.night_surcharge, night_surcharge_reason = excluded.night_surcharge_reason
     `);
-    const previous = new Map(
-      db.prepare('SELECT id, name, night_surcharge FROM employees WHERE organization_id = ?').all(orgId).map(r => [r.id, r])
-    );
+    let payrollIgnored = false;
     for (const e of body.employees) {
-      const nightSurcharge = e.nightSurcharge === false ? 0 : 1;
-      const reason = nightSurcharge ? null : (String(e.nightSurchargeReason || '').slice(0, 300) || null);
-      upsert.run(e.id, orgId, String(e.name || '').slice(0, 120), String(e.role || '').slice(0, 120), e.department || null, e.departmentId || null, Number(e.salary) || 0, nightSurcharge, reason);
+      const prev = existing.get(Number(e.id));
+      if (!prev && !canCreate) { ignored.push(`crear "${String(e.name || '').slice(0, 60)}": requiere permiso de crear colaboradores`); continue; }
+      if (prev && !canEdit) continue;
+
+      const incomingNight = e.nightSurcharge === false ? 0 : 1;
+      const incomingReason = incomingNight ? null : (String(e.nightSurchargeReason || '').slice(0, 300) || null);
+      let salary, nightSurcharge, reason;
+      if (canPayroll) {
+        salary = Number(e.salary) || 0;
+        nightSurcharge = incomingNight;
+        reason = incomingReason;
+      } else {
+        // Sin permiso de nomina: salario y recargo nocturno no se tocan
+        // (nuevo colaborador: salario minimo de la organizacion y con recargo).
+        salary = prev ? prev.salary : defaultSalary;
+        nightSurcharge = prev ? (prev.night_surcharge === 0 ? 0 : 1) : 1;
+        reason = prev ? prev.night_surcharge_reason : null;
+        const salaryChanged = e.salary !== undefined && Number(e.salary) !== Number(salary);
+        if (salaryChanged || incomingNight !== nightSurcharge) payrollIgnored = true;
+      }
+      upsert.run(e.id, orgId, String(e.name || '').slice(0, 120), String(e.role || '').slice(0, 120), e.department || null, e.departmentId || null, salary, nightSurcharge, reason);
+
       // Trazabilidad: cada cambio del recargo nocturno queda en la auditoria.
-      const prev = previous.get(Number(e.id));
       const prevValue = prev ? (prev.night_surcharge === 0 ? 0 : 1) : 1;
       if ((prev && prevValue !== nightSurcharge) || (!prev && nightSurcharge === 0)) {
         logAction({
@@ -145,17 +193,22 @@ async function syncEmployeesAndShifts(req, res) {
         });
       }
     }
+    if (payrollIgnored) ignored.push('cambios de salario o recargo nocturno: requiere permiso de nomina');
   }
   if (Array.isArray(body.shifts)) {
-    db.prepare('DELETE FROM shifts WHERE organization_id = ?').run(orgId);
-    const insert = db.prepare('INSERT INTO shifts (id, organization_id, data_json) VALUES (?, ?, ?)');
-    for (const s of body.shifts) {
-      const id = s.id || `${s.empId}_${s.date}_${uid('s')}`;
-      insert.run(id, orgId, JSON.stringify(s));
+    if (canShifts) {
+      db.prepare('DELETE FROM shifts WHERE organization_id = ?').run(orgId);
+      const insert = db.prepare('INSERT INTO shifts (id, organization_id, data_json) VALUES (?, ?, ?)');
+      for (const sh of body.shifts) {
+        const id = sh.id || `${sh.empId}_${sh.date}_${uid('s')}`;
+        insert.run(id, orgId, JSON.stringify(sh));
+      }
+    } else {
+      ignored.push('cambios en turnos: requiere permiso de editar turnos');
     }
   }
-  logAction({ organizationId: orgId, userId: req.user.id, action: 'org_data.sync', ip: getClientIp(req), metadata: { employees: (body.employees || []).length, shifts: (body.shifts || []).length } });
-  sendJson(res, 200, { ok: true });
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'org_data.sync', ip: getClientIp(req), metadata: { employees: (body.employees || []).length, shifts: (body.shifts || []).length, ignored } });
+  sendJson(res, 200, { ok: true, ignored });
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +217,10 @@ async function syncEmployeesAndShifts(req, res) {
 function listOrgUsers(req, res) {
   const orgId = req.user.organizationId;
   if (!orgId) return sendJson(res, 400, { error: 'Solo disponible para cuentas de organizacion.' });
-  const rows = db.prepare('SELECT id, email, status, created_at FROM users WHERE organization_id = ?').all(orgId);
+  const rows = db.prepare(`
+    SELECT u.id, u.email, u.status, u.created_at, u.employee_id AS employeeId, e.name AS employeeName
+    FROM users u LEFT JOIN employees e ON e.id = u.employee_id AND e.organization_id = u.organization_id
+    WHERE u.organization_id = ?`).all(orgId);
   const users = rows.map(u => ({
     ...u,
     roles: db.prepare('SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ?').all(u.id).map(r => r.name),
@@ -182,15 +238,30 @@ async function createOrgUser(req, res) {
   if (!email) return sendJson(res, 400, { error: 'El correo es obligatorio.' });
   if (db.prepare('SELECT id FROM users WHERE email = ?').get(email)) return sendJson(res, 409, { error: 'Ya existe un usuario con ese correo.' });
   const role = getOrgRoleByName(orgId, roleName) || getOrgRoleByName(orgId, 'empleado');
+  const link = resolveEmployeeLink(orgId, body.employeeId, null);
+  if (link.error) return sendJson(res, 400, { error: link.error });
 
   const userId = uid('user');
-  db.prepare(`INSERT INTO users (id, organization_id, email, status) VALUES (?, ?, ?, 'invited')`).run(userId, orgId, email);
+  db.prepare(`INSERT INTO users (id, organization_id, email, status, employee_id) VALUES (?, ?, ?, 'invited', ?)`).run(userId, orgId, email, link.employeeId);
   const token = randomToken(32);
   db.prepare(`INSERT INTO invitations (id, organization_id, email, role_id, token_hash, expires_at, created_by) VALUES (?, ?, ?, ?, ?, datetime('now', '+3 days'), ?)`)
     .run(uid('inv'), orgId, email, role.id, sha256Hex(token), req.user.id);
   const mail = await sendMail({ to: email, subject: `Invitacion a tu organizacion`, kind: 'invitation', link: `/accept-invite.html?token=${token}` });
   logAction({ organizationId: orgId, userId: req.user.id, action: 'user.invite', resourceType: 'user', resourceId: userId, ip: getClientIp(req), metadata: { email, role: roleName } });
   sendJson(res, 201, { ok: true, inviteLink: mail.link, note: 'El enlace de invitacion tambien se imprimio en la consola del servidor.' });
+}
+
+// Valida el colaborador a vincular con un usuario: debe ser de la misma
+// organizacion y no estar ya vinculado a otro usuario. Devuelve el id (o null
+// para desvincular) o un mensaje de error.
+function resolveEmployeeLink(orgId, rawEmployeeId, exceptUserId) {
+  if (rawEmployeeId === null || rawEmployeeId === '' || rawEmployeeId === undefined) return { employeeId: null };
+  const employeeId = Number(rawEmployeeId);
+  const emp = db.prepare('SELECT id FROM employees WHERE id = ? AND organization_id = ?').get(employeeId, orgId);
+  if (!emp) return { error: 'El colaborador seleccionado no existe en esta organizacion.' };
+  const taken = db.prepare('SELECT email FROM users WHERE employee_id = ? AND organization_id = ? AND id != ?').get(employeeId, orgId, exceptUserId || '');
+  if (taken) return { error: `Ese colaborador ya esta vinculado al usuario ${taken.email}.` };
+  return { employeeId };
 }
 
 function assertOrgUserOwnership(req, res, targetUserId) {
@@ -207,6 +278,11 @@ async function updateOrgUser(req, res, params) {
   if (!target) return;
   let body;
   try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  if (Object.prototype.hasOwnProperty.call(body, 'employeeId')) {
+    const link = resolveEmployeeLink(req.user.organizationId, body.employeeId, target.id);
+    if (link.error) return sendJson(res, 400, { error: link.error });
+    db.prepare(`UPDATE users SET employee_id = ?, updated_at = datetime('now') WHERE id = ?`).run(link.employeeId, target.id);
+  }
   if (body.role) {
     const role = getOrgRoleByName(req.user.organizationId, body.role);
     if (role) {
