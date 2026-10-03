@@ -29,6 +29,8 @@
         /* Permisos por rol: lo que el usuario no puede usar no se muestra.
            (El servidor igual valida cada acción; esto solo ordena la pantalla.) */
         body:not(.perm-settings-manage) [data-perm="settings.manage"] { display: none !important; }
+        body:not(.perm-users-create) [data-perm="users.create"] { display: none !important; }
+        body:not(.perm-employees-edit) [data-perm="employees.edit"] { display: none !important; }
         body:not(.perm-shifts-view) [data-perm="shifts.view"] { display: none !important; }
         body:not(.perm-shifts-edit) [data-perm="shifts.edit"] { display: none !important; }
         body:not(.perm-employees-view) [data-perm="employees.view"] { display: none !important; }
@@ -750,7 +752,7 @@
                         <p class="text-xs text-slate-500">Administre el personal registrado, contratos y áreas asignadas.</p>
                     </div>
                     <div class="flex gap-2 w-full sm:w-auto">
-                        <button onclick="openModal('modalAddEmp')" data-perm="employees.create" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
+                        <button onclick="openEmployeeModal(null)" data-perm="employees.create" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
                             <i class="fa-solid fa-user-plus"></i> Vincular Colaborador
                         </button>
                     </div>
@@ -781,6 +783,13 @@
                                     <span class="text-3xs font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded" id="detailEmpStatus">Activo</span>
                                 </div>
                                 <p class="text-xs text-slate-500 mt-0.5" id="detailEmpRole">Puesto / Área</p>
+                                <p class="text-xs text-slate-500 mt-0.5 hidden" id="detailEmpEmail"></p>
+                                <div class="flex flex-wrap items-center gap-2 mt-2">
+                                    <button type="button" data-perm="employees.edit" onclick="openEmployeeModal(appState.selectedEmpId)" class="text-xs px-2.5 py-1 rounded-lg border border-slate-300 hover:bg-slate-50 font-semibold text-slate-700 flex items-center gap-1">
+                                        <i class="fa-solid fa-pen text-[10px]"></i> Editar ficha
+                                    </button>
+                                    <span id="detailEmpUserBox" data-perm="users.create"></span>
+                                </div>
                                 <label class="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-purple-900 cursor-pointer bg-purple-50 border border-purple-200 rounded-lg px-2.5 py-1">
                                     <input type="checkbox" id="detailEmpNightSurcharge" class="w-4 h-4 accent-purple-600" onchange="toggleEmployeeNightSurcharge(this)">
                                     Aplica recargo nocturno
@@ -1391,15 +1400,52 @@
         </div>
     </div>
 
+    <!-- MODAL: Invitar usuario a la suite -->
+    <div id="modalInviteUser" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-200">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
+                    <i class="fa-solid fa-paper-plane text-sky-600"></i> Invitar usuario a la suite
+                </h3>
+                <button onclick="closeModal('modalInviteUser')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Correo electrónico</label>
+                    <input type="email" id="inviteEmail" oninput="onInviteEmailInput()" placeholder="Ej. maria.lopez@gmail.com" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    <p id="inviteMatchHint" class="text-3xs font-semibold text-emerald-700 mt-1"></p>
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Rol</label>
+                    <select id="inviteRole" class="w-full p-2 border rounded-lg bg-white">
+                        <option value="empleado">Empleado (solo su horario y marcaciones)</option>
+                        <option value="supervisor">Supervisor (turnos y asistencia)</option>
+                        <option value="org_admin">Administrador (todo)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Colaborador vinculado</label>
+                    <select id="inviteEmployee" class="w-full p-2 border rounded-lg bg-white"></select>
+                    <p class="text-3xs text-slate-400 mt-1">Si el correo coincide con el de un colaborador, se vincula solo.</p>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 border-t pt-3">
+                <button onclick="closeModal('modalInviteUser')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                <button onclick="submitInviteUser()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow">Enviar invitación</button>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL 2: Vincular Colaborador -->
     <div id="modalAddEmp" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
         <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-200">
             <div class="flex justify-between items-center border-b pb-3">
                 <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
-                    <i class="fa-solid fa-user-plus text-sky-600"></i> Vincular Nuevo Colaborador
+                    <i class="fa-solid fa-user-plus text-sky-600"></i> <span id="empModalTitle">Vincular Nuevo Colaborador</span>
                 </h3>
                 <button onclick="closeModal('modalAddEmp')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
+            <input type="hidden" id="editEmpId" value="">
             <div class="space-y-3 text-xs">
                 <div>
                     <label class="block font-semibold text-slate-700 mb-1">Nombre Completo</label>
@@ -1418,9 +1464,14 @@
                     </div>
                 </div>
                 <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Correo electrónico <span class="font-normal text-slate-400">(opcional)</span></label>
+                    <input type="email" id="newEmpEmail" maxlength="160" placeholder="Ej. maria.lopez@gmail.com" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    <p class="text-3xs text-slate-400 mt-1">Si luego se invita a la suite con este mismo correo, su usuario queda vinculado automáticamente a esta ficha.</p>
+                </div>
+                <div>
                     <label class="block font-semibold text-slate-700 mb-1">Salario Mensual Base ($ COP)</label>
-                    <input type="number" id="newEmpSalary" value="1750905" step="10000" readonly class="w-full p-2 border rounded-lg font-mono font-bold bg-slate-100 text-slate-600 cursor-not-allowed">
-                    <p class="text-3xs text-slate-400 mt-1">Política de la organización: todos los colaboradores devengan 1 SMLMV 2026 ($1.750.905 COP). Campo bloqueado.</p>
+                    <input type="number" id="newEmpSalary" value="1750905" min="0" step="1000" class="w-full p-2 border rounded-lg font-mono font-bold focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    <p class="text-3xs text-slate-400 mt-1" id="newEmpSalaryHint">Por defecto el salario mínimo vigente (SMLMV). Puede modificarse si el colaborador devenga un salario diferente.</p>
                 </div>
                 <div data-perm="employees.edit_payroll" class="bg-purple-50/60 border border-purple-200 rounded-lg p-3">
                     <label class="flex items-center gap-2 font-semibold text-purple-900 cursor-pointer">
@@ -1437,7 +1488,7 @@
 
             <div class="flex justify-end gap-2 border-t pt-3">
                 <button onclick="closeModal('modalAddEmp')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
-                <button onclick="saveNewEmployee()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow">Guardar Colaborador</button>
+                <button onclick="saveNewEmployee()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow"><span id="empModalSaveLabel">Guardar Colaborador</span></button>
             </div>
         </div>
     </div>
@@ -2732,40 +2783,91 @@
             };
         }
 
+        // Abre el formulario del colaborador: nuevo (empId = null) o edición.
+        function openEmployeeModal(empId) {
+            const emp = empId != null ? appState.employees.find(e => e.id === empId) : null;
+            document.getElementById('editEmpId').value = emp ? emp.id : '';
+            document.getElementById('empModalTitle').textContent = emp ? 'Editar Ficha del Colaborador' : 'Vincular Nuevo Colaborador';
+            document.getElementById('empModalSaveLabel').textContent = emp ? 'Guardar Cambios' : 'Guardar Colaborador';
+            document.getElementById('newEmpName').value = emp ? emp.name : '';
+            document.getElementById('newEmpRole').value = emp ? (emp.role || '') : '';
+            document.getElementById('newEmpEmail').value = emp ? (emp.email || '') : '';
+            renderDepartmentOptions();
+            const deptSel = document.getElementById('newEmpDepartment');
+            if (emp && deptSel) deptSel.value = emp.department || deptSel.value;
+            const salaryInput = document.getElementById('newEmpSalary');
+            salaryInput.value = emp && emp.salary != null ? emp.salary : appState.settings.smlmv2026;
+            const canPay = CAN('employees.edit_payroll');
+            salaryInput.disabled = !canPay;
+            salaryInput.classList.toggle('bg-slate-100', !canPay);
+            document.getElementById('newEmpSalaryHint').textContent = canPay
+                ? 'Por defecto el salario mínimo vigente (SMLMV). Puede modificarse si el colaborador devenga un salario diferente.'
+                : 'Solo el administrador puede modificar el salario. Los colaboradores nuevos quedan con el salario mínimo vigente.';
+            // El recargo nocturno de un colaborador existente se cambia desde su ficha.
+            const nightBox = document.getElementById('newEmpNightSurcharge')?.closest('[data-perm]');
+            if (nightBox) nightBox.style.display = emp ? 'none' : '';
+            openModal('modalAddEmp');
+        }
+
         function saveNewEmployee() {
+            const editId = document.getElementById('editEmpId').value;
+            const editing = editId ? appState.employees.find(e => String(e.id) === String(editId)) : null;
             let name = document.getElementById('newEmpName').value.trim();
             let role = document.getElementById('newEmpRole').value.trim();
             let dept = document.getElementById('newEmpDepartment')?.value || 'Cocina';
-            let salary = parseFloat(document.getElementById('newEmpSalary').value) || appState.settings.smlmv2026;
+            const canPay = CAN('employees.edit_payroll');
+            let salary = canPay
+                ? (parseFloat(document.getElementById('newEmpSalary').value) || appState.settings.smlmv2026)
+                : (editing ? editing.salary : appState.settings.smlmv2026);
+            const email = document.getElementById('newEmpEmail').value.trim().toLowerCase();
 
             if (!name || !role) {
                 showAppToast('Por favor ingrese el nombre y cargo del colaborador.');
                 return;
             }
-            const nightSurcharge = document.getElementById('newEmpNightSurcharge')?.checked !== false;
-            const nightSurchargeReason = (document.getElementById('newEmpNightReason')?.value || '').trim();
-            if (!nightSurcharge && !nightSurchargeReason) {
-                showAppToast('Indique el motivo por el que no aplica el recargo nocturno.');
+            if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                showAppToast('El correo electrónico no tiene un formato válido.');
                 return;
             }
-
-            let id = Date.now();
+            const dup = email && appState.employees.find(e => (e.email || '').toLowerCase() === email && (!editing || e.id !== editing.id));
+            if (dup) {
+                showAppToast(`Ese correo ya está registrado para ${dup.name}.`);
+                return;
+            }
+            if (canPay && salary < 0) {
+                showAppToast('El salario no puede ser negativo.');
+                return;
+            }
             const foundDept = appState.departments.find(d => d.name === dept);
             const deptId = foundDept ? foundDept.id : 'dept_cocina';
 
-            appState.employees.push({ id, name, role, department: dept, departmentId: deptId, salary, nightSurcharge, nightSurchargeReason: nightSurcharge ? '' : nightSurchargeReason });
-            appState.selectedEmpId = id;
-
-            closeModal('modalAddEmp');
+            if (editing) {
+                const salaryChanged = Number(editing.salary) !== Number(salary);
+                Object.assign(editing, { name, role, department: dept, departmentId: deptId, salary, email });
+                if (salaryChanged) recomputeShiftsForEmployee(editing.id);
+                closeModal('modalAddEmp');
+                showAppToast(`Ficha de ${name} actualizada.`);
+            } else {
+                const nightSurcharge = !canPay || document.getElementById('newEmpNightSurcharge')?.checked !== false;
+                const nightSurchargeReason = (document.getElementById('newEmpNightReason')?.value || '').trim();
+                if (!nightSurcharge && !nightSurchargeReason) {
+                    showAppToast('Indique el motivo por el que no aplica el recargo nocturno.');
+                    return;
+                }
+                let id = Date.now();
+                appState.employees.push({ id, name, role, department: dept, departmentId: deptId, salary, email, nightSurcharge, nightSurchargeReason: nightSurcharge ? '' : nightSurchargeReason });
+                appState.selectedEmpId = id;
+                closeModal('modalAddEmp');
+                if (document.getElementById('newEmpNightSurcharge')) {
+                    document.getElementById('newEmpNightSurcharge').checked = true;
+                    document.getElementById('newEmpNightReason').value = '';
+                    document.getElementById('newEmpNightReasonBox').classList.add('hidden');
+                }
+                showAppToast(`Colaborador ${name} vinculado al área ${dept}.`);
+            }
             document.getElementById('newEmpName').value = '';
             document.getElementById('newEmpRole').value = '';
-            if (document.getElementById('newEmpNightSurcharge')) {
-                document.getElementById('newEmpNightSurcharge').checked = true;
-                document.getElementById('newEmpNightReason').value = '';
-                document.getElementById('newEmpNightReasonBox').classList.add('hidden');
-            }
-
-            showAppToast(`Colaborador ${name} vinculado al área ${dept}.`);
+            document.getElementById('newEmpEmail').value = '';
             renderEmployeesView();
             renderWeeklyRoster();
             updateDashboardMetrics();
@@ -2796,6 +2898,22 @@
 
             setSafeText('detailEmpName', emp.name);
             setSafeText('detailEmpRole', `${emp.role} • ${emp.department || 'General'}`);
+            const emailEl = document.getElementById('detailEmpEmail');
+            if (emailEl) {
+                emailEl.classList.toggle('hidden', !emp.email);
+                emailEl.innerHTML = emp.email ? `<i class="fa-regular fa-envelope"></i> ${escapeHtml(emp.email)}` : '';
+            }
+            const userBox = document.getElementById('detailEmpUserBox');
+            if (userBox) {
+                if (emp.linkedUser) {
+                    const st = emp.linkedUser.status === 'active' ? 'Activo' : (emp.linkedUser.status === 'invited' ? 'Invitación enviada' : 'Inactivo');
+                    userBox.innerHTML = `<span class="text-xs px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold"><i class="fa-solid fa-link text-[10px]"></i> Usuario en la suite: ${st}</span>`;
+                } else if (emp.email) {
+                    userBox.innerHTML = `<button type="button" onclick="inviteEmployeeToSuite(${emp.id})" class="text-xs px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold flex items-center gap-1"><i class="fa-solid fa-paper-plane text-[10px]"></i> Invitar a la suite</button>`;
+                } else {
+                    userBox.innerHTML = `<span class="text-3xs text-slate-400">Agrega su correo (Editar ficha) para poder invitarlo a la suite.</span>`;
+                }
+            }
             setSafeText('detailEmpSalary', `$${emp.salary.toLocaleString('es-CO')} COP`);
             setSafeText('detailEmpHourlyRate', `$${Math.round(hourlyRate).toLocaleString('es-CO')}/h`);
             const nightChk = document.getElementById('detailEmpNightSurcharge');
@@ -3308,7 +3426,7 @@
             if (appState.employees.length === 0) {
                 showAppToast('No hay colaboradores registrados. Vincule primero un colaborador.');
                 closeModal('modalAddShift');
-                openModal('modalAddEmp');
+                openEmployeeModal(null);
                 return;
             }
 
@@ -3359,7 +3477,7 @@
         function saveCurrentSimToShifts() {
             if (appState.employees.length === 0) {
                 showAppToast('Vincule al menos un colaborador antes de guardar en la planilla.');
-                openModal('modalAddEmp');
+                openEmployeeModal(null);
                 return;
             }
 
@@ -4662,6 +4780,15 @@
         // Sincronización de colaboradores y turnos: full-state, debounced.
         // (los presets/departamentos/nombre/logo se guardan al instante desde
         // sus propias funciones; ver README para el detalle de este enfoque)
+        function handleSyncResult(r) {
+            if (r && Array.isArray(r.ignored) && r.ignored.length) {
+                showAppToast('Algunos cambios no se guardaron: ' + r.ignored.join('; ') + '.');
+            }
+            if (r && Array.isArray(r.linked) && r.linked.length) {
+                r.linked.forEach(l => showAppToast(`Usuario ${l.email} vinculado automáticamente con ${l.employeeName}.`));
+                refreshLinkedUsers();
+            }
+        }
         function scheduleDataSync() {
             if (!BOOTSTRAPPED) return;
             if (!CAN('shifts.edit') && !CAN('employees.edit')) return; // este rol no guarda cambios
@@ -4670,12 +4797,40 @@
                 apiFetch('/api/org/sync', {
                     method: 'POST',
                     body: JSON.stringify({ employees: appState.employees, shifts: appState.shifts }),
-                }).then(r => {
-                    if (r && Array.isArray(r.ignored) && r.ignored.length) {
-                        showAppToast('Algunos cambios no se guardaron por permisos: ' + r.ignored.join('; ') + '.');
-                    }
-                }).catch(e => console.warn('No se pudo sincronizar con el servidor:', e.message));
+                }).then(handleSyncResult).catch(e => console.warn('No se pudo sincronizar con el servidor:', e.message));
             }, 900);
+        }
+        // Guarda YA los cambios pendientes (antes de invitar a un colaborador recién creado).
+        async function flushDataSync() {
+            clearTimeout(dataSyncTimer);
+            if (!CAN('shifts.edit') && !CAN('employees.edit')) return;
+            const r = await apiFetch('/api/org/sync', { method: 'POST', body: JSON.stringify({ employees: appState.employees, shifts: appState.shifts }) });
+            handleSyncResult(r);
+        }
+        // Actualiza en pantalla qué colaboradores ya tienen usuario en la suite.
+        async function refreshLinkedUsers() {
+            if (!CAN('users.view')) return;
+            try {
+                const data = await apiFetch('/api/org/data');
+                const map = new Map((data.employees || []).map(e => [Number(e.id), e.linkedUser || null]));
+                appState.employees.forEach(e => { e.linkedUser = map.has(Number(e.id)) ? map.get(Number(e.id)) : (e.linkedUser || null); });
+                renderSelectedEmployeeLedger();
+            } catch (e) { /* sin conexion: se actualiza en la proxima carga */ }
+        }
+        // Botón "Invitar a la suite" de la ficha: invita como Empleado con su correo.
+        async function inviteEmployeeToSuite(empId) {
+            const emp = appState.employees.find(e => e.id === empId);
+            if (!emp || !emp.email) return;
+            if (!confirm(`¿Enviar invitación a la suite a ${emp.name} (${emp.email}) con rol Empleado?`)) return;
+            try {
+                await flushDataSync();
+                const d = await apiFetch('/api/org/users', { method: 'POST', body: JSON.stringify({ email: emp.email, role: 'empleado', employeeId: emp.id }) });
+                emp.linkedUser = { email: emp.email, status: 'invited' };
+                renderSelectedEmployeeLedger();
+                alert(`Invitación enviada a ${emp.email}${d.linkedEmployeeName ? ', vinculada a ' + d.linkedEmployeeName : ''}.\n\nEnlace (por si prefieres enviarlo por WhatsApp):\n${d.inviteLink}`);
+            } catch (e) {
+                showAppToast('No se pudo invitar: ' + e.message);
+            }
         }
 
         // ¿El usuario actual tiene este permiso?
@@ -4799,7 +4954,7 @@
             if (splitPreset && splitPreset.color === 'cyan') { splitPreset.color = 'vivid_yellow'; if (CAN('shifts.edit')) saveShiftPresets(); }
             renderColorPalette('rosterColorPalette', 'roster-color-btn', 'selectShiftColor');
             renderColorPalette('presetColorPalette', 'preset-color-btn', 'selectPresetColor');
-            appState.employees = (data.employees || []).map(e => ({ ...e, nightSurcharge: e.nightSurcharge !== false, nightSurchargeReason: e.nightSurchargeReason || '' }));
+            appState.employees = (data.employees || []).map(e => ({ ...e, email: e.email || '', linkedUser: e.linkedUser || null, nightSurcharge: e.nightSurcharge !== false, nightSurchargeReason: e.nightSurchargeReason || '' }));
             appState.shifts = data.shifts || [];
             appState.viewer = data.viewer || { scope: 'all', employeeId: null };
             // Turnos partidos ya asignados que quedaron en cian -> amarillo vivo.
@@ -5522,6 +5677,7 @@
             try {
                 await apiFetch(`/api/org/users/${userId}`, { method: 'PUT', body: JSON.stringify(body) });
                 showAppToast(field === 'role' ? 'Rol actualizado. El usuario verá el cambio al recargar la página.' : 'Colaborador vinculado actualizado.');
+                if (field === 'employeeId') refreshLinkedUsers();
             } catch (e) {
                 showAppToast('Error: ' + e.message);
             }
@@ -5529,16 +5685,39 @@
         }
 
         function openOrgUserModal() {
-            const email = prompt('Correo del nuevo usuario a invitar:');
-            if (!email) return;
-            const role = prompt('Rol (org_admin, supervisor o empleado):', 'empleado');
-            if (!role) return;
-            apiFetch('/api/org/users', { method: 'POST', body: JSON.stringify({ email: email.trim(), role: role.trim() }) })
-                .then(d => {
-                    alert('Invitación enviada. Enlace (también impreso en la consola del servidor):\n' + d.inviteLink);
-                    loadOrgAdminPanel();
-                })
-                .catch(e => showAppToast('Error: ' + e.message));
+            document.getElementById('inviteEmail').value = '';
+            document.getElementById('inviteRole').value = 'empleado';
+            const sel = document.getElementById('inviteEmployee');
+            sel.innerHTML = '<option value="">— Automático por correo / sin vincular —</option>' +
+                [...appState.employees].filter(e => !e.linkedUser).sort((a, b) => a.name.localeCompare(b.name))
+                    .map(e => `<option value="${e.id}">${escapeHtml(e.name)}${e.email ? ' (' + escapeHtml(e.email) + ')' : ''}</option>`).join('');
+            document.getElementById('inviteMatchHint').textContent = '';
+            openModal('modalInviteUser');
+        }
+        // Al escribir el correo, sugiere el colaborador que tiene ese mismo correo.
+        function onInviteEmailInput() {
+            const email = document.getElementById('inviteEmail').value.trim().toLowerCase();
+            const match = appState.employees.find(e => e.email && e.email.toLowerCase() === email && !e.linkedUser);
+            document.getElementById('inviteEmployee').value = match ? match.id : '';
+            document.getElementById('inviteMatchHint').textContent = match ? `Se vinculará automáticamente con ${match.name}.` : '';
+        }
+        async function submitInviteUser() {
+            const email = document.getElementById('inviteEmail').value.trim().toLowerCase();
+            const role = document.getElementById('inviteRole').value;
+            const empVal = document.getElementById('inviteEmployee').value;
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAppToast('Escribe un correo electrónico válido.'); return; }
+            try {
+                await flushDataSync();
+                const body = { email, role };
+                if (empVal) body.employeeId = Number(empVal);
+                const d = await apiFetch('/api/org/users', { method: 'POST', body: JSON.stringify(body) });
+                closeModal('modalInviteUser');
+                alert(`Invitación enviada a ${email}${d.linkedEmployeeName ? ', vinculada a ' + d.linkedEmployeeName : ' (sin colaborador vinculado)'}.\n\nEnlace (por si prefieres enviarlo por WhatsApp):\n${d.inviteLink}`);
+                loadOrgAdminPanel();
+                refreshLinkedUsers();
+            } catch (e) {
+                showAppToast('Error: ' + e.message);
+            }
         }
     </script>
 </body>
