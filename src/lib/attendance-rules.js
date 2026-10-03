@@ -23,6 +23,11 @@
 const NIGHT_START_MIN = 19 * 60; // 19:00
 const NIGHT_END_MIN = 6 * 60;    // 06:00
 const PREVENTIVE_WINDOW_MIN = 5; // alerta preventiva: 5 minutos antes de la entrada
+// Barrera para activar las horas extras: si el tiempo trabajado despues de la
+// salida programada (diurno + nocturno) es MENOR a 30 minutos, no se reconoce
+// como extra. Si llega a 30 minutos o mas, se reconoce TODO desde la hora en
+// que terminaba el turno.
+const OVERTIME_THRESHOLD_MIN = 30;
 
 const MARK_SEQUENCE = ['entrada', 'inicio_almuerzo', 'fin_almuerzo', 'salida'];
 
@@ -204,7 +209,12 @@ function categorizeWorkedMinutes({
   const extraStart = Math.max(workStart, scheduledSalidaMin);
   const extraGross = Math.max(0, workEnd - extraStart);
   const extraNight = extraGross > 0 ? nightMinutesInInterval(extraStart, workEnd) : 0;
-  const extraDay = Math.max(0, extraGross - extraNight);
+  let extraDay = Math.max(0, extraGross - extraNight);
+  let extraNightFinal = extraNight;
+  if (extraDay + extraNightFinal < OVERTIME_THRESHOLD_MIN) {
+    extraDay = 0;
+    extraNightFinal = 0;
+  }
 
   hod -= Math.min(hod, Math.max(0, breakMinutes || 0));
 
@@ -217,7 +227,7 @@ function categorizeWorkedMinutes({
     hod: Math.max(0, Math.round(hod)),
     hon: Math.max(0, Math.round(hon)),
     hed: Math.round(extraDay),
-    hen: Math.round(extraNight),
+    hen: Math.round(extraNightFinal),
   };
 }
 
@@ -234,6 +244,7 @@ module.exports = {
   NIGHT_START_MIN,
   NIGHT_END_MIN,
   PREVENTIVE_WINDOW_MIN,
+  OVERTIME_THRESHOLD_MIN,
   MARK_SEQUENCE,
   timeToMinutes,
   formatMinutes,
