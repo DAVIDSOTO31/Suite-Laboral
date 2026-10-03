@@ -14,6 +14,34 @@ function resolveOrgId(req, extra) {
   return null;
 }
 
+// Correo normalizado (minusculas, sin espacios). Devuelve null si esta vacio
+// y false si el formato no es valido.
+function normalizeEmail(v) {
+  const e = String(v || '').trim().toLowerCase();
+  if (!e) return null;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 160 ? e : false;
+}
+
+// Vincula automaticamente usuarios y colaboradores con el MISMO correo, solo
+// cuando ninguno de los dos esta vinculado todavia. Devuelve lo vinculado.
+function autoLinkByEmail(orgId) {
+  const pairs = db.prepare(`
+    SELECT u.id AS userId, u.email AS email, e.id AS employeeId, e.name AS employeeName
+    FROM users u
+    JOIN employees e ON e.organization_id = u.organization_id AND e.email IS NOT NULL AND lower(e.email) = lower(u.email)
+    WHERE u.organization_id = ? AND u.employee_id IS NULL
+      AND NOT EXISTS (SELECT 1 FROM users u2 WHERE u2.organization_id = u.organization_id AND u2.employee_id = e.id)
+  `).all(orgId);
+  const link = db.prepare(`UPDATE users SET employee_id = ?, updated_at = datetime('now') WHERE id = ? AND employee_id IS NULL`);
+  const done = [];
+  const usedEmployees = new Set();
+  for (const p of pairs) {
+    if (usedEmployees.has(p.employeeId)) continue;
+    if (link.run(p.employeeId, p.userId).changes) { usedEmployees.add(p.employeeId); done.push({ email: p.email, employeeName: p.employeeName }); }
+  }
+  return done;
+}
+
 // ¿El usuario tiene este permiso? (el Super Admin los tiene todos)
 function can(req, code) {
   return !!(req.user.isSuperAdmin || (req.user.permissions && req.user.permissions.has(code)));
@@ -26,8 +54,14 @@ function getOrgData(req, res, query) {
   const settingsRow = db.prepare('SELECT * FROM org_settings WHERE organization_id = ?').get(orgId);
   const departments = db.prepare('SELECT id, name, icon FROM departments WHERE organization_id = ? ORDER BY position ASC').all(orgId);
   const presetRows = db.prepare('SELECT data_json FROM shift_presets WHERE organization_id = ?').all(orgId);
-  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason FROM employees WHERE organization_id = ?').all(orgId)
-    .map(({ night_surcharge, night_surcharge_reason, ...e }) => ({ ...e, nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '' }));
+  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason, email FROM employees WHERE organization_id = ?').all(orgId)
+    .map(({ night_surcharge, night_surcharge_reason, email, ...e }) => ({ ...e, email: email || '', nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '' }));
+  // Usuario de la suite vinculado a cada colaborador (solo para quien gestiona usuarios).
+  if (can(req, 'users.view')) {
+    const linkedUsers = new Map(db.prepare('SELECT employee_id, email, status FROM users WHERE organization_id = ? AND employee_id IS NOT NULL').all(orgId)
+      .map(u => [Number(u.employee_id), { email: u.email, status: u.status }]));
+    employees = employees.map(e => ({ ...e, linkedUser: linkedUsers.get(Number(e.id)) || null }));
+  }
   let shifts = db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId).map(r => JSON.parse(r.data_json));
 
   // Alcance segun el rol:
@@ -139,7 +173,7 @@ async function syncEmployeesAndShifts(req, res) {
     // Los empleados se ACTUALIZAN (no se borran y recrean) para no arrastrar en
     // cascada su historial de asistencia ni su perfil biometrico.
     const existing = new Map(
-      db.prepare('SELECT id, name, salary, night_surcharge, night_surcharge_reason FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
+      db.prepare('SELECT id, name, salary, night_surcharge, night_surcharge_reason, email FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
     );
     const incomingIds = new Set(body.employees.map(e => Number(e.id)));
     const toDelete = [...existing.keys()].filter(id => !incomingIds.has(id));
@@ -154,16 +188,30 @@ async function syncEmployeesAndShifts(req, res) {
     const settingsRow = db.prepare('SELECT minimum_wage FROM org_settings WHERE organization_id = ?').get(orgId);
     const defaultSalary = (settingsRow && settingsRow.minimum_wage) || 1750905;
     const upsert = db.prepare(`
-      INSERT INTO employees (id, organization_id, name, role, department, department_id, salary, night_surcharge, night_surcharge_reason)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO employees (id, organization_id, name, role, department, department_id, salary, night_surcharge, night_surcharge_reason, email)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, department = excluded.department, department_id = excluded.department_id, salary = excluded.salary,
-        night_surcharge = excluded.night_surcharge, night_surcharge_reason = excluded.night_surcharge_reason
+        night_surcharge = excluded.night_surcharge, night_surcharge_reason = excluded.night_surcharge_reason, email = excluded.email
     `);
     let payrollIgnored = false;
+    // Correos ya usados por colaboradores que NO vienen en la lista (y se conservan).
+    const usedEmails = new Map();
+    for (const [id, r] of existing) {
+      if (!incomingIds.has(id) && !canDelete && r.email) usedEmails.set(String(r.email).toLowerCase(), id);
+    }
     for (const e of body.employees) {
       const prev = existing.get(Number(e.id));
       if (!prev && !canCreate) { ignored.push(`crear "${String(e.name || '').slice(0, 60)}": requiere permiso de crear colaboradores`); continue; }
       if (prev && !canEdit) continue;
+
+      // Correo opcional: valido y unico dentro de la organizacion.
+      let email = normalizeEmail(e.email);
+      if (email === false) { ignored.push(`correo no valido para "${String(e.name || '').slice(0, 60)}"`); email = prev ? (prev.email || null) : null; }
+      if (email && usedEmails.has(email) && usedEmails.get(email) !== Number(e.id)) {
+        ignored.push(`el correo ${email} ya pertenece a otro colaborador`);
+        email = prev && prev.email && String(prev.email).toLowerCase() !== email ? prev.email : null;
+      }
+      if (email) usedEmails.set(String(email).toLowerCase(), Number(e.id));
 
       const incomingNight = e.nightSurcharge === false ? 0 : 1;
       const incomingReason = incomingNight ? null : (String(e.nightSurchargeReason || '').slice(0, 300) || null);
@@ -181,7 +229,7 @@ async function syncEmployeesAndShifts(req, res) {
         const salaryChanged = e.salary !== undefined && Number(e.salary) !== Number(salary);
         if (salaryChanged || incomingNight !== nightSurcharge) payrollIgnored = true;
       }
-      upsert.run(e.id, orgId, String(e.name || '').slice(0, 120), String(e.role || '').slice(0, 120), e.department || null, e.departmentId || null, salary, nightSurcharge, reason);
+      upsert.run(e.id, orgId, String(e.name || '').slice(0, 120), String(e.role || '').slice(0, 120), e.department || null, e.departmentId || null, salary, nightSurcharge, reason, email || null);
 
       // Trazabilidad: cada cambio del recargo nocturno queda en la auditoria.
       const prevValue = prev ? (prev.night_surcharge === 0 ? 0 : 1) : 1;
@@ -207,8 +255,13 @@ async function syncEmployeesAndShifts(req, res) {
       ignored.push('cambios en turnos: requiere permiso de editar turnos');
     }
   }
+  // Usuarios y colaboradores con el mismo correo quedan vinculados solos.
+  const linked = Array.isArray(body.employees) ? autoLinkByEmail(orgId) : [];
+  for (const l of linked) {
+    logAction({ organizationId: orgId, userId: req.user.id, action: 'user.auto_linked', resourceType: 'user', ip: getClientIp(req), metadata: l });
+  }
   logAction({ organizationId: orgId, userId: req.user.id, action: 'org_data.sync', ip: getClientIp(req), metadata: { employees: (body.employees || []).length, shifts: (body.shifts || []).length, ignored } });
-  sendJson(res, 200, { ok: true, ignored });
+  sendJson(res, 200, { ok: true, ignored, linked });
 }
 
 // ---------------------------------------------------------------------------
@@ -247,8 +300,17 @@ async function createOrgUser(req, res) {
   db.prepare(`INSERT INTO invitations (id, organization_id, email, role_id, token_hash, expires_at, created_by) VALUES (?, ?, ?, ?, ?, datetime('now', '+3 days'), ?)`)
     .run(uid('inv'), orgId, email, role.id, sha256Hex(token), req.user.id);
   const mail = await sendMail({ to: email, subject: `Invitacion a tu organizacion`, kind: 'invitation', link: `/accept-invite.html?token=${token}` });
-  logAction({ organizationId: orgId, userId: req.user.id, action: 'user.invite', resourceType: 'user', resourceId: userId, ip: getClientIp(req), metadata: { email, role: roleName } });
-  sendJson(res, 201, { ok: true, inviteLink: mail.link, note: 'El enlace de invitacion tambien se imprimio en la consola del servidor.' });
+  // Si no se eligio colaborador, se busca uno con el MISMO correo.
+  let linkedEmployeeName = null;
+  if (link.employeeId == null) {
+    const auto = autoLinkByEmail(orgId).find(l => l.email === email);
+    if (auto) linkedEmployeeName = auto.employeeName;
+  } else {
+    const emp = db.prepare('SELECT name FROM employees WHERE id = ?').get(link.employeeId);
+    linkedEmployeeName = emp ? emp.name : null;
+  }
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'user.invite', resourceType: 'user', resourceId: userId, ip: getClientIp(req), metadata: { email, role: roleName, employee: linkedEmployeeName } });
+  sendJson(res, 201, { ok: true, inviteLink: mail.link, linkedEmployeeName, note: 'El enlace de invitacion tambien se imprimio en la consola del servidor.' });
 }
 
 // Valida el colaborador a vincular con un usuario: debe ser de la misma
