@@ -418,6 +418,11 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get('roles_v2_per
   db.prepare('INSERT INTO app_migrations (name) VALUES (?)').run('roles_v2_permisos_por_rol');
 }
 
+// Correo (opcional) de cada colaborador: permite vincular automaticamente su
+// usuario de la suite cuando se le invita con ese mismo correo.
+const empColumns2 = db.prepare('PRAGMA table_info(employees)').all().map(c => c.name);
+if (!empColumns2.includes('email')) db.exec('ALTER TABLE employees ADD COLUMN email TEXT NULL');
+
 // Vinculo usuario -> ficha de colaborador (para que el Empleado vea solo lo suyo).
 const userColumns = db.prepare('PRAGMA table_info(users)').all().map(c => c.name);
 if (!userColumns.includes('employee_id')) db.exec('ALTER TABLE users ADD COLUMN employee_id INTEGER NULL');
