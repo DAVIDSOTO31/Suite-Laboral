@@ -794,6 +794,10 @@
                                     <input type="checkbox" id="detailEmpNightSurcharge" class="w-4 h-4 accent-purple-600" onchange="toggleEmployeeNightSurcharge(this)">
                                     Aplica recargo nocturno
                                 </label>
+                                <label class="mt-2 ml-1 inline-flex items-center gap-2 text-xs font-semibold text-teal-900 cursor-pointer bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1">
+                                    <input type="checkbox" id="detailEmpCountDays" class="w-4 h-4 accent-teal-600" onchange="toggleEmployeeCountDays(this)">
+                                    Contabilizar días laborados
+                                </label>
                                 <p class="text-3xs text-slate-500 mt-1 hidden" id="detailEmpNightReason"></p>
                             </div>
                             <div class="text-left sm:text-right bg-slate-50 sm:bg-transparent p-2 sm:p-0 rounded-lg">
@@ -1026,6 +1030,9 @@
                     <button id="btnAttTabBio" data-perm="attendance.manage_biometrics" onclick="attendanceSetSubTab('bio')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
                         <i class="fa-solid fa-id-badge"></i> Biometría
                     </button>
+                    <button id="btnAttTabWorkdays" data-perm="attendance.view" onclick="attendanceSetSubTab('workdays')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
+                        <i class="fa-solid fa-calendar-check"></i> Días laborados
+                    </button>
                     <button id="btnAttTabDevices" data-perm="attendance.manage_devices" onclick="attendanceSetSubTab('devices')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
                         <i class="fa-solid fa-tablet-screen-button"></i> Dispositivos
                     </button>
@@ -1141,6 +1148,41 @@
                 </div>
 
             </div>
+
+                <!-- Sub-vista: Días laborados (según marcaciones) -->
+                <div id="attSubtab-workdays" class="hidden">
+                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                        <div class="mb-4">
+                            <h3 class="font-bold text-slate-800 text-base">Conteo de días laborados</h3>
+                            <p class="text-xs text-slate-500">Solo colaboradores con <strong>"Contabilizar días laborados"</strong> activado en su ficha. Un día cuenta como laborado cuando el colaborador registró su <strong>entrada</strong> ese día (no se usa el cuadro de turnos).</p>
+                        </div>
+                        <div class="flex flex-wrap items-end gap-3 mb-4">
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Desde</label>
+                                <input type="date" id="attWorkdaysFrom" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Hasta</label>
+                                <input type="date" id="attWorkdaysTo" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
+                            </div>
+                            <button onclick="attendanceLoadWorkdays()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
+                            <button onclick="exportWorkdaysXLSX()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel</button>
+                        </div>
+                        <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                            <table class="w-full text-xs">
+                                <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
+                                    <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Área</th>
+                                    <th class="text-center px-3 py-2">Días laborados</th>
+                                    <th class="text-center px-3 py-2">Jornada completa</th>
+                                    <th class="text-center px-3 py-2">Marcación incompleta</th>
+                                    <th class="text-left px-3 py-2">Fechas</th>
+                                </tr></thead>
+                                <tbody id="attWorkdaysBody"></tbody>
+                                <tfoot id="attWorkdaysFoot" class="bg-slate-50 font-semibold"></tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Sub-vista: Historial -->
                 <div id="attSubtab-history" class="hidden">
@@ -2916,6 +2958,12 @@
             }
             setSafeText('detailEmpSalary', `$${emp.salary.toLocaleString('es-CO')} COP`);
             setSafeText('detailEmpHourlyRate', `$${Math.round(hourlyRate).toLocaleString('es-CO')}/h`);
+            const countChk = document.getElementById('detailEmpCountDays');
+            if (countChk) {
+                countChk.checked = !!emp.countWorkedDays;
+                countChk.disabled = !CAN('employees.edit_payroll');
+                countChk.title = countChk.disabled ? 'Solo el administrador puede cambiar esta opción' : 'Cuenta los días en que el colaborador marcó asistencia (Asistencia → Días laborados)';
+            }
             const nightChk = document.getElementById('detailEmpNightSurcharge');
             if (nightChk) {
                 nightChk.checked = empNightSurcharge(emp);
@@ -3285,6 +3333,18 @@
 
         // Activa / desactiva el recargo nocturno del colaborador seleccionado.
         // Al desactivarlo se exige un motivo, que queda en la auditoría.
+        // Activa / desactiva el conteo de días laborados (según marcaciones).
+        function toggleEmployeeCountDays(chk) {
+            const emp = appState.employees.find(e => e.id === appState.selectedEmpId);
+            if (!emp) return;
+            if (!CAN('employees.edit_payroll')) { chk.checked = !!emp.countWorkedDays; return; }
+            emp.countWorkedDays = chk.checked;
+            showAppToast(chk.checked
+                ? `Se contabilizarán los días laborados de ${emp.name}. Consúltalos en Asistencia → Días laborados.`
+                : `Ya no se contabilizan los días laborados de ${emp.name}.`);
+            scheduleDataSync();
+        }
+
         function toggleEmployeeNightSurcharge(chk) {
             const emp = appState.employees.find(e => e.id === appState.selectedEmpId);
             if (!emp) return;
@@ -4954,7 +5014,7 @@
             if (splitPreset && splitPreset.color === 'cyan') { splitPreset.color = 'vivid_yellow'; if (CAN('shifts.edit')) saveShiftPresets(); }
             renderColorPalette('rosterColorPalette', 'roster-color-btn', 'selectShiftColor');
             renderColorPalette('presetColorPalette', 'preset-color-btn', 'selectPresetColor');
-            appState.employees = (data.employees || []).map(e => ({ ...e, email: e.email || '', linkedUser: e.linkedUser || null, nightSurcharge: e.nightSurcharge !== false, nightSurchargeReason: e.nightSurchargeReason || '' }));
+            appState.employees = (data.employees || []).map(e => ({ ...e, email: e.email || '', linkedUser: e.linkedUser || null, countWorkedDays: e.countWorkedDays === true, nightSurcharge: e.nightSurcharge !== false, nightSurchargeReason: e.nightSurchargeReason || '' }));
             appState.shifts = data.shifts || [];
             appState.viewer = data.viewer || { scope: 'all', employeeId: null };
             // Turnos partidos ya asignados que quedaron en cian -> amarillo vivo.
@@ -5104,13 +5164,14 @@
         function attendanceSetSubTab(tab) {
             if (currentAttendanceSubTab === 'mark' && tab !== 'mark') attendanceStopFacialMode();
             currentAttendanceSubTab = tab;
-            ['mark', 'history', 'alerts', 'bio', 'devices'].forEach(t => {
+            ['mark', 'history', 'workdays', 'alerts', 'bio', 'devices'].forEach(t => {
                 document.getElementById(`attSubtab-${t}`).classList.toggle('hidden', t !== tab);
                 const btn = document.getElementById(`btnAttTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
                 btn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 ' + (t === tab ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900');
             });
             if (tab === 'mark') attendanceLoadEmployeesToday();
             if (tab === 'history') attendanceLoadHistory();
+            if (tab === 'workdays') attendanceLoadWorkdays();
             if (tab === 'alerts') attendanceLoadAlerts();
             if (tab === 'bio') attendanceLoadBioList();
             if (tab === 'devices') attendanceLoadDevices();
@@ -5367,6 +5428,73 @@
             if (r.status !== 'turno_finalizado') return '<span class="text-slate-400">En curso</span>';
             if (r.employee_night_surcharge === 0) return '<span class="text-slate-400">No aplica</span>';
             return `<span class="font-semibold text-purple-700">${attMinutesLabel(r.hon_min)}</span>`;
+        }
+
+        // ---- Días laborados: cuenta los días con marcación de ENTRADA ----
+        let lastWorkdaysReport = [];
+        function bogotaTodayISO() {
+            return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+        }
+        async function attendanceLoadWorkdays() {
+            const fromEl = document.getElementById('attWorkdaysFrom');
+            const toEl = document.getElementById('attWorkdaysTo');
+            if (!fromEl.value || !toEl.value) {
+                const today = bogotaTodayISO();
+                fromEl.value = today.slice(0, 8) + '01'; // desde el día 1 del mes actual
+                toEl.value = today;
+            }
+            const body = document.getElementById('attWorkdaysBody');
+            const foot = document.getElementById('attWorkdaysFoot');
+            foot.innerHTML = '';
+            const selected = appState.employees.filter(e => e.countWorkedDays);
+            if (!selected.length) {
+                lastWorkdaysReport = [];
+                body.innerHTML = `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Ningún colaborador tiene activado "Contabilizar días laborados". Actívalo en su ficha (Colaboradores &amp; Nómina).</td></tr>`;
+                return;
+            }
+            body.innerHTML = `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
+            try {
+                const { rows } = await apiFetch(`/api/attendance/history?from=${fromEl.value}&to=${toEl.value}`);
+                const byEmp = new Map(selected.map(e => [Number(e.id), { emp: e, dates: [], complete: 0, incomplete: 0 }]));
+                rows.forEach(r => {
+                    const acc = byEmp.get(Number(r.employee_id));
+                    if (!acc || !r.entrada_real) return; // sin entrada registrada: no cuenta
+                    if (acc.dates.includes(r.shift_date)) return;
+                    acc.dates.push(r.shift_date);
+                    if (r.status === 'turno_finalizado') acc.complete++; else acc.incomplete++;
+                });
+                lastWorkdaysReport = [...byEmp.values()].sort((a, b) => a.emp.name.localeCompare(b.emp.name));
+                lastWorkdaysReport.forEach(a => a.dates.sort());
+                const fmt = (iso) => { const [y, m, d] = iso.split('-'); return `${d}/${m}`; };
+                body.innerHTML = lastWorkdaysReport.map(a => `
+                    <tr class="border-t border-slate-100 align-top">
+                        <td class="px-3 py-2 font-semibold">${escapeHtml(a.emp.name)}</td>
+                        <td class="px-3 py-2 text-slate-500">${escapeHtml(a.emp.department || '-')}</td>
+                        <td class="px-3 py-2 text-center text-base font-black text-teal-700">${a.dates.length}</td>
+                        <td class="px-3 py-2 text-center">${a.complete}</td>
+                        <td class="px-3 py-2 text-center ${a.incomplete ? 'text-amber-700 font-semibold' : ''}">${a.incomplete}</td>
+                        <td class="px-3 py-2 text-slate-500">${a.dates.map(fmt).join(', ') || '-'}</td>
+                    </tr>`).join('');
+                const total = lastWorkdaysReport.reduce((s, a) => s + a.dates.length, 0);
+                foot.innerHTML = `<tr class="border-t-2 border-slate-200">
+                    <td class="px-3 py-2 uppercase text-2xs text-slate-500" colspan="2">Total (${lastWorkdaysReport.length} colaborador${lastWorkdaysReport.length === 1 ? '' : 'es'})</td>
+                    <td class="px-3 py-2 text-center text-teal-700">${total}</td>
+                    <td class="px-3 py-2 text-center">${lastWorkdaysReport.reduce((s, a) => s + a.complete, 0)}</td>
+                    <td class="px-3 py-2 text-center">${lastWorkdaysReport.reduce((s, a) => s + a.incomplete, 0)}</td>
+                    <td></td></tr>`;
+            } catch (e) {
+                body.innerHTML = `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">${escapeHtml(e.message)}</td></tr>`;
+            }
+        }
+        async function exportWorkdaysXLSX() {
+            if (!lastWorkdaysReport.length) { showAppToast('Primero consulta el periodo que quieres exportar.'); return; }
+            const from = document.getElementById('attWorkdaysFrom').value;
+            const to = document.getElementById('attWorkdaysTo').value;
+            const rows = lastWorkdaysReport.map(a => [a.emp.name, a.emp.department || '', a.dates.length, a.complete, a.incomplete, a.dates.join(', ')]);
+            try {
+                await downloadXLSX(`Dias_laborados_${from}_al_${to}.xlsx`,
+                    ['Colaborador', 'Área', 'Días laborados', 'Jornada completa', 'Marcación incompleta', 'Fechas'], rows, 'Días laborados');
+            } catch (e) { showAppToast(e.message); }
         }
 
         async function attendanceLoadHistory() {
