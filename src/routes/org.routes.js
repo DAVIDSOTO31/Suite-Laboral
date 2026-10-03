@@ -54,8 +54,8 @@ function getOrgData(req, res, query) {
   const settingsRow = db.prepare('SELECT * FROM org_settings WHERE organization_id = ?').get(orgId);
   const departments = db.prepare('SELECT id, name, icon FROM departments WHERE organization_id = ? ORDER BY position ASC').all(orgId);
   const presetRows = db.prepare('SELECT data_json FROM shift_presets WHERE organization_id = ?').all(orgId);
-  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason, email FROM employees WHERE organization_id = ?').all(orgId)
-    .map(({ night_surcharge, night_surcharge_reason, email, ...e }) => ({ ...e, email: email || '', nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '' }));
+  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason, email, count_worked_days FROM employees WHERE organization_id = ?').all(orgId)
+    .map(({ night_surcharge, night_surcharge_reason, email, count_worked_days, ...e }) => ({ ...e, email: email || '', nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '', countWorkedDays: count_worked_days === 1 }));
   // Usuario de la suite vinculado a cada colaborador (solo para quien gestiona usuarios).
   if (can(req, 'users.view')) {
     const linkedUsers = new Map(db.prepare('SELECT employee_id, email, status FROM users WHERE organization_id = ? AND employee_id IS NOT NULL').all(orgId)
@@ -173,7 +173,7 @@ async function syncEmployeesAndShifts(req, res) {
     // Los empleados se ACTUALIZAN (no se borran y recrean) para no arrastrar en
     // cascada su historial de asistencia ni su perfil biometrico.
     const existing = new Map(
-      db.prepare('SELECT id, name, salary, night_surcharge, night_surcharge_reason, email FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
+      db.prepare('SELECT id, name, salary, night_surcharge, night_surcharge_reason, email, count_worked_days FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
     );
     const incomingIds = new Set(body.employees.map(e => Number(e.id)));
     const toDelete = [...existing.keys()].filter(id => !incomingIds.has(id));
@@ -188,10 +188,10 @@ async function syncEmployeesAndShifts(req, res) {
     const settingsRow = db.prepare('SELECT minimum_wage FROM org_settings WHERE organization_id = ?').get(orgId);
     const defaultSalary = (settingsRow && settingsRow.minimum_wage) || 1750905;
     const upsert = db.prepare(`
-      INSERT INTO employees (id, organization_id, name, role, department, department_id, salary, night_surcharge, night_surcharge_reason, email)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO employees (id, organization_id, name, role, department, department_id, salary, night_surcharge, night_surcharge_reason, email, count_worked_days)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, department = excluded.department, department_id = excluded.department_id, salary = excluded.salary,
-        night_surcharge = excluded.night_surcharge, night_surcharge_reason = excluded.night_surcharge_reason, email = excluded.email
+        night_surcharge = excluded.night_surcharge, night_surcharge_reason = excluded.night_surcharge_reason, email = excluded.email, count_worked_days = excluded.count_worked_days
     `);
     let payrollIgnored = false;
     // Correos ya usados por colaboradores que NO vienen en la lista (y se conservan).
@@ -215,12 +215,16 @@ async function syncEmployeesAndShifts(req, res) {
 
       const incomingNight = e.nightSurcharge === false ? 0 : 1;
       const incomingReason = incomingNight ? null : (String(e.nightSurchargeReason || '').slice(0, 300) || null);
-      let salary, nightSurcharge, reason;
+      let salary, nightSurcharge, reason, countDays;
+      const incomingCountDays = e.countWorkedDays === true ? 1 : 0;
       if (canPayroll) {
         salary = Number(e.salary) || 0;
         nightSurcharge = incomingNight;
         reason = incomingReason;
+        countDays = incomingCountDays;
       } else {
+        countDays = prev ? (prev.count_worked_days === 1 ? 1 : 0) : 0;
+        if (incomingCountDays !== countDays && e.countWorkedDays !== undefined) payrollIgnored = true;
         // Sin permiso de nomina: salario y recargo nocturno no se tocan
         // (nuevo colaborador: salario minimo de la organizacion y con recargo).
         salary = prev ? prev.salary : defaultSalary;
@@ -229,7 +233,16 @@ async function syncEmployeesAndShifts(req, res) {
         const salaryChanged = e.salary !== undefined && Number(e.salary) !== Number(salary);
         if (salaryChanged || incomingNight !== nightSurcharge) payrollIgnored = true;
       }
-      upsert.run(e.id, orgId, String(e.name || '').slice(0, 120), String(e.role || '').slice(0, 120), e.department || null, e.departmentId || null, salary, nightSurcharge, reason, email || null);
+      upsert.run(e.id, orgId, String(e.name || '').slice(0, 120), String(e.role || '').slice(0, 120), e.department || null, e.departmentId || null, salary, nightSurcharge, reason, email || null, countDays);
+      // Trazabilidad: activar/desactivar el conteo de dias laborados.
+      const prevCount = prev ? (prev.count_worked_days === 1 ? 1 : 0) : 0;
+      if (prevCount !== countDays) {
+        logAction({
+          organizationId: orgId, userId: req.user.id, action: 'employee.count_worked_days_changed',
+          resourceType: 'employee', resourceId: String(e.id), ip: getClientIp(req),
+          metadata: { employeeName: e.name, contabiliza: !!countDays },
+        });
+      }
 
       // Trazabilidad: cada cambio del recargo nocturno queda en la auditoria.
       const prevValue = prev ? (prev.night_surcharge === 0 ? 0 : 1) : 1;
@@ -241,7 +254,7 @@ async function syncEmployeesAndShifts(req, res) {
         });
       }
     }
-    if (payrollIgnored) ignored.push('cambios de salario o recargo nocturno: requiere permiso de nomina');
+    if (payrollIgnored) ignored.push('cambios de salario, recargo nocturno o conteo de dias laborados: requiere permiso de nomina');
   }
   if (Array.isArray(body.shifts)) {
     if (canShifts) {
