@@ -422,6 +422,8 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get('roles_v2_per
 // usuario de la suite cuando se le invita con ese mismo correo.
 const empColumns2 = db.prepare('PRAGMA table_info(employees)').all().map(c => c.name);
 if (!empColumns2.includes('email')) db.exec('ALTER TABLE employees ADD COLUMN email TEXT NULL');
+// Contabilizar dias laborados (segun marcaciones): desactivado por defecto.
+if (!empColumns2.includes('count_worked_days')) db.exec('ALTER TABLE employees ADD COLUMN count_worked_days INTEGER NOT NULL DEFAULT 0');
 
 // Vinculo usuario -> ficha de colaborador (para que el Empleado vea solo lo suyo).
 const userColumns = db.prepare('PRAGMA table_info(users)').all().map(c => c.name);
