@@ -790,6 +790,13 @@ async function registerCorrection(req, res) {
   if (date >= bogota.todayISOInBogota()) return sendJson(res, 400, { error: 'Solo se pueden corregir dias ya pasados.' });
   const reason = String(body.reason || '').trim().slice(0, 300);
   if (reason.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo de la correccion (minimo 5 caracteres).' });
+  // Un dia que pertenece a un periodo CERRADO (recargos o extras) no se puede corregir.
+  const closed = db.prepare(`SELECT closure_type, period_start, period_end FROM payroll_closures
+    WHERE organization_id = ? AND status = 'cerrado' AND period_start <= ? AND period_end >= ?`).all(orgId, date, date);
+  if (closed.length) {
+    const desc = closed.map(c => `${c.closure_type} (${c.period_start} al ${c.period_end})`).join(' y ');
+    return sendJson(res, 409, { error: `Ese dia pertenece a un periodo cerrado de ${desc}. Para corregirlo, primero reabre el periodo.` });
+  }
   const employee = db.prepare('SELECT * FROM employees WHERE id = ? AND organization_id = ?').get(Number(body.employeeId), orgId);
   if (!employee) return sendJson(res, 404, { error: 'Colaborador no encontrado.' });
   const shift = getShiftForEmployeeDate(orgId, employee.id, date);
