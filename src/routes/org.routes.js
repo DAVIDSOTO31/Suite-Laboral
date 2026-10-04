@@ -445,10 +445,10 @@ async function savePayrollAdjustment(req, res) {
   const totalManual = body.totalManual ? 1 : 0;
   db.prepare(`
     INSERT INTO payroll_adjustments (organization_id, employee_id, period_start, period_end, hon, hed, hen, total, total_manual, reason, updated_by, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-5 hours'))
     ON CONFLICT(organization_id, employee_id, period_start, period_end) DO UPDATE SET
       hon = excluded.hon, hed = excluded.hed, hen = excluded.hen, total = excluded.total, total_manual = excluded.total_manual,
-      reason = excluded.reason, updated_by = excluded.updated_by, updated_at = datetime('now')
+      reason = excluded.reason, updated_by = excluded.updated_by, updated_at = datetime('now', '-5 hours')
   `).run(orgId, emp.id, from, to, hon, hed, hen, total, totalManual, reason, req.user.id);
   const change = body.change && typeof body.change === 'object' ? {
     campo: String(body.change.field || '').slice(0, 20),
@@ -485,7 +485,25 @@ async function resetPayrollAdjustments(req, res) {
 // ---------------------------------------------------------------------------
 const CLOSURE_TYPES = ['recargos', 'extras'];
 function closureView(c) {
+  // Extras: de que cierre viene el saldo anterior y en que cierre se aplico
+  // el saldo que deja este periodo (para verificar el traslado en el PDF).
+  let previous = null, next = null;
+  if (c.closure_type === 'extras') {
+    if (c.previous_closure_id) {
+      const p = db.prepare('SELECT period_start, period_end, status FROM payroll_closures WHERE id = ?').get(c.previous_closure_id);
+      if (p) previous = { from: p.period_start, to: p.period_end, status: p.status };
+    }
+    const n = db.prepare(`SELECT period_start, period_end, snapshot_json FROM payroll_closures
+      WHERE previous_closure_id = ? AND status = 'cerrado' ORDER BY closed_at DESC LIMIT 1`).get(c.id);
+    if (n) {
+      const snap = JSON.parse(n.snapshot_json || '{}');
+      const carryIn = {};
+      (snap.employees || []).forEach(e => { if (e.carryIn) carryIn[e.employeeId] = e.carryIn; });
+      next = { from: n.period_start, to: n.period_end, carryIn };
+    }
+  }
   return {
+    previous, next,
     id: c.id, type: c.closure_type, from: c.period_start, to: c.period_end, status: c.status,
     pendingDays: c.pending_days, closedAt: c.closed_at, closedBy: c.closed_by_email || null,
     reopenedAt: c.reopened_at, reopenedBy: c.reopened_by_email || null, reopenReason: c.reopen_reason,
@@ -584,8 +602,8 @@ async function createPayrollClosure(req, res) {
     }
   }
   const id = uid('clos');
-  db.prepare(`INSERT INTO payroll_closures (id, organization_id, closure_type, period_start, period_end, status, snapshot_json, pending_days, previous_closure_id, closed_by)
-              VALUES (?, ?, ?, ?, ?, 'cerrado', ?, ?, ?, ?)`)
+  db.prepare(`INSERT INTO payroll_closures (id, organization_id, closure_type, period_start, period_end, status, snapshot_json, pending_days, previous_closure_id, closed_by, closed_at)
+              VALUES (?, ?, ?, ?, ?, 'cerrado', ?, ?, ?, ?, datetime('now', '-5 hours'))`)
     .run(id, orgId, type, from, to, JSON.stringify(snapshot).slice(0, 2_000_000), Number(body.pendingDays) || 0, previousId, req.user.id);
   logAction({
     organizationId: orgId, userId: req.user.id, action: 'payroll.period_closed', resourceType: 'payroll_closure', resourceId: id, ip: getClientIp(req),
@@ -612,7 +630,7 @@ async function reopenPayrollClosure(req, res, params) {
     const later = db.prepare(`SELECT period_start, period_end FROM payroll_closures WHERE organization_id = ? AND closure_type = 'recargos' AND status = 'cerrado' AND period_start > ?`).get(orgId, c.period_end);
     if (later) return sendJson(res, 409, { error: `Primero reabre el cierre de recargos posterior (${later.period_start} al ${later.period_end}). Los periodos de recargos son continuos.` });
   }
-  db.prepare(`UPDATE payroll_closures SET status = 'reabierto', reopened_by = ?, reopened_at = datetime('now'), reopen_reason = ? WHERE id = ?`).run(req.user.id, reason, c.id);
+  db.prepare(`UPDATE payroll_closures SET status = 'reabierto', reopened_by = ?, reopened_at = datetime('now', '-5 hours'), reopen_reason = ? WHERE id = ?`).run(req.user.id, reason, c.id);
   logAction({
     organizationId: orgId, userId: req.user.id, action: 'payroll.period_reopened', resourceType: 'payroll_closure', resourceId: c.id, ip: getClientIp(req),
     metadata: { tipo: c.closure_type, periodo: `${c.period_start} al ${c.period_end}`, motivo: reason },
