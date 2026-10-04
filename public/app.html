@@ -1353,6 +1353,7 @@
                 </div>
 
                 <!-- KPIs del periodo -->
+                <div id="payrollOtClosureBox" class="grid grid-cols-1 lg:grid-cols-2 gap-3"></div>
                 <div id="payrollOtPendingBox" class="hidden"></div>
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" id="payrollOtKpiCards">
                     <!-- Inyectado dinámicamente -->
@@ -4147,6 +4148,21 @@
             // se hacen por dia, en la marcacion). No hay ajustes sobre totales.
             const adjByEmp = {};
             const adjHistory = [];
+            // Cierres de periodo: recargos y extras por separado + saldo anterior de extras.
+            let closureInfo = { closures: [], previousExtras: null };
+            if (startDate && endDate) {
+                try { closureInfo = await apiFetch(`/api/payroll/closures?from=${startDate}&to=${endDate}`); } catch (e) { /* sin permiso */ }
+            }
+            const exactClosure = (type) => (closureInfo.closures || []).find(c => c.type === type && c.status === 'cerrado' && c.from === startDate && c.to === endDate) || null;
+            const closedRecargos = exactClosure('recargos');
+            const closedExtras = exactClosure('extras');
+            // Saldo negativo de extras diurnas que viene del ultimo cierre de extras anterior.
+            const carryIn = {};
+            if (!closedExtras && closureInfo.previousExtras && closureInfo.previousExtras.snapshot) {
+                (closureInfo.previousExtras.snapshot.employees || []).forEach(e => {
+                    if ((e.carryOut || 0) < 0) carryIn[e.employeeId] = e.carryOut;
+                });
+            }
             if (startDate && endDate) {
                 try {
                     const [{ rows: realRows }, { rows: histRows }] = await Promise.all([
@@ -4282,10 +4298,97 @@
                 }
                 r.total = r.totalManual ? r.totalOverride : (r.honPay + r.hedPay + r.henPay + r.domPay);
                 return r;
-            }).sort((a, b) => a.emp.name.localeCompare(b.emp.name));
+            });
+
+            // --- Saldo negativo de extras diurnas -------------------------------
+            // Colaboradores con saldo anterior aunque no tengan turnos en este periodo.
+            const deptOk = (emp) => deptFilter === '_ALL_' || emp.department === deptFilter;
+            const blankRow = (emp) => ({
+                emp, shiftsCount: 0, hourlyRate: (emp.salary || appState.settings.smlmv2026) / legalMonthlyDividerForDate(endDate),
+                hon: 0, hed: 0, hen: 0, honPay: 0, hedPay: 0, henPay: 0, domPay: 0, domHours: 0, detail: [],
+                rateHon: 0, rateHed: ((emp.salary || appState.settings.smlmv2026) / legalMonthlyDividerForDate(endDate)) * (1 + appState.settings.percHED), rateHen: 0, total: 0,
+            });
+            Object.keys(carryIn).forEach(id => {
+                if (rows.some(r => Number(r.emp.id) === Number(id))) return;
+                const emp = appState.employees.find(e => Number(e.id) === Number(id));
+                if (emp && deptOk(emp)) rows.push(blankRow(emp));
+            });
+            // Las extras diurnas del periodo se suman con el saldo anterior. Si el
+            // resultado es negativo, NO se paga extra diurna y el saldo pasa al
+            // siguiente periodo para que el colaborador lo compense.
+            // Si las extras diurnas (dias + saldo anterior) quedan en NEGATIVO, la
+            // deuda se valora como hora extra diurna y se descuenta del valor de
+            // las extras nocturnas. Si las nocturnas no alcanzan, no se paga
+            // ninguna extra y a las horas que debe se le restan las horas
+            // nocturnas: lo que sigue faltando pasa al siguiente periodo.
+            rows.forEach(r => {
+                r.hedDays = r.hed;
+                r.carryIn = carryIn[r.emp.id] || 0;
+                r.henGross = r.hen;
+                r.henPayGross = r.henPay;
+                r.offsetHours = 0;
+                r.offsetValue = 0;
+                const net = r.hedDays + r.carryIn;
+                if (net >= 0) {
+                    r.hed = net;
+                    r.hedPay = net * r.rateHed;
+                    r.carryOut = 0;
+                } else {
+                    const debtHours = -net;
+                    const debtValue = debtHours * r.rateHed;
+                    r.hed = 0;
+                    r.hedPay = 0;
+                    if (r.henPayGross >= debtValue) {
+                        r.henPay = r.henPayGross - debtValue;
+                        r.offsetHours = debtHours;
+                        r.offsetValue = debtValue;
+                        r.carryOut = 0;
+                    } else {
+                        r.henPay = 0;
+                        r.offsetValue = r.henPayGross;
+                        r.offsetHours = Math.min(debtHours, r.henGross);
+                        r.carryOut = -Math.max(0, debtHours - r.henGross);
+                    }
+                }
+                r.total = r.honPay + r.hedPay + r.henPay + (r.domPay || 0);
+            });
+
+            // --- Periodos cerrados: se muestran los valores APROBADOS (foto) ----
+            const ensureRow = (snapEmp) => {
+                let r = rows.find(x => Number(x.emp.id) === Number(snapEmp.employeeId));
+                if (!r) {
+                    const emp = appState.employees.find(e => Number(e.id) === Number(snapEmp.employeeId))
+                        || { id: snapEmp.employeeId, name: snapEmp.name, department: snapEmp.department, salary: appState.settings.smlmv2026 };
+                    if (!deptOk(emp)) return null;
+                    r = blankRow(emp); rows.push(r);
+                }
+                return r;
+            };
+            if (closedRecargos) {
+                rows.forEach(r => { r.hon = 0; r.honPay = 0; r.domHours = 0; r.domPay = 0; });
+                (closedRecargos.snapshot.employees || []).forEach(e => {
+                    const r = ensureRow(e); if (!r) return;
+                    r.hon = e.hon || 0; r.honPay = e.honPay || 0; r.domHours = e.domHours || 0; r.domPay = e.domPay || 0;
+                });
+            }
+            if (closedExtras) {
+                rows.forEach(r => { r.hedDays = 0; r.carryIn = 0; r.hed = 0; r.hedPay = 0; r.carryOut = 0; r.hen = 0; r.henPay = 0; r.henGross = 0; r.henPayGross = 0; r.offsetHours = 0; r.offsetValue = 0; });
+                (closedExtras.snapshot.employees || []).forEach(e => {
+                    const r = ensureRow(e); if (!r) return;
+                    r.hedDays = e.hedDays || 0; r.carryIn = e.carryIn || 0; r.hed = e.hed || 0; r.hedPay = e.hedPay || 0;
+                    r.carryOut = e.carryOut || 0; r.hen = e.hen || 0; r.henPay = e.henPay || 0;
+                    r.henGross = e.hen || 0; r.henPayGross = e.henPayGross != null ? e.henPayGross : (e.henPay || 0);
+                    r.offsetHours = e.offsetHours || 0; r.offsetValue = e.offsetValue || 0;
+                });
+            }
+            rows.forEach(r => { r.total = r.honPay + r.hedPay + r.henPay + (r.domPay || 0); });
+            rows.sort((a, b) => a.emp.name.localeCompare(b.emp.name));
 
             // Guardamos el cálculo vigente para reutilizarlo en las ediciones en vivo y la exportación CSV
-            appState._payrollOtCache = { rows, startDate, endDate };
+            appState._payrollOtCache = {
+                rows, startDate, endDate,
+                closures: { recargos: closedRecargos, extras: closedExtras, all: closureInfo.closures || [], previousExtras: closureInfo.previousExtras, recargosInfo: closureInfo.recargos || null },
+            };
 
             renderPayrollOtTableAndKpis();
         }
@@ -4322,9 +4425,11 @@
                         ${extra || ''}
                     </div>`;
                 kpiContainer.innerHTML = `
-                    ${card('bg-purple-50 border-purple-200 text-purple-950', 'text-purple-700', 'Recargo Nocturno Ordinario (+35%)', sumHON, sumHONPay)}
-                    ${card('bg-amber-50 border-amber-200 text-amber-950', 'text-amber-700', 'Horas Extra Diurnas (+25%)', sumHED, sumHEDPay)}
-                    ${card('bg-rose-50 border-rose-200 text-rose-950', 'text-rose-700', 'Horas Extra Nocturnas (+75%)', sumHEN, sumHENPay)}
+                    ${card('bg-purple-50 border-purple-200 text-purple-950', 'text-purple-700', 'Recargo Nocturno Ordinario (+35%)' + (cache.closures && cache.closures.recargos ? ' · 🔒' : ''), sumHON, sumHONPay)}
+                    ${card('bg-amber-50 border-amber-200 text-amber-950', 'text-amber-700', 'Horas Extra Diurnas (+25%)' + (cache.closures && cache.closures.extras ? ' · 🔒' : ''), sumHED, sumHEDPay,
+                        rows.some(r => r.carryOut) ? `<span class="block text-3xs font-bold text-rose-700 mt-1">Saldo negativo a trasladar: ${formatHMSigned(rows.reduce((a, r) => a + (r.carryOut || 0), 0))} (${rows.filter(r => r.carryOut).length} colab.)</span>` : '')}
+                    ${card('bg-rose-50 border-rose-200 text-rose-950', 'text-rose-700', 'Horas Extra Nocturnas (+75%)' + (cache.closures && cache.closures.extras ? ' · 🔒' : ''), sumHEN, sumHENPay,
+                        rows.some(r => r.offsetValue) ? `<span class="block text-3xs font-bold text-rose-700 mt-1">Incluye descuento por deuda diurna: -${money(rows.reduce((a, r) => a + (r.offsetValue || 0), 0))}</span>` : '')}
                     ${domOn ? card('bg-blue-50 border-blue-200 text-blue-950', 'text-blue-700', `Recargo Dominical / Festivo (+${Math.round(legalSundayPctForDate(cache.endDate || formatDateISO(new Date())) * 100)}%)`, sumDomHours, sumDomPay) : ''}
                     <div class="bg-slate-900 p-4 rounded-xl border border-slate-700">
                         <span class="text-3xs text-slate-300 font-bold uppercase block">Total a Liquidar</span>
@@ -4341,6 +4446,7 @@
             const pendingByEmp = {};
             pend.days.forEach(d => { pendingByEmp[d.emp.id] = (pendingByEmp[d.emp.id] || 0) + 1; });
             renderPayrollPendingBox(pend, money);
+            renderPayrollClosureBox(money);
 
             const tbody = document.getElementById('payrollOtTableBody');
             const tfoot = document.getElementById('payrollOtTableFoot');
@@ -4372,11 +4478,14 @@
                                 <span class="inline-block min-w-[4.5rem] text-center font-mono rounded-lg p-1.5 bg-amber-50/60 border border-amber-200 text-amber-900 font-bold">${r.hed.toFixed(2)}</span>
                                 <span class="block text-2xs font-mono text-amber-700 mt-0.5">${formatHMSigned(r.hed)}</span>
                                 <span class="block text-xs font-mono font-bold text-amber-900">${money(r.hedPay)}</span>
+                                ${(r.carryIn || r.carryOut) ? `<span class="block text-3xs text-slate-500 mt-0.5 leading-tight">Días: ${formatHMSigned(r.hedDays || 0)}${r.carryIn ? ` · Saldo anterior: <span class="text-rose-700 font-semibold">${formatHMSigned(r.carryIn)}</span>` : ''}</span>` : ''}
+                                ${r.carryOut ? `<span class="block text-3xs font-bold text-rose-700 leading-tight">Se traslada: ${formatHMSigned(r.carryOut)}</span>` : ''}
                             </td>
                             <td class="p-2.5 text-center">
                                 <span class="inline-block min-w-[4.5rem] text-center font-mono rounded-lg p-1.5 bg-rose-50/60 border border-rose-200 text-rose-900 font-bold">${r.hen.toFixed(2)}</span>
                                 <span class="block text-2xs font-mono text-rose-700 mt-0.5">${formatHMSigned(r.hen)}</span>
                                 <span class="block text-xs font-mono font-bold text-rose-900">${money(r.henPay)}</span>
+                                ${r.offsetValue ? `<span class="block text-3xs text-rose-700 font-semibold leading-tight mt-0.5" title="Valor de las extras nocturnas: ${money(r.henPayGross)}">Descuento por deuda diurna: -${money(r.offsetValue)} (${formatHM(r.offsetHours)})</span>` : ''}
                             </td>
                             ${domOn ? `<td class="p-2.5 text-center">
                                 <span class="block text-2xs font-mono text-blue-700">${formatHMSigned(r.domHours || 0)}</span>
@@ -4569,31 +4678,201 @@
             const totH = rows.reduce((a, r) => a + r.hon, 0), totP = rows.reduce((a, r) => a + r.honPay, 0);
             data.push(['TOTAL PERIODO', '', Number(totH.toFixed(2)), hmText(totH), '', Math.round(totP)]);
             try {
-                await downloadXLSX(`Recargo_Nocturno_${cache.startDate}_al_${cache.endDate}.xlsx`, header, data, 'Recargo nocturno');
+                await downloadXLSX(`Recargo_Nocturno_${cache.startDate}_al_${cache.endDate}${cache.closures && cache.closures.recargos ? '_CERRADO' : ''}.xlsx`, header, data, 'Recargo nocturno');
                 showAppToast('Reporte de recargo nocturno exportado.');
             } catch (e) { showAppToast(e.message); }
         }
         async function exportPayrollOvertimeOnlyXLSX() {
             const cache = appState._payrollOtCache;
-            const rows = cache ? cache.rows.filter(r => Math.abs(r.hed) > 0.0001 || Math.abs(r.hen) > 0.0001) : [];
+            const rows = cache ? cache.rows.filter(r => Math.abs(r.hedDays || 0) > 0.0001 || r.carryIn || Math.abs(r.hed) > 0.0001 || Math.abs(r.hen) > 0.0001) : [];
             if (!rows.length) { showAppToast('No hay horas extras en el periodo seleccionado.'); return; }
+            const closed = cache.closures && cache.closures.extras;
             const header = ['Colaborador', 'Área',
-                'Extra diurna (decimal)', 'Extra diurna (h:mm)', appState.includeSundayHoliday ? 'Valor extra diurna (COP, incluye tarifa dominical/festiva)' : 'Valor extra diurna 125% (COP)',
+                'Extra diurna de los días (h:mm)', 'Saldo anterior (h:mm)', 'Extra diurna a pagar (decimal)', 'Extra diurna a pagar (h:mm)',
+                appState.includeSundayHoliday ? 'Valor extra diurna (COP, incluye tarifa dominical/festiva)' : 'Valor extra diurna 125% (COP)',
+                'Saldo negativo que se traslada (h:mm)',
                 'Extra nocturna (decimal)', 'Extra nocturna (h:mm)', appState.includeSundayHoliday ? 'Valor extra nocturna (COP, incluye tarifa dominical/festiva)' : 'Valor extra nocturna 175% (COP)',
+                'Horas diurnas debidas compensadas (h:mm)', 'Descuento por deuda en diurnas (COP)', 'Extra nocturna a pagar (COP)',
                 'Total horas extras (COP)'];
             const data = rows.map(r => [r.emp.name, r.emp.department || '',
-                Number(r.hed.toFixed(2)), hmText(r.hed), Math.round(r.hedPay),
-                Number(r.hen.toFixed(2)), hmText(r.hen), Math.round(r.henPay),
+                hmText(r.hedDays || 0), hmText(r.carryIn || 0), Number(r.hed.toFixed(2)), hmText(r.hed),
+                Math.round(r.hedPay), hmText(r.carryOut || 0),
+                Number(r.hen.toFixed(2)), hmText(r.hen), Math.round(r.henPayGross != null ? r.henPayGross : r.henPay),
+                hmText(r.offsetHours || 0), Math.round(r.offsetValue || 0), Math.round(r.henPay),
                 Math.round(r.hedPay + r.henPay)]);
-            const sum = (f) => rows.reduce((a, r) => a + r[f], 0);
-            data.push(['TOTAL PERIODO', '',
-                Number(sum('hed').toFixed(2)), hmText(sum('hed')), Math.round(sum('hedPay')),
-                Number(sum('hen').toFixed(2)), hmText(sum('hen')), Math.round(sum('henPay')),
+            const sum = (f) => rows.reduce((a, r) => a + (r[f] || 0), 0);
+            data.push(['TOTAL PERIODO' + (closed ? ' (CERRADO)' : ''), '',
+                hmText(sum('hedDays')), hmText(sum('carryIn')), Number(sum('hed').toFixed(2)), hmText(sum('hed')),
+                Math.round(sum('hedPay')), hmText(sum('carryOut')),
+                Number(sum('hen').toFixed(2)), hmText(sum('hen')), Math.round(rows.reduce((a, r) => a + (r.henPayGross != null ? r.henPayGross : r.henPay), 0)),
+                hmText(sum('offsetHours')), Math.round(sum('offsetValue')), Math.round(sum('henPay')),
                 Math.round(sum('hedPay') + sum('henPay'))]);
             try {
-                await downloadXLSX(`Horas_Extras_${cache.startDate}_al_${cache.endDate}.xlsx`, header, data, 'Horas extras');
+                await downloadXLSX(`Horas_Extras_${cache.startDate}_al_${cache.endDate}${closed ? '_CERRADO' : ''}.xlsx`, header, data, 'Horas extras');
                 showAppToast('Reporte de horas extras exportado.');
             } catch (e) { showAppToast(e.message); }
+        }
+
+        // ---- Cierre de periodo (recargos y horas extras por separado) ----
+        function renderPayrollClosureBox(money) {
+            const box = document.getElementById('payrollOtClosureBox');
+            const cache = appState._payrollOtCache;
+            if (!box || !cache) return;
+            const cl = cache.closures || {};
+            const fmt = (iso) => (iso || '').split('-').reverse().join('/');
+            const canClose = CAN('employees.edit_payroll');
+            const block = (type, title, subtitle, closed, sumPay) => {
+                const others = (cl.all || []).filter(c => c.type === type && c.status === 'cerrado' && !(c.from === cache.startDate && c.to === cache.endDate));
+                const reopened = (cl.all || []).filter(c => c.type === type && c.status === 'reabierto' && c.from === cache.startDate && c.to === cache.endDate);
+                const reopenedNote = reopened.length ? `<p class="text-3xs text-slate-500 mt-1">Reabierto ${reopened.length} vez(ces). Última: ${escapeHtml(reopened[0].reopenedAt || '')} por ${escapeHtml(reopened[0].reopenedBy || '-')} · ${escapeHtml(reopened[0].reopenReason || '')}</p>` : '';
+                const carryNote = type === 'extras' && cl.previousExtras && !closed
+                    ? `<p class="text-3xs text-slate-500 mt-1">Saldo anterior tomado del cierre de extras del ${fmt(cl.previousExtras.from)} al ${fmt(cl.previousExtras.to)}.</p>` : '';
+                if (closed) {
+                    return `<div class="rounded-xl border border-emerald-300 bg-emerald-50 p-4">
+                        <div class="flex items-start justify-between gap-2">
+                            <div>
+                                <p class="text-3xs uppercase font-bold text-emerald-700">${title}</p>
+                                <p class="font-bold text-emerald-900 text-sm"><i class="fa-solid fa-lock"></i> Periodo cerrado · ${money(sumPay)}</p>
+                                <p class="text-3xs text-emerald-800 mt-0.5">Cerrado el ${escapeHtml(closed.closedAt)} (UTC) por ${escapeHtml(closed.closedBy || '-')}${closed.pendingDays ? ` · quedaron ${closed.pendingDays} día(s) pendiente(s) sin incluir` : ''}</p>
+                                <p class="text-3xs text-emerald-700">${subtitle}</p>
+                            </div>
+                            ${canClose ? `<button onclick="reopenPayrollPeriod('${closed.id}', '${type}')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 shrink-0"><i class="fa-solid fa-lock-open"></i> Reabrir</button>` : ''}
+                        </div>
+                    </div>`;
+                }
+                return `<div class="rounded-xl border border-slate-200 bg-white p-4">
+                    <div class="flex items-start justify-between gap-2">
+                        <div>
+                            <p class="text-3xs uppercase font-bold text-slate-500">${title}</p>
+                            <p class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-lock-open text-slate-400"></i> Periodo abierto · ${money(sumPay)}</p>
+                            <p class="text-3xs text-slate-500">${subtitle}</p>
+                            ${others.length ? `<p class="text-3xs font-semibold text-amber-700 mt-1">Este rango se cruza con el cierre del ${fmt(others[0].from)} al ${fmt(others[0].to)}: no se puede cerrar.</p>` : ''}
+                            ${carryNote}${reopenedNote}
+                        </div>
+                        ${canClose && !others.length ? `<button onclick="closePayrollPeriod('${type}')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white shrink-0"><i class="fa-solid fa-lock"></i> Cerrar periodo</button>` : ''}
+                    </div>
+                </div>`;
+            };
+            const rows = cache.rows;
+            const sumRec = rows.reduce((a, r) => a + r.honPay + (r.domPay || 0), 0);
+            const sumExt = rows.reduce((a, r) => a + r.hedPay + r.henPay, 0);
+            box.innerHTML = recargosBlock(cl, sumRec, money, fmt, canClose) +
+                block('extras', 'Cierre de horas extras', `Extras diurnas y nocturnas del ${fmt(cache.startDate)} al ${fmt(cache.endDate)}`, cl.extras, sumExt);
+        }
+        // Recargos: periodos continuos. El periodo abierto empieza el día después
+        // del último cierre (o desde la primera marcación) y se corta en la fecha
+        // que elija el administrador (máximo ayer).
+        function recargosBlock(cl, sumRec, money, fmt, canClose) {
+            const info = cl.recargosInfo || {};
+            const cache = appState._payrollOtCache;
+            const label = `Recargo nocturno${appState.includeSundayHoliday ? ' y dominical/festivo' : ''}`;
+            if (cl.recargos) {
+                const isLast = info.last && info.last.id === cl.recargos.id;
+                return `<div class="rounded-xl border border-emerald-300 bg-emerald-50 p-4">
+                    <div class="flex items-start justify-between gap-2">
+                        <div>
+                            <p class="text-3xs uppercase font-bold text-emerald-700">Cierre de recargos</p>
+                            <p class="font-bold text-emerald-900 text-sm"><i class="fa-solid fa-lock"></i> Periodo cerrado · ${money(sumRec)}</p>
+                            <p class="text-3xs text-emerald-800 mt-0.5">${label} del ${fmt(cl.recargos.from)} al ${fmt(cl.recargos.to)} · cerrado el ${escapeHtml(cl.recargos.closedAt)} (UTC) por ${escapeHtml(cl.recargos.closedBy || '-')}</p>
+                            ${info.nextStart ? `<p class="text-3xs text-emerald-700">El periodo siguiente está abierto desde el ${fmt(info.nextStart)}.</p>` : ''}
+                        </div>
+                        ${canClose && isLast ? `<button onclick="reopenPayrollPeriod('${cl.recargos.id}', 'recargos')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 shrink-0"><i class="fa-solid fa-lock-open"></i> Reabrir</button>` : ''}
+                    </div>
+                </div>`;
+            }
+            if (!info.nextStart) {
+                return `<div class="rounded-xl border border-slate-200 bg-white p-4"><p class="text-3xs uppercase font-bold text-slate-500">Cierre de recargos</p>
+                    <p class="text-xs text-slate-600 mt-1">El primer periodo de recargos se abrirá automáticamente con las primeras marcaciones de la organización.</p></div>`;
+            }
+            const viewing = cache.startDate === info.nextStart;
+            const canCut = info.nextStart <= info.maxEnd;
+            const cutDefault = viewing && cache.endDate >= info.nextStart && cache.endDate <= info.maxEnd ? cache.endDate : info.maxEnd;
+            return `<div class="rounded-xl border border-purple-200 bg-white p-4">
+                <p class="text-3xs uppercase font-bold text-purple-700">Cierre de recargos (periodo continuo)</p>
+                <p class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-lock-open text-slate-400"></i> Periodo abierto desde el ${fmt(info.nextStart)}</p>
+                <p class="text-3xs text-slate-500">${label}. ${info.last ? `Último cierre: del ${fmt(info.last.from)} al ${fmt(info.last.to)} · <button class="underline text-purple-700" onclick="setPayrollRange('${info.last.from}', '${info.last.to}')">ver</button>` : 'Aún no hay cierres de recargos.'}</p>
+                ${canCut ? `<div class="flex flex-wrap items-end gap-2 mt-2">
+                    <div>
+                        <label class="block text-3xs font-bold text-slate-500 uppercase mb-0.5">Fecha de corte</label>
+                        <input type="date" id="payrollRecCut" value="${cutDefault}" min="${info.nextStart}" max="${info.maxEnd}" class="text-xs p-1.5 border border-slate-300 rounded-lg">
+                    </div>
+                    <button onclick="setPayrollRange('${info.nextStart}', document.getElementById('payrollRecCut').value)" class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-purple-300 text-purple-800 hover:bg-purple-50">Ver en la tabla</button>
+                    ${canClose ? `<button onclick="closeRecargosPeriod()" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white"><i class="fa-solid fa-lock"></i> Cerrar recargos</button>` : ''}
+                </div>
+                ${viewing ? `<p class="text-3xs text-slate-500 mt-1">Valor del rango en pantalla: ${money(sumRec)}</p>` : ''}`
+                : `<p class="text-3xs text-slate-500 mt-1">El periodo abierto empezó hoy; podrás cerrarlo desde mañana.</p>`}
+            </div>`;
+        }
+        // Muestra un rango personalizado en la liquidación.
+        async function setPayrollRange(from, to) {
+            if (!from || !to) return;
+            document.getElementById('payrollOtPeriodType').value = 'custom';
+            document.getElementById('payrollOtStartDate').value = from;
+            document.getElementById('payrollOtEndDate').value = to;
+            await renderPayrollOvertimeView();
+        }
+        async function closeRecargosPeriod() {
+            const cache = appState._payrollOtCache;
+            const info = cache && cache.closures && cache.closures.recargosInfo;
+            if (!info || !info.nextStart) return;
+            const cut = document.getElementById('payrollRecCut')?.value;
+            if (!cut || cut < info.nextStart || cut > info.maxEnd) { showAppToast('Elige una fecha de corte válida (máximo ayer).'); return; }
+            // La tabla debe mostrar exactamente el periodo a cerrar.
+            if (cache.startDate !== info.nextStart || cache.endDate !== cut) await setPayrollRange(info.nextStart, cut);
+            await closePayrollPeriod('recargos');
+        }
+
+        async function closePayrollPeriod(type) {
+            const cache = appState._payrollOtCache;
+            if (!cache || !CAN('employees.edit_payroll')) return;
+            const rows = cache.rows;
+            const pending = (appState._payrollOtPending || { days: [] }).days.length;
+            const money = (v) => '$' + Math.round(v || 0).toLocaleString('es-CO');
+            let snapshot, summary;
+            if (type === 'recargos') {
+                const emps = rows.filter(r => Math.abs(r.hon) > 0.0001 || (r.domHours || 0) > 0);
+                snapshot = {
+                    includeSundayHoliday: !!appState.includeSundayHoliday,
+                    employees: emps.map(r => ({ employeeId: r.emp.id, name: r.emp.name, department: r.emp.department || '', hon: r.hon, honPay: r.honPay, domHours: r.domHours || 0, domPay: r.domPay || 0 })),
+                };
+                snapshot.totals = { pay: emps.reduce((a, r) => a + r.honPay + (r.domPay || 0), 0) };
+                summary = `RECARGOS del ${cache.startDate} al ${cache.endDate}\n${emps.length} colaborador(es) · Total ${money(snapshot.totals.pay)}`;
+            } else {
+                const emps = rows.filter(r => Math.abs(r.hedDays || 0) > 0.0001 || r.carryIn || Math.abs(r.hen) > 0.0001);
+                snapshot = {
+                    employees: emps.map(r => ({ employeeId: r.emp.id, name: r.emp.name, department: r.emp.department || '',
+                        hedDays: r.hedDays || 0, carryIn: r.carryIn || 0, hed: r.hed, hedPay: r.hedPay, carryOut: r.carryOut || 0,
+                        hen: r.hen, henPayGross: r.henPayGross != null ? r.henPayGross : r.henPay, offsetHours: r.offsetHours || 0, offsetValue: r.offsetValue || 0, henPay: r.henPay })),
+                };
+                snapshot.totals = { pay: emps.reduce((a, r) => a + r.hedPay + r.henPay, 0), carryOut: emps.reduce((a, r) => a + (r.carryOut || 0), 0) };
+                const neg = emps.filter(r => r.carryOut);
+                summary = `HORAS EXTRAS del ${cache.startDate} al ${cache.endDate}\n${emps.length} colaborador(es) · Total ${money(snapshot.totals.pay)}` +
+                    (emps.some(r => r.offsetValue) ? `\n${emps.filter(r => r.offsetValue).length} colaborador(es) con deuda diurna descontada de sus extras nocturnas.` : '') +
+                    (neg.length ? `\n${neg.length} colaborador(es) con saldo negativo de extra diurna que se trasladará al siguiente periodo.` : '');
+            }
+            const msg = `¿Cerrar el periodo?\n\n${summary}` +
+                (pending ? `\n\n⚠ Hay ${pending} día(s) pendiente(s) por revisar que NO quedarán incluidos.` : '') +
+                `\n\nAl cerrar, estos valores quedan congelados y no se podrán corregir marcaciones de esas fechas hasta reabrir el periodo.`;
+            if (!confirm(msg)) return;
+            try {
+                await apiFetch('/api/payroll/closures', { method: 'POST', body: JSON.stringify({
+                    type, from: cache.startDate, to: cache.endDate, snapshot, pendingDays: pending,
+                    previousClosureId: type === 'extras' && cache.closures && cache.closures.previousExtras ? cache.closures.previousExtras.id : null,
+                }) });
+                showAppToast(type === 'recargos' ? 'Periodo de recargos cerrado.' : 'Periodo de horas extras cerrado.');
+            } catch (e) { showAppToast('No se pudo cerrar: ' + e.message); }
+            renderPayrollOvertimeView();
+        }
+        async function reopenPayrollPeriod(id, type) {
+            if (!CAN('employees.edit_payroll')) return;
+            const reason = window.prompt(`Reabrir el periodo de ${type === 'recargos' ? 'recargos' : 'horas extras'}.\nLos valores volverán a calcularse desde las marcaciones y se podrán corregir días.\n\nEscribe el MOTIVO (obligatorio, queda registrado):`);
+            if (reason === null) return;
+            if (reason.trim().length < 5) { showAppToast('El motivo debe tener al menos 5 caracteres.'); return; }
+            try {
+                await apiFetch(`/api/payroll/closures/${id}/reopen`, { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) });
+                showAppToast('Periodo reabierto.');
+            } catch (e) { showAppToast('No se pudo reabrir: ' + e.message); }
+            renderPayrollOvertimeView();
         }
 
         // Panel "Días pendientes por revisar": turnos ya pasados sin marcación
