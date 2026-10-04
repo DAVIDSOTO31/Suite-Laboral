@@ -422,6 +422,24 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get('roles_v2_per
 // usuario de la suite cuando se le invita con ese mismo correo.
 const empColumns2 = db.prepare('PRAGMA table_info(employees)').all().map(c => c.name);
 if (!empColumns2.includes('email')) db.exec('ALTER TABLE employees ADD COLUMN email TEXT NULL');
+// Ajustes manuales de la liquidacion de extras y recargos: uno por colaborador
+// y periodo liquidado, con el motivo obligatorio y quien lo hizo. El historial
+// completo de cada cambio queda en la auditoria (audit_logs).
+db.exec(`
+CREATE TABLE IF NOT EXISTS payroll_adjustments (
+  organization_id TEXT NOT NULL,
+  employee_id INTEGER NOT NULL,
+  period_start TEXT NOT NULL,
+  period_end TEXT NOT NULL,
+  hon REAL, hed REAL, hen REAL,
+  total REAL, total_manual INTEGER NOT NULL DEFAULT 0,
+  reason TEXT NOT NULL,
+  updated_by TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (organization_id, employee_id, period_start, period_end)
+);
+`);
+
 // Liquidar recargos dominicales y festivos (por organizacion): desactivado por defecto.
 const orgSettingsColumns = db.prepare('PRAGMA table_info(org_settings)').all().map(c => c.name);
 if (!orgSettingsColumns.includes('include_sunday_holiday')) db.exec('ALTER TABLE org_settings ADD COLUMN include_sunday_holiday INTEGER NOT NULL DEFAULT 0');
