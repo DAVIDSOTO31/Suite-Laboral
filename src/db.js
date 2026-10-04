@@ -422,6 +422,9 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get('roles_v2_per
 // usuario de la suite cuando se le invita con ese mismo correo.
 const empColumns2 = db.prepare('PRAGMA table_info(employees)').all().map(c => c.name);
 if (!empColumns2.includes('email')) db.exec('ALTER TABLE employees ADD COLUMN email TEXT NULL');
+// Liquidar recargos dominicales y festivos (por organizacion): desactivado por defecto.
+const orgSettingsColumns = db.prepare('PRAGMA table_info(org_settings)').all().map(c => c.name);
+if (!orgSettingsColumns.includes('include_sunday_holiday')) db.exec('ALTER TABLE org_settings ADD COLUMN include_sunday_holiday INTEGER NOT NULL DEFAULT 0');
 // Contabilizar dias laborados (segun marcaciones): desactivado por defecto.
 if (!empColumns2.includes('count_worked_days')) db.exec('ALTER TABLE employees ADD COLUMN count_worked_days INTEGER NOT NULL DEFAULT 0');
 
