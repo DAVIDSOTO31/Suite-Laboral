@@ -1,9 +1,11 @@
 'use strict';
 const { db, uid } = require('../db');
 
+// La fecha del registro se guarda en hora de Colombia (Bogota, UTC-5, sin
+// horario de verano).
 const insertStmt = db.prepare(`
   INSERT INTO audit_logs (id, organization_id, user_id, action, resource_type, resource_id, metadata_json, ip, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-5 hours'))
 `);
 
 /**
