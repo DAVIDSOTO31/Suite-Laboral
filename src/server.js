@@ -98,6 +98,10 @@ route('GET', '/api/org/data', [], (req, res, params, query) => org.getOrgData(re
 // Reemplaza TODOS los datos por un ejemplo: solo quien administra la configuracion.
 route('POST', '/api/org/seed-demo', [requirePermission('settings.manage')], (req, res, params, query) => org.seedDemo(req, res, query));
 route('PUT', '/api/org/settings', [requirePermission('settings.manage')], (req, res) => org.updateSettings(req, res));
+// Ajustes manuales de la liquidacion: los ve quien ve nomina; solo el administrador los hace.
+route('GET', '/api/payroll/adjustments', [requirePermission('reports.view')], (req, res, params, query) => org.listPayrollAdjustments(req, res, query));
+route('PUT', '/api/payroll/adjustments', [requirePermission('employees.edit_payroll')], (req, res) => org.savePayrollAdjustment(req, res));
+route('POST', '/api/payroll/adjustments/reset', [requirePermission('employees.edit_payroll')], (req, res) => org.resetPayrollAdjustments(req, res));
 route('PUT', '/api/org/departments', [requirePermission('settings.manage')], (req, res) => org.replaceDepartments(req, res));
 route('PUT', '/api/org/shift-presets', [requirePermission('shifts.edit')], (req, res) => org.replaceShiftPresets(req, res));
 route('POST', '/api/org/sync', [(req, res, user) => user.isSuperAdmin || user.permissions.has('shifts.edit') || user.permissions.has('employees.edit') ? true : (sendJson(res, 403, { error: 'No tienes permiso para guardar cambios.' }), false)], (req, res) => org.syncEmployeesAndShifts(req, res));
