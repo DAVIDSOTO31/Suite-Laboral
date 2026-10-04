@@ -1345,12 +1345,12 @@
                             <input type="checkbox" id="payrollOtSundayToggle" class="w-4 h-4 accent-blue-600" onchange="togglePayrollSundayHoliday(this)">
                             Incluir dominicales y festivos
                         </label>
-                        <button onclick="resetPayrollOtEdits()" title="Descarta los ajustes manuales y recalcula desde los turnos registrados" class="text-xs font-semibold px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition flex items-center gap-1.5">
-                            <i class="fa-solid fa-arrow-rotate-left"></i> Recalcular desde turnos
+                        <button onclick="resetPayrollOtEdits()" data-perm="employees.edit_payroll" title="Quita todos los ajustes manuales de este periodo (pide motivo y queda registrado)" class="text-xs font-semibold px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-arrow-rotate-left"></i> Quitar ajustes del periodo
                         </button>
                     </div>
                     <p class="text-3xs text-slate-400 flex items-center gap-1.5 pt-1">
-                        <i class="fa-solid fa-pen"></i> Las celdas de HON, HED, HEN y Total son editables: puede corregir manualmente cualquier valor antes de liquidar.
+                        <i class="fa-solid fa-pen"></i> Las celdas de HON, HED, HEN y Total se pueden corregir: cada ajuste pide un motivo, se guarda y queda registrado con su autor.
                     </p>
                 </div>
 
@@ -1382,6 +1382,9 @@
                         </tfoot>
                     </table>
                 </div>
+
+                <!-- Historial de ajustes manuales del periodo -->
+                <div id="payrollOtAdjHistory" class="hidden bg-white rounded-xl border border-slate-200 shadow-sm p-4"></div>
 
             </div>
 
@@ -4117,6 +4120,16 @@
             // anteriores a la existencia del modulo de Asistencia).
             let realByKey = {};
             let attByKey = {}; // todas las marcaciones del periodo (cerradas o incompletas)
+            // Ajustes manuales GUARDADOS en el servidor para ESTE periodo.
+            let adjByEmp = {};
+            let adjHistory = [];
+            if (startDate && endDate) {
+                try {
+                    const adj = await apiFetch(`/api/payroll/adjustments?from=${startDate}&to=${endDate}`);
+                    (adj.rows || []).forEach(a => { adjByEmp[a.employeeId] = a; });
+                    adjHistory = adj.history || [];
+                } catch (e) { /* sin permiso: no se muestran ajustes */ }
+            }
             if (startDate && endDate) {
                 try {
                     const [{ rows: realRows }, { rows: histRows }] = await Promise.all([
@@ -4223,7 +4236,8 @@
             // Aplica ajustes manuales guardados (si el usuario ya editó alguna celda de este colaborador)
             appState._payrollOtCache = { rows: [], startDate, endDate };
             appState._payrollOtPending = { days: pendingDays, upcoming: upcomingDays, includeEstimates };
-            const edits = payrollOtEditsForPeriod();
+            appState._payrollOtAdjHistory = adjHistory;
+            const edits = adjByEmp;
 
             let rows = Object.values(byEmp).map(r => {
                 // Tarifa efectiva por hora de cada concepto (puede incluir dominicales):
@@ -4235,10 +4249,11 @@
                 r.domHours = r.domHours || 0;
                 if (!appState.includeSundayHoliday) { r.domPay = 0; r.domHours = 0; }
                 const edit = edits[r.emp.id];
+                r.adjustment = edit || null;
                 if (edit) {
-                    r.hon = edit.hon;
-                    r.hed = edit.hed;
-                    r.hen = edit.hen;
+                    if (edit.hon !== null && edit.hon !== undefined) r.hon = edit.hon;
+                    if (edit.hed !== null && edit.hed !== undefined) r.hed = edit.hed;
+                    if (edit.hen !== null && edit.hen !== undefined) r.hen = edit.hen;
                     r.honPay = r.hon * r.rateHon;
                     r.hedPay = r.hed * r.rateHed;
                     r.henPay = r.hen * r.rateHen;
@@ -4298,6 +4313,7 @@
                         <span class="text-xl font-black text-emerald-400 font-mono block">${money(sumTotalPay)}</span>
                         <span class="block text-2xs text-slate-300 font-semibold">${periodLabel}</span>
                         <span class="block text-3xs text-slate-400">${empsWithOvertime} colaborador(es) con novedades · ${domOn ? 'incluye dominicales y festivos' : 'tarifas de jornada ordinaria'}</span>
+                        ${rows.some(r => r.adjustment) ? `<span class="block text-3xs text-sky-300 font-semibold">${rows.filter(r => r.adjustment).length} colaborador(es) con ajuste manual</span>` : ''}
                         <span class="block text-3xs ${(appState._payrollOtPending || {}).includeEstimates ? 'text-amber-300' : 'text-emerald-300'} font-semibold mt-0.5">${(appState._payrollOtPending || {}).includeEstimates ? 'Incluye días estimados sin marcación' : 'Solo marcaciones reales cerradas'}</span>
                     </div>
                 `;
@@ -4307,6 +4323,7 @@
             const pendingByEmp = {};
             pend.days.forEach(d => { pendingByEmp[d.emp.id] = (pendingByEmp[d.emp.id] || 0) + 1; });
             renderPayrollPendingBox(pend, money);
+            renderPayrollAdjHistory();
 
             const tbody = document.getElementById('payrollOtTableBody');
             const tfoot = document.getElementById('payrollOtTableFoot');
@@ -4327,6 +4344,7 @@
                         <tr class="hover:bg-slate-50">
                             <td class="p-2.5 font-bold text-slate-800">${r.emp.name}
                                 ${pendingByEmp[r.emp.id] ? `<span class="block mt-0.5 text-3xs font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 w-fit" title="Días sin marcación cerrada: no incluidos en el valor">${pendingByEmp[r.emp.id]} día(s) pendiente(s)</span>` : ''}
+                                ${r.adjustment ? `<span class="block mt-0.5 text-3xs font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 w-fit cursor-help" title="Ajuste manual · Motivo: ${escapeHtml(r.adjustment.reason)} · Por: ${escapeHtml(r.adjustment.updatedBy || '-')} · ${escapeHtml(r.adjustment.updatedAt || '')} (UTC)"><i class="fa-solid fa-pen"></i> Ajustado manualmente</span>` : ''}
                             </td>
                             <td class="p-2.5 text-center">
                                 <input type="number" step="0.01" min="0" value="${r.hon.toFixed(2)}"
@@ -4356,7 +4374,7 @@
                             <td class="p-2.5 text-right">
                                 <input type="number" step="1" min="0" value="${Math.round(r.total)}"
                                     id="payrollOtTotalInput_${r.emp.id}"
-                                    onchange="handlePayrollOtTotalEdit(${r.emp.id}, this.value)"
+                                    onchange="handlePayrollOtTotalEdit(${r.emp.id}, this.value)" ${CAN('employees.edit_payroll') ? '' : 'disabled title="Solo lectura"'}
                                     class="w-28 text-right font-mono font-bold border border-emerald-200 rounded-lg p-1.5 bg-emerald-50/50 text-emerald-800 focus:ring-2 focus:ring-emerald-400 focus:outline-none">
                             </td>
                             <td class="p-2.5 text-center">
@@ -4406,51 +4424,123 @@
         // El usuario editó manualmente HON, HED o HEN: recalcula el pago de esa fila con las tarifas vigentes
         // y refresca el total (a menos que el usuario ya lo haya sobrescrito, en cuyo caso también se recalcula
         // porque una edición de horas es la fuente más confiable).
-        function handlePayrollOtHoursEdit(empId, field, rawValue) {
+        const PAYROLL_FIELD_LABELS = { hon: 'Recargo nocturno (horas)', hed: 'Extra diurna (horas)', hen: 'Extra nocturna (horas)', total: 'Total a liquidar ($)' };
+        // Pide el motivo del ajuste. Devuelve null si se cancela o queda vacío.
+        function askAdjustmentReason(empName, label, before, after) {
+            const reason = window.prompt(`Ajuste manual · ${empName}\n${label}: ${before} → ${after}\n\nEscribe el MOTIVO del ajuste (obligatorio, queda registrado):`);
+            if (reason === null) return null;
+            if (reason.trim().length < 5) { showAppToast('El motivo debe tener al menos 5 caracteres. Ajuste no guardado.'); return null; }
+            return reason.trim();
+        }
+        async function savePayrollAdjustment(row, change, reason) {
             const cache = appState._payrollOtCache;
-            if (!cache) return;
+            await apiFetch('/api/payroll/adjustments', {
+                method: 'PUT',
+                body: JSON.stringify({
+                    employeeId: row.emp.id, from: cache.startDate, to: cache.endDate,
+                    hon: row.hon, hed: row.hed, hen: row.hen,
+                    total: row.total, totalManual: !!row.totalManual,
+                    reason, change,
+                }),
+            });
+        }
+        // Corrección manual de horas (HON / HED / HEN) de un colaborador en el periodo.
+        async function handlePayrollOtHoursEdit(empId, field, rawValue) {
+            const cache = appState._payrollOtCache;
+            if (!cache || !CAN('employees.edit_payroll')) return;
             const row = cache.rows.find(r => r.emp.id === empId);
             if (!row) return;
-
             let value = parseFloat(rawValue);
-            if (isNaN(value) || value < 0) value = 0;
+            if (isNaN(value)) value = 0;
+            if (field !== 'hed' && value < 0) value = 0; // solo la extra diurna admite negativo (salida anticipada)
+            const before = row[field];
+            if (Math.abs(before - value) < 0.0001) return;
+            const reason = askAdjustmentReason(row.emp.name, PAYROLL_FIELD_LABELS[field], before.toFixed(2), value.toFixed(2));
+            if (!reason) { renderPayrollOtTableAndKpis(); return; }
             row[field] = value;
-
             row.honPay = row.hon * row.rateHon;
             row.hedPay = row.hed * row.rateHed;
             row.henPay = row.hen * row.rateHen;
             row.total = row.honPay + row.hedPay + row.henPay + (row.domPay || 0);
             row.totalManual = false;
-
-            payrollOtEditsForPeriod()[empId] = { hon: row.hon, hed: row.hed, hen: row.hen, total: row.total, totalManual: false };
-
-            renderPayrollOtTableAndKpis();
+            try {
+                await savePayrollAdjustment(row, { field, before, after: value }, reason);
+                showAppToast('Ajuste guardado y registrado.');
+            } catch (e) { showAppToast('No se pudo guardar el ajuste: ' + e.message); }
+            renderPayrollOvertimeView();
         }
 
-        // El usuario escribió directamente un valor en "Total a Liquidar": se respeta como ajuste manual
-        // (por ejemplo, un acuerdo puntual o una corrección) sin alterar las horas HON/HED/HEN de la fila.
-        function handlePayrollOtTotalEdit(empId, rawValue) {
+        // Corrección manual del TOTAL a liquidar (acuerdo puntual u otra corrección).
+        async function handlePayrollOtTotalEdit(empId, rawValue) {
             const cache = appState._payrollOtCache;
-            if (!cache) return;
+            if (!cache || !CAN('employees.edit_payroll')) return;
             const row = cache.rows.find(r => r.emp.id === empId);
             if (!row) return;
-
             let value = parseFloat(rawValue);
             if (isNaN(value) || value < 0) value = 0;
+            const before = Math.round(row.total);
+            if (Math.round(value) === before) return;
+            const reason = askAdjustmentReason(row.emp.name, PAYROLL_FIELD_LABELS.total, '$' + before.toLocaleString('es-CO'), '$' + Math.round(value).toLocaleString('es-CO'));
+            if (!reason) { renderPayrollOtTableAndKpis(); return; }
             row.total = value;
             row.totalManual = true;
-
-            payrollOtEditsForPeriod()[empId] = { hon: row.hon, hed: row.hed, hen: row.hen, total: value, totalManual: true };
-
-            renderPayrollOtTableAndKpis();
+            try {
+                await savePayrollAdjustment(row, { field: 'total', before, after: value }, reason);
+                showAppToast('Ajuste guardado y registrado.');
+            } catch (e) { showAppToast('No se pudo guardar el ajuste: ' + e.message); }
+            renderPayrollOvertimeView();
         }
 
-        // Descarta todos los ajustes manuales del periodo y recalcula estrictamente desde los turnos registrados
-        function resetPayrollOtEdits() {
-            const c = appState._payrollOtCache || {};
-            if (appState._payrollOtEdits) delete appState._payrollOtEdits[`${c.startDate || ''}_${c.endDate || ''}`];
-            showAppToast('Liquidación recalculada desde los turnos registrados (ajustes manuales descartados).');
+        // Quita TODOS los ajustes manuales del periodo (con motivo; queda registrado).
+        async function resetPayrollOtEdits() {
+            const cache = appState._payrollOtCache;
+            if (!cache || !CAN('employees.edit_payroll')) return;
+            const count = cache.rows.filter(r => r.adjustment).length;
+            if (!count) { showAppToast('Este periodo no tiene ajustes manuales.'); return; }
+            const reason = window.prompt(`Se quitarán ${count} ajuste(s) manual(es) del periodo ${cache.startDate} al ${cache.endDate} y se volverá a los valores calculados desde las marcaciones.\n\nEscribe el MOTIVO (obligatorio, queda registrado):`);
+            if (reason === null) return;
+            if (reason.trim().length < 5) { showAppToast('El motivo debe tener al menos 5 caracteres.'); return; }
+            try {
+                await apiFetch('/api/payroll/adjustments/reset', { method: 'POST', body: JSON.stringify({ from: cache.startDate, to: cache.endDate, reason: reason.trim() }) });
+                showAppToast('Ajustes del periodo eliminados y registrados en el historial.');
+            } catch (e) { showAppToast('No se pudo completar: ' + e.message); }
             renderPayrollOvertimeView();
+        }
+
+        // Historial de ajustes del periodo (quién, cuándo, qué cambió y por qué).
+        function renderPayrollAdjHistory() {
+            const box = document.getElementById('payrollOtAdjHistory');
+            if (!box) return;
+            const hist = appState._payrollOtAdjHistory || [];
+            if (!hist.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+            const fieldName = { hon: 'Recargo nocturno', hed: 'Extra diurna', hen: 'Extra nocturna', total: 'Total a liquidar' };
+            const fmtVal = (f, v) => v === null || v === undefined ? '-' : (f === 'total' ? '$' + Math.round(v).toLocaleString('es-CO') : formatHMSigned(Number(v)));
+            box.classList.remove('hidden');
+            box.innerHTML = `
+                <div class="flex items-center justify-between mb-2">
+                    <h4 class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-clock-rotate-left text-slate-500"></i> Historial de ajustes del periodo (${hist.length})</h4>
+                    <button onclick="document.getElementById('payrollOtAdjHistoryList').classList.toggle('hidden')" class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50">Ver / ocultar</button>
+                </div>
+                <div id="payrollOtAdjHistoryList" class="hidden overflow-x-auto border border-slate-200 rounded-lg">
+                    <table class="w-full text-xs">
+                        <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
+                            <th class="text-left px-3 py-2">Fecha y hora (UTC)</th><th class="text-left px-3 py-2">Usuario</th>
+                            <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Cambio</th>
+                            <th class="text-left px-3 py-2">Motivo</th>
+                        </tr></thead>
+                        <tbody>${hist.map(h => `
+                            <tr class="border-t border-slate-100 align-top">
+                                <td class="px-3 py-2 whitespace-nowrap text-slate-500">${escapeHtml(h.at || '')}</td>
+                                <td class="px-3 py-2">${escapeHtml(h.userEmail || '-')}</td>
+                                <td class="px-3 py-2 font-semibold">${h.action === 'payroll.adjustments_reset' ? '<span class="text-rose-700">Todos</span>' : escapeHtml(h.colaborador || '-')}</td>
+                                <td class="px-3 py-2">${h.action === 'payroll.adjustments_reset'
+                                    ? `<span class="font-semibold text-rose-700">Se quitaron ${h.ajustesEliminados || 0} ajuste(s)</span>`
+                                    : `${escapeHtml(fieldName[h.campo] || h.campo || '-')}: <span class="font-mono">${fmtVal(h.campo, h.antes)}</span> → <span class="font-mono font-bold">${fmtVal(h.campo, h.despues)}</span>`}</td>
+                                <td class="px-3 py-2 text-slate-600">${escapeHtml(h.motivo || '')}</td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>`;
         }
 
         // ---- Reportes separados: el recargo nocturno puede liquidarse en un
@@ -4606,20 +4696,20 @@
                 'Extra Diurna (horas)', 'Extra Diurna (COP)',
                 'Extra Nocturna (horas)', 'Extra Nocturna (COP)',
                 ...(appState.includeSundayHoliday ? ['Dominical/Festivo (horas)', 'Dominical/Festivo (COP)'] : []),
-                'Total a Liquidar (COP)'];
+                'Total a Liquidar (COP)', 'Ajuste manual (motivo)'];
             const dataRows = cache.rows.map(r => [r.emp.name, r.emp.department || '',
                 Number(r.hon.toFixed(2)), Math.round(r.honPay),
                 Number(r.hed.toFixed(2)), Math.round(r.hedPay),
                 Number(r.hen.toFixed(2)), Math.round(r.henPay),
                 ...(appState.includeSundayHoliday ? [Number((r.domHours || 0).toFixed(2)), Math.round(r.domPay || 0)] : []),
-                Math.round(r.total)]);
+                Math.round(r.total), r.adjustment ? r.adjustment.reason : '']);
             const t = (f) => cache.rows.reduce((a, r) => a + (r[f] || 0), 0);
             dataRows.push(['TOTAL PERIODO', '',
                 Number(t('hon').toFixed(2)), Math.round(t('honPay')),
                 Number(t('hed').toFixed(2)), Math.round(t('hedPay')),
                 Number(t('hen').toFixed(2)), Math.round(t('henPay')),
                 ...(appState.includeSundayHoliday ? [Number(t('domHours').toFixed(2)), Math.round(t('domPay'))] : []),
-                Math.round(t('total'))]);
+                Math.round(t('total')), '']);
             try {
                 await downloadXLSX(`Liquidacion_Extras_Recargos_${cache.startDate || 'periodo'}_a_${cache.endDate || ''}.xlsx`, header, dataRows, 'Liquidacion');
                 showAppToast('Liquidación de extras y recargos exportada en formato Excel (.xlsx).');
