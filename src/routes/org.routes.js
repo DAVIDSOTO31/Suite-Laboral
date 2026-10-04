@@ -480,7 +480,148 @@ async function resetPayrollAdjustments(req, res) {
   sendJson(res, 200, { ok: true, removed: info.changes });
 }
 
+// ---------------------------------------------------------------------------
+// CIERRES DE PERIODO (recargos y horas extras por separado)
+// ---------------------------------------------------------------------------
+const CLOSURE_TYPES = ['recargos', 'extras'];
+function closureView(c) {
+  return {
+    id: c.id, type: c.closure_type, from: c.period_start, to: c.period_end, status: c.status,
+    pendingDays: c.pending_days, closedAt: c.closed_at, closedBy: c.closed_by_email || null,
+    reopenedAt: c.reopened_at, reopenedBy: c.reopened_by_email || null, reopenReason: c.reopen_reason,
+    snapshot: JSON.parse(c.snapshot_json || '{}'),
+  };
+}
+const CLOSURE_SELECT = `
+  SELECT c.*, u1.email AS closed_by_email, u2.email AS reopened_by_email
+  FROM payroll_closures c
+  LEFT JOIN users u1 ON u1.id = c.closed_by
+  LEFT JOIN users u2 ON u2.id = c.reopened_by`;
+// Ultimo cierre ACTIVO de extras que termina antes de 'from': de ahi sale el
+// saldo negativo que se traslada al periodo que empieza en 'from'.
+function previousExtrasClosure(orgId, from) {
+  return db.prepare(`${CLOSURE_SELECT}
+    WHERE c.organization_id = ? AND c.closure_type = 'extras' AND c.status = 'cerrado' AND c.period_end < ?
+    ORDER BY c.period_end DESC LIMIT 1`).get(orgId, from) || null;
+}
+
+// Recargos: periodos CONTINUOS. El siguiente periodo arranca el dia despues
+// del ultimo cierre activo; si nunca se ha cerrado, desde la primera marcacion
+// registrada en la organizacion.
+function addDaysISO(iso, n) {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function bogotaToday() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+}
+function lastRecargosClosure(orgId) {
+  return db.prepare(`${CLOSURE_SELECT}
+    WHERE c.organization_id = ? AND c.closure_type = 'recargos' AND c.status = 'cerrado'
+    ORDER BY c.period_end DESC LIMIT 1`).get(orgId) || null;
+}
+function nextRecargosStart(orgId) {
+  const last = lastRecargosClosure(orgId);
+  if (last) return addDaysISO(last.period_end, 1);
+  const first = db.prepare('SELECT MIN(shift_date) AS d FROM attendance_days WHERE organization_id = ?').get(orgId);
+  return first && first.d ? first.d : null;
+}
+
+// GET /api/payroll/closures?from=&to=
+function listPayrollClosures(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  if (!ISO_DATE.test(query.from || '') || !ISO_DATE.test(query.to || '')) return sendJson(res, 400, { error: 'Periodo invalido.' });
+  const overlapping = db.prepare(`${CLOSURE_SELECT}
+    WHERE c.organization_id = ? AND c.period_start <= ? AND c.period_end >= ?
+    ORDER BY c.closed_at DESC`).all(orgId, query.to, query.from).map(closureView);
+  const prev = previousExtrasClosure(orgId, query.from);
+  const lastRec = lastRecargosClosure(orgId);
+  sendJson(res, 200, {
+    closures: overlapping,
+    previousExtras: prev ? closureView(prev) : null,
+    recargos: {
+      nextStart: nextRecargosStart(orgId),
+      maxEnd: addDaysISO(bogotaToday(), -1),
+      last: lastRec ? { id: lastRec.id, from: lastRec.period_start, to: lastRec.period_end, closedAt: lastRec.closed_at, closedBy: lastRec.closed_by_email } : null,
+    },
+  });
+}
+
+// POST /api/payroll/closures  { type, from, to, snapshot, pendingDays, previousClosureId }
+async function createPayrollClosure(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const { type, from, to } = body;
+  if (!CLOSURE_TYPES.includes(type)) return sendJson(res, 400, { error: 'Tipo de cierre invalido.' });
+  if (!ISO_DATE.test(from || '') || !ISO_DATE.test(to || '') || from > to) return sendJson(res, 400, { error: 'Periodo invalido.' });
+  const snapshot = body.snapshot && typeof body.snapshot === 'object' ? body.snapshot : null;
+  if (!snapshot || !Array.isArray(snapshot.employees)) return sendJson(res, 400, { error: 'Faltan los valores del cierre.' });
+  // Recargos: el periodo debe continuar exactamente donde termino el anterior
+  // (o desde la primera marcacion) y cerrar a mas tardar ayer.
+  if (type === 'recargos') {
+    const expected = nextRecargosStart(orgId);
+    if (!expected) return sendJson(res, 400, { error: 'Aun no hay marcaciones registradas en la organizacion.' });
+    if (from !== expected) return sendJson(res, 409, { error: `El periodo de recargos debe iniciar el ${expected} (dia siguiente al ultimo cierre).` });
+    if (to > addDaysISO(bogotaToday(), -1)) return sendJson(res, 400, { error: 'La fecha de corte de recargos debe ser como maximo el dia de ayer.' });
+  }
+  // No se permiten dos cierres activos del mismo tipo que se crucen en fechas.
+  const clash = db.prepare(`SELECT period_start, period_end FROM payroll_closures
+    WHERE organization_id = ? AND closure_type = ? AND status = 'cerrado' AND period_start <= ? AND period_end >= ?`).get(orgId, type, to, from);
+  if (clash) return sendJson(res, 409, { error: `Ya existe un cierre de ${type} del ${clash.period_start} al ${clash.period_end} que se cruza con este periodo.` });
+  // Extras: el periodo anterior debe ser el ultimo cierre de extras (para el saldo trasladado).
+  let previousId = null;
+  if (type === 'extras') {
+    const later = db.prepare(`SELECT 1 FROM payroll_closures WHERE organization_id = ? AND closure_type = 'extras' AND status = 'cerrado' AND period_start > ?`).get(orgId, to);
+    if (later) return sendJson(res, 409, { error: 'Ya hay un cierre de extras posterior a este periodo. Los cierres de extras deben hacerse en orden.' });
+    const prev = previousExtrasClosure(orgId, from);
+    previousId = prev ? prev.id : null;
+    if ((body.previousClosureId || null) !== previousId) {
+      return sendJson(res, 409, { error: 'El saldo anterior cambio mientras revisabas. Vuelve a cargar la liquidacion e intenta de nuevo.' });
+    }
+  }
+  const id = uid('clos');
+  db.prepare(`INSERT INTO payroll_closures (id, organization_id, closure_type, period_start, period_end, status, snapshot_json, pending_days, previous_closure_id, closed_by)
+              VALUES (?, ?, ?, ?, ?, 'cerrado', ?, ?, ?, ?)`)
+    .run(id, orgId, type, from, to, JSON.stringify(snapshot).slice(0, 2_000_000), Number(body.pendingDays) || 0, previousId, req.user.id);
+  logAction({
+    organizationId: orgId, userId: req.user.id, action: 'payroll.period_closed', resourceType: 'payroll_closure', resourceId: id, ip: getClientIp(req),
+    metadata: { tipo: type, periodo: `${from} al ${to}`, colaboradores: snapshot.employees.length, total: snapshot.totals ? snapshot.totals.pay : null, diasPendientes: Number(body.pendingDays) || 0 },
+  });
+  sendJson(res, 201, { ok: true, id });
+}
+
+// POST /api/payroll/closures/:id/reopen  { reason }
+async function reopenPayrollClosure(req, res, params) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = req.user.organizationId;
+  const c = db.prepare('SELECT * FROM payroll_closures WHERE id = ? AND organization_id = ?').get(params.id, orgId);
+  if (!c) return sendJson(res, 404, { error: 'Cierre no encontrado.' });
+  if (c.status !== 'cerrado') return sendJson(res, 400, { error: 'Este periodo ya esta reabierto.' });
+  const reason = String(body.reason || '').trim().slice(0, 300);
+  if (reason.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo de la reapertura (minimo 5 caracteres).' });
+  if (c.closure_type === 'extras') {
+    const later = db.prepare(`SELECT period_start, period_end FROM payroll_closures WHERE organization_id = ? AND closure_type = 'extras' AND status = 'cerrado' AND period_start > ?`).get(orgId, c.period_end);
+    if (later) return sendJson(res, 409, { error: `Primero reabre el cierre de extras posterior (${later.period_start} al ${later.period_end}), porque usa el saldo de este periodo.` });
+  } else {
+    // Recargos: los periodos son continuos; solo se puede reabrir el ULTIMO.
+    const later = db.prepare(`SELECT period_start, period_end FROM payroll_closures WHERE organization_id = ? AND closure_type = 'recargos' AND status = 'cerrado' AND period_start > ?`).get(orgId, c.period_end);
+    if (later) return sendJson(res, 409, { error: `Primero reabre el cierre de recargos posterior (${later.period_start} al ${later.period_end}). Los periodos de recargos son continuos.` });
+  }
+  db.prepare(`UPDATE payroll_closures SET status = 'reabierto', reopened_by = ?, reopened_at = datetime('now'), reopen_reason = ? WHERE id = ?`).run(req.user.id, reason, c.id);
+  logAction({
+    organizationId: orgId, userId: req.user.id, action: 'payroll.period_reopened', resourceType: 'payroll_closure', resourceId: c.id, ip: getClientIp(req),
+    metadata: { tipo: c.closure_type, periodo: `${c.period_start} al ${c.period_end}`, motivo: reason },
+  });
+  sendJson(res, 200, { ok: true });
+}
+
 module.exports = {
+  listPayrollClosures, createPayrollClosure, reopenPayrollClosure,
   listPayrollAdjustments, savePayrollAdjustment, resetPayrollAdjustments,
   getOrgData, seedDemo, updateSettings, replaceDepartments, replaceShiftPresets, syncEmployeesAndShifts,
   listOrgUsers, createOrgUser, updateOrgUser, toggleOrgUserStatus, resetOrgUserPassword, listOrgAudit,
