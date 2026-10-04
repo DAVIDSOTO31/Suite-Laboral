@@ -1338,13 +1338,13 @@
                                 <option value="_ALL_">Todas las áreas</option>
                             </select>
                         </div>
-                        <label class="flex items-center gap-2 text-xs font-semibold text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 cursor-pointer" title="Domingos y días marcados como festivo en el cuadro de turnos">
-                            <input type="checkbox" id="payrollOtSundayToggle" class="w-4 h-4 accent-blue-600" onchange="togglePayrollSundayHoliday(this)">
-                            Incluir dominicales y festivos
-                        </label>
                         <button onclick="setPayrollOtCurrentPeriod()" class="text-xs font-semibold px-3 py-2 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition flex items-center gap-1.5">
                             <i class="fa-solid fa-calendar-days"></i> Quincena actual
                         </button>
+                        <label class="flex items-center gap-2 text-xs font-semibold text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 cursor-pointer" title="Domingos y festivos de Colombia (calendario automático)">
+                            <input type="checkbox" id="payrollOtSundayToggle" class="w-4 h-4 accent-blue-600" onchange="togglePayrollSundayHoliday(this)">
+                            Incluir dominicales y festivos
+                        </label>
                         <button onclick="resetPayrollOtEdits()" title="Descarta los ajustes manuales y recalcula desde los turnos registrados" class="text-xs font-semibold px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition flex items-center gap-1.5">
                             <i class="fa-solid fa-arrow-rotate-left"></i> Recalcular desde turnos
                         </button>
@@ -1583,7 +1583,7 @@
                 </div>
                 <div>
                     <label class="block font-semibold text-slate-700 mb-1">Fecha del Turno</label>
-                    <input type="date" id="modalShiftDate" class="w-full p-2 border rounded-lg">
+                    <input type="date" id="modalShiftDate" onchange="document.getElementById('modalShiftIsSunday').checked = isSundayOrHolidayCO(this.value)" class="w-full p-2 border rounded-lg">
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
@@ -1897,8 +1897,8 @@
                 percHED: 0.25,
                 percHEN: 0.75,
                 percDOM: 0.90, // Ley 2466 de 2025: 80% desde jul-2025, 90% desde jul-2026, 100% desde jul-2027
-                percHEDD: 1.00,
-                percHEND: 1.50,
+                percHEDD: 1.15, // referencia: extra diurna dominical = 25% + dominical (se calcula sola)
+                percHEND: 1.65, // referencia: extra nocturna dominical = 75% + dominical (se calcula sola)
                 monthlyHoursDivider: 210,
                 weeklyLimit: 42,
                 smlmv2026: 1750905
@@ -2187,13 +2187,13 @@
                     totalHours: 0, hod: 0, hon: 0, hed: 0, hen: 0, hedd: 0, hend: 0,
                     hourlyRate: 0, baseOrdinaryPay: 0, honSurcharge: 0, hedTotalPay: 0,
                     henTotalPay: 0, domOrdinarySurcharge: 0, totalSurcharges: 0, totalPay: 0,
-                    isSunday: new Date(dateISO + 'T00:00:00').getDay() === 0
+                    isSunday: isSundayOrHolidayCO(dateISO)
                 }
             };
         }
         function buildShiftFromPreset(preset, empId, dateISO) {
             const emp = appState.employees.find(e => e.id === empId);
-            const isSunday = new Date(dateISO + 'T00:00:00').getDay() === 0;
+            const isSunday = isSundayOrHolidayCO(dateISO);
             const salary = emp ? emp.salary : appState.settings.smlmv2026;
             const breakM = preset.isSplit ? minutesBetween(preset.splitOut, preset.splitIn) : preset.breakM;
             const res = calculateShift(preset.startTime, preset.endTime, breakM, preset.limit || 8, isSunday, preset.isOvernight || false, salary, empNightSurcharge(emp));
@@ -2335,7 +2335,7 @@
                         totalHours: 0, hod: 0, hon: 0, hed: 0, hen: 0, hedd: 0, hend: 0,
                         hourlyRate: 0, baseOrdinaryPay: 0, honSurcharge: 0, hedTotalPay: 0,
                         henTotalPay: 0, domOrdinarySurcharge: 0, totalSurcharges: 0, totalPay: 0,
-                        isSunday: new Date(dateISO + 'T00:00:00').getDay() === 0
+                        isSunday: isSundayOrHolidayCO(dateISO)
                     }
                 });
                 showAppToast(`Día marcado como descanso para ${empName}.`);
@@ -2359,8 +2359,7 @@
             const preset = appState.shiftPresets.find(p => p.id === appState.quickBrushMode);
             if (preset) {
                 const emp = appState.employees.find(e => e.id === empId);
-                const dateObj = new Date(dateISO + 'T00:00:00');
-                const isSunday = dateObj.getDay() === 0;
+                const isSunday = isSundayOrHolidayCO(dateISO);
                 const salary = emp ? emp.salary : appState.settings.smlmv2026;
                 appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
                 appState.shifts.push(buildShiftFromPreset(preset, empId, dateISO));
@@ -2379,8 +2378,7 @@
             document.getElementById('rosterAssignDate').value = dateISO;
             document.getElementById('rosterModalSubtitle').innerText = `${empName} • ${dateFormatted}`;
 
-            const dateObj = new Date(dateISO + 'T00:00:00');
-            const isSunday = dateObj.getDay() === 0;
+            const isSunday = isSundayOrHolidayCO(dateISO);
             document.getElementById('rosterAssignIsSunday').checked = isSunday;
 
             renderModalRosterPresets(empId, dateISO);
@@ -2439,8 +2437,7 @@
             if (!preset) return;
 
             const emp = appState.employees.find(e => e.id === empId);
-            const dateObj = new Date(dateISO + 'T00:00:00');
-            const isSunday = dateObj.getDay() === 0;
+            const isSunday = isSundayOrHolidayCO(dateISO);
             const salary = emp ? emp.salary : appState.settings.smlmv2026;
             appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
             appState.shifts.push(buildShiftFromPreset(preset, empId, dateISO));
@@ -2552,7 +2549,7 @@
                     totalHours: 0, hod: 0, hon: 0, hed: 0, hen: 0, hedd: 0, hend: 0,
                     hourlyRate: 0, baseOrdinaryPay: 0, honSurcharge: 0, hedTotalPay: 0,
                     henTotalPay: 0, domOrdinarySurcharge: 0, totalSurcharges: 0, totalPay: 0,
-                    isSunday: new Date(dateISO + 'T00:00:00').getDay() === 0
+                    isSunday: isSundayOrHolidayCO(dateISO)
                 }
             });
 
@@ -2835,12 +2832,16 @@
             let henTotalPay = hen * hourlyRate * (1 + appState.settings.percHEN);
             
             let domOrdinarySurcharge = isSunday ? ((hod + hon) * hourlyRate * appState.settings.percDOM) : 0;
-            let heddTotalPay = hedd * hourlyRate * (1 + appState.settings.percHEDD);
-            let hendTotalPay = hend * hourlyRate * (1 + appState.settings.percHEND);
+            // Extra en domingo/festivo = recargo de la extra + recargo dominical
+            // (ej. 2026: diurna 25% + 90% = 215%; nocturna 75% + 90% = 265%).
+            const pctHEDD = appState.settings.percHED + appState.settings.percDOM;
+            const pctHEND = appState.settings.percHEN + appState.settings.percDOM;
+            let heddTotalPay = hedd * hourlyRate * (1 + pctHEDD);
+            let hendTotalPay = hend * hourlyRate * (1 + pctHEND);
 
             let totalSurcharges = honSurcharge + (hed * hourlyRate * appState.settings.percHED) + 
                                   (hen * hourlyRate * appState.settings.percHEN) + domOrdinarySurcharge +
-                                  (hedd * hourlyRate * appState.settings.percHEDD) + (hend * hourlyRate * appState.settings.percHEND);
+                                  (hedd * hourlyRate * pctHEDD) + (hend * hourlyRate * pctHEND);
 
             let totalPay = baseOrdinaryPay + honSurcharge + hedTotalPay + henTotalPay + (isSunday ? domOrdinarySurcharge : 0) + heddTotalPay + hendTotalPay;
 
@@ -3175,9 +3176,10 @@
                         </div>
                     </td>
                     ${weekDays.map(d => `
-                        <td class="p-1.5 text-center border-r border-slate-700 ${d.isSunday ? 'bg-sky-950 text-sky-300' : 'bg-slate-800 text-white'}">
+                        <td class="p-1.5 text-center border-r border-slate-700 ${d.holidayName ? 'bg-amber-900 text-amber-200' : (d.isSunday ? 'bg-sky-950 text-sky-300' : 'bg-slate-800 text-white')}" ${d.holidayName ? `title="Festivo: ${d.holidayName}"` : ''}>
                             <span class="block text-[11px] font-black tracking-wider">${d.shortName}</span>
                             <span class="block text-3xs font-normal opacity-70">${d.displayDate}</span>
+                            ${d.holidayName ? '<span class="block text-[9px] font-bold uppercase tracking-wide">Festivo</span>' : ''}
                         </td>
                     `).join('')}
                     <td class="p-2 text-center bg-slate-950 font-mono text-3xs text-slate-300">
@@ -4130,7 +4132,7 @@
                 if (!byEmp[emp.id]) {
                     byEmp[emp.id] = {
                         emp, shiftsCount: 0,
-                        hourlyRate: emp.salary / appState.settings.monthlyHoursDivider,
+                        hourlyRate: emp.salary / legalMonthlyDividerForDate(endDate),
                         hon: 0, hed: 0, hen: 0,
                         honPay: 0, hedPay: 0, henPay: 0, domPay: 0,
                         detail: [], // desglose por fecha, para el boton "Ver detalle"
@@ -4161,12 +4163,17 @@
                 // Tarifas: jornada ordinaria siempre, salvo que la organizacion active
                 // "Incluir dominicales y festivos" y el dia sea domingo o festivo.
                 const st = appState.settings;
-                const isDom = !!(appState.includeSundayHoliday && s.res && s.res.isSunday);
-                const honPay = hon * acc.hourlyRate * st.percHON;
-                const hedPay = hed * acc.hourlyRate * (1 + (isDom ? st.percHEDD : st.percHED));
-                const henPay = hen * acc.hourlyRate * (1 + (isDom ? st.percHEND : st.percHEN));
+                // Valor hora del DIA trabajado: divisor legal según la jornada máxima
+                // vigente en esa fecha (Ley 2101 de 2021).
+                const dayRate = emp.salary / legalMonthlyDividerForDate(s.date);
+                // Domingo o festivo: calendario automático de Colombia (o marcado a mano).
+                const isDom = !!(appState.includeSundayHoliday && (isSundayOrHolidayCO(s.date) || (s.res && s.res.isSunday)));
+                const domPct = legalSundayPctForDate(s.date);
+                const honPay = hon * dayRate * st.percHON;
+                const hedPay = hed * dayRate * (1 + st.percHED + (isDom ? domPct : 0));
+                const henPay = hen * dayRate * (1 + st.percHEN + (isDom ? domPct : 0));
                 const domHours = isDom ? ordHours : 0;
-                const domPay = domHours * acc.hourlyRate * st.percDOM;
+                const domPay = domHours * dayRate * domPct;
                 acc.hon += hon;
                 acc.hed += hed;
                 acc.hen += hen;
@@ -4249,7 +4256,7 @@
                     ${card('bg-purple-50 border-purple-200 text-purple-950', 'text-purple-700', 'Recargo Nocturno Ordinario (+35%)', sumHON, sumHONPay)}
                     ${card('bg-amber-50 border-amber-200 text-amber-950', 'text-amber-700', 'Horas Extra Diurnas (+25%)', sumHED, sumHEDPay)}
                     ${card('bg-rose-50 border-rose-200 text-rose-950', 'text-rose-700', 'Horas Extra Nocturnas (+75%)', sumHEN, sumHENPay)}
-                    ${domOn ? card('bg-blue-50 border-blue-200 text-blue-950', 'text-blue-700', `Recargo Dominical / Festivo (+${Math.round(appState.settings.percDOM * 100)}%)`, sumDomHours, sumDomPay) : ''}
+                    ${domOn ? card('bg-blue-50 border-blue-200 text-blue-950', 'text-blue-700', `Recargo Dominical / Festivo (+${Math.round(legalSundayPctForDate(cache.endDate || formatDateISO(new Date())) * 100)}%)`, sumDomHours, sumDomPay) : ''}
                     <div class="bg-slate-900 p-4 rounded-xl border border-slate-700">
                         <span class="text-3xs text-slate-300 font-bold uppercase block">Total a Liquidar</span>
                         <span class="text-xl font-black text-emerald-400 font-mono block">${money(sumTotalPay)}</span>
@@ -4468,7 +4475,7 @@
             const cache = appState._payrollOtCache;
             const rows = cache ? cache.rows.filter(r => (r.domPay || 0) > 0) : [];
             if (!rows.length) { showAppToast('No hay recargos dominicales o festivos en el periodo seleccionado.'); return; }
-            const pct = Math.round(appState.settings.percDOM * 100);
+            const pct = Math.round(legalSundayPctForDate(cache.endDate) * 100);
             const header = ['Colaborador', 'Área', 'Horas ordinarias en domingo/festivo (decimal)', 'Horas (h:mm)', 'Valor hora ordinaria (COP)', `Recargo dominical/festivo ${pct}% (COP)`];
             const data = rows.map(r => [r.emp.name, r.emp.department || '', Number((r.domHours || 0).toFixed(2)), hmText(r.domHours || 0), Math.round(r.hourlyRate), Math.round(r.domPay)]);
             const totH = rows.reduce((a, r) => a + (r.domHours || 0), 0), totP = rows.reduce((a, r) => a + r.domPay, 0);
@@ -4687,7 +4694,8 @@
                     date: d,
                     dateISO: iso,
                     displayDate: `${d.getDate()}/${d.getMonth() + 1}`,
-                    isSunday: i === 6
+                    isSunday: i === 6,
+                    holidayName: holidayNameCO(iso)
                 });
             }
             return days;
@@ -5136,6 +5144,7 @@
                 const isToday = iso === formatDateISO(new Date());
                 return `<div class="rounded-lg border p-3 text-center ${cls} ${isToday ? 'ring-2 ring-sky-500' : ''}">
                             <div class="text-3xs font-bold uppercase opacity-80">${name} ${date.getDate()}/${date.getMonth() + 1}${isToday ? ' · Hoy' : ''}</div>
+                            ${holidayNameCO(iso) ? `<div class="text-3xs font-bold text-amber-700">Festivo: ${escapeHtml(holidayNameCO(iso))}</div>` : ''}
                             <div class="mt-1">${body}</div>
                         </div>`;
             }).join('');
@@ -5203,6 +5212,11 @@
             appState.companyLogo = data.orgSettings.logo || null;
             appState.settings.smlmv2026 = data.orgSettings.minimumWage || 1750905;
             appState.includeSundayHoliday = data.orgSettings.includeSundayHoliday === true;
+            // Parámetros legales vigentes HOY (se actualizan solos en cada cambio de ley programado)
+            const todayISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+            appState.settings.percDOM = legalSundayPctForDate(todayISO);
+            appState.settings.monthlyHoursDivider = legalMonthlyDividerForDate(todayISO);
+            appState.settings.weeklyLimit = appState.settings.monthlyHoursDivider / 5;
             appState.departments = (data.departments && data.departments.length) ? data.departments : getPredefinedDepartments();
             appState.shiftPresets = (data.shiftPresets && data.shiftPresets.length) ? data.shiftPresets : loadShiftPresets();
             if (!appState.shiftPresets.some(p => p.id === SPLIT_PRESET_ID)) {
@@ -5387,6 +5401,88 @@
         // como se ve en pantalla y la pone en un PDF con el encabezado de la
         // semana. Las librerías se cargan solo al presionar el botón.
         // -----------------------------------------------------------------
+        // -----------------------------------------------------------------
+        // CALENDARIO OFICIAL DE FESTIVOS DE COLOMBIA (automático, cualquier año)
+        //  - Fijos: 1 ene, 1 may, 20 jul, 7 ago, 8 dic, 25 dic.
+        //  - Ley Emiliani (Ley 51 de 1983), se trasladan al lunes siguiente:
+        //    6 ene, 19 mar, 29 jun, 15 ago, 12 oct, 1 nov, 11 nov y, desde la
+        //    Ley 2578 de 2026, 9 jul (Virgen de Chiquinquirá).
+        //  - Según la Pascua: Jueves y Viernes Santo; Ascensión, Corpus Christi
+        //    y Sagrado Corazón (trasladados a lunes).
+        // -----------------------------------------------------------------
+        const _holidayCache = {};
+        function easterSunday(year) {
+            // Algoritmo de Meeus/Jones/Butcher (calendario gregoriano)
+            const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+            const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+            const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+            const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+            const m = Math.floor((a + 11 * h + 22 * l) / 451);
+            const month = Math.floor((h + l - 7 * m + 114) / 31);
+            const day = ((h + l - 7 * m + 114) % 31) + 1;
+            return new Date(year, month - 1, day);
+        }
+        function colombianHolidays(year) {
+            if (_holidayCache[year]) return _holidayCache[year];
+            const map = {};
+            const iso = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+            const add = (dt, name) => { map[iso(dt)] = name; };
+            const toMonday = (dt) => { const r = new Date(dt); while (r.getDay() !== 1) r.setDate(r.getDate() + 1); return r; };
+            const plus = (dt, n) => { const r = new Date(dt); r.setDate(r.getDate() + n); return r; };
+            // Fijos
+            add(new Date(year, 0, 1), 'Año Nuevo');
+            add(new Date(year, 4, 1), 'Día del Trabajo');
+            add(new Date(year, 6, 20), 'Día de la Independencia');
+            add(new Date(year, 7, 7), 'Batalla de Boyacá');
+            add(new Date(year, 11, 8), 'Inmaculada Concepción');
+            add(new Date(year, 11, 25), 'Navidad');
+            // Ley Emiliani
+            add(toMonday(new Date(year, 0, 6)), 'Reyes Magos');
+            add(toMonday(new Date(year, 2, 19)), 'San José');
+            add(toMonday(new Date(year, 5, 29)), 'San Pedro y San Pablo');
+            if (year >= 2026) add(toMonday(new Date(year, 6, 9)), 'Virgen de Chiquinquirá');
+            add(toMonday(new Date(year, 7, 15)), 'Asunción de la Virgen');
+            add(toMonday(new Date(year, 9, 12)), 'Día de la Diversidad Étnica y Cultural');
+            add(toMonday(new Date(year, 10, 1)), 'Todos los Santos');
+            add(toMonday(new Date(year, 10, 11)), 'Independencia de Cartagena');
+            // Según la Pascua
+            const easter = easterSunday(year);
+            add(plus(easter, -3), 'Jueves Santo');
+            add(plus(easter, -2), 'Viernes Santo');
+            add(plus(easter, 43), 'Ascensión del Señor');
+            add(plus(easter, 64), 'Corpus Christi');
+            add(plus(easter, 71), 'Sagrado Corazón');
+            _holidayCache[year] = map;
+            return map;
+        }
+        function holidayNameCO(dateISO) {
+            if (!dateISO) return null;
+            return colombianHolidays(Number(String(dateISO).slice(0, 4)))[String(dateISO).slice(0, 10)] || null;
+        }
+        // ¿Domingo o festivo en Colombia?
+        function isSundayOrHolidayCO(dateISO) {
+            if (!dateISO) return false;
+            return new Date(dateISO + 'T00:00:00').getDay() === 0 || !!holidayNameCO(dateISO);
+        }
+
+        // Tarifas legales vigentes según la FECHA trabajada (CST actualizado):
+        //  - Recargo dominical/festivo (Ley 2466 de 2025, art. 14): 75% hasta
+        //    30-jun-2025, 80% desde 1-jul-2025, 90% desde 1-jul-2026, 100% desde 1-jul-2027.
+        //  - Jornada máxima (Ley 2101 de 2021) -> divisor de horas del mes:
+        //    46 h (230) desde 15-jul-2024, 44 h (220) desde 15-jul-2025, 42 h (210) desde 15-jul-2026.
+        function legalSundayPctForDate(dateISO) {
+            if (dateISO >= '2027-07-01') return 1.00;
+            if (dateISO >= '2026-07-01') return 0.90;
+            if (dateISO >= '2025-07-01') return 0.80;
+            return 0.75;
+        }
+        function legalMonthlyDividerForDate(dateISO) {
+            if (dateISO >= '2026-07-15') return 210;
+            if (dateISO >= '2025-07-15') return 220;
+            if (dateISO >= '2024-07-15') return 230;
+            return 240;
+        }
+
         const MONTHS_ES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
         function rosterWeekTitle(monday) {
             const sunday = addDays(monday, 6);
