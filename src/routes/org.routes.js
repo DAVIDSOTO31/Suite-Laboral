@@ -402,7 +402,86 @@ function listOrgAudit(req, res) {
   sendJson(res, 200, { logs: rows.map(r => ({ ...r, metadata: r.metadata_json ? JSON.parse(r.metadata_json) : null })) });
 }
 
+// ---------------------------------------------------------------------------
+// Ajustes manuales de la liquidacion (extras y recargos)
+// ---------------------------------------------------------------------------
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+function listPayrollAdjustments(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  if (!ISO_DATE.test(query.from || '') || !ISO_DATE.test(query.to || '')) return sendJson(res, 400, { error: 'Periodo invalido.' });
+  const rows = db.prepare(`
+    SELECT a.employee_id AS employeeId, a.hon, a.hed, a.hen, a.total, a.total_manual AS totalManual,
+           a.reason, a.updated_at AS updatedAt, u.email AS updatedBy
+    FROM payroll_adjustments a LEFT JOIN users u ON u.id = a.updated_by
+    WHERE a.organization_id = ? AND a.period_start = ? AND a.period_end = ?
+  `).all(orgId, query.from, query.to);
+  // Historial de cambios del periodo (desde la auditoria).
+  const periodo = JSON.stringify(`${query.from} al ${query.to}`);
+  const history = db.prepare(`
+    SELECT l.created_at AS at, l.action, l.metadata_json, u.email AS userEmail
+    FROM audit_logs l LEFT JOIN users u ON u.id = l.user_id
+    WHERE l.organization_id = ? AND l.action IN ('payroll.adjustment', 'payroll.adjustments_reset')
+      AND l.metadata_json LIKE ?
+    ORDER BY l.created_at DESC LIMIT 300
+  `).all(orgId, `%"periodo":${periodo}%`)
+    .map(h => ({ at: h.at, action: h.action, userEmail: h.userEmail, ...(h.metadata_json ? JSON.parse(h.metadata_json) : {}) }));
+  sendJson(res, 200, { rows, history });
+}
+
+async function savePayrollAdjustment(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const { from, to } = body;
+  if (!ISO_DATE.test(from || '') || !ISO_DATE.test(to || '') || from > to) return sendJson(res, 400, { error: 'Periodo invalido.' });
+  const reason = String(body.reason || '').trim().slice(0, 300);
+  if (reason.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo del ajuste (minimo 5 caracteres).' });
+  const emp = db.prepare('SELECT id, name FROM employees WHERE id = ? AND organization_id = ?').get(Number(body.employeeId), orgId);
+  if (!emp) return sendJson(res, 404, { error: 'Colaborador no encontrado.' });
+  const num = (v) => (v === null || v === undefined || v === '' || isNaN(Number(v))) ? null : Number(v);
+  const hon = num(body.hon), hed = num(body.hed), hen = num(body.hen), total = num(body.total);
+  const totalManual = body.totalManual ? 1 : 0;
+  db.prepare(`
+    INSERT INTO payroll_adjustments (organization_id, employee_id, period_start, period_end, hon, hed, hen, total, total_manual, reason, updated_by, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(organization_id, employee_id, period_start, period_end) DO UPDATE SET
+      hon = excluded.hon, hed = excluded.hed, hen = excluded.hen, total = excluded.total, total_manual = excluded.total_manual,
+      reason = excluded.reason, updated_by = excluded.updated_by, updated_at = datetime('now')
+  `).run(orgId, emp.id, from, to, hon, hed, hen, total, totalManual, reason, req.user.id);
+  const change = body.change && typeof body.change === 'object' ? {
+    campo: String(body.change.field || '').slice(0, 20),
+    antes: num(body.change.before),
+    despues: num(body.change.after),
+  } : null;
+  logAction({
+    organizationId: orgId, userId: req.user.id, action: 'payroll.adjustment',
+    resourceType: 'employee', resourceId: String(emp.id), ip: getClientIp(req),
+    metadata: { colaborador: emp.name, periodo: `${from} al ${to}`, ...change, motivo: reason },
+  });
+  sendJson(res, 200, { ok: true });
+}
+
+async function resetPayrollAdjustments(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const { from, to } = body;
+  if (!ISO_DATE.test(from || '') || !ISO_DATE.test(to || '')) return sendJson(res, 400, { error: 'Periodo invalido.' });
+  const reason = String(body.reason || '').trim().slice(0, 300);
+  if (reason.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo (minimo 5 caracteres).' });
+  const info = db.prepare('DELETE FROM payroll_adjustments WHERE organization_id = ? AND period_start = ? AND period_end = ?').run(orgId, from, to);
+  logAction({
+    organizationId: orgId, userId: req.user.id, action: 'payroll.adjustments_reset', ip: getClientIp(req),
+    metadata: { periodo: `${from} al ${to}`, ajustesEliminados: info.changes, motivo: reason },
+  });
+  sendJson(res, 200, { ok: true, removed: info.changes });
+}
+
 module.exports = {
+  listPayrollAdjustments, savePayrollAdjustment, resetPayrollAdjustments,
   getOrgData, seedDemo, updateSettings, replaceDepartments, replaceShiftPresets, syncEmployeesAndShifts,
   listOrgUsers, createOrgUser, updateOrgUser, toggleOrgUserStatus, resetOrgUserPassword, listOrgAudit,
   resolveOrgId,
