@@ -1215,6 +1215,7 @@
                                     <th class="text-left px-3 py-2 text-purple-700">Recargo noct.</th>
                                     <th class="text-left px-3 py-2">Extra diurna</th><th class="text-left px-3 py-2">Extra nocturna</th>
                                     <th class="text-left px-3 py-2">Estado</th>
+                                    <th class="px-3 py-2" data-perm="attendance.mark"></th>
                                 </tr></thead>
                                 <tbody id="attHistoryTableBody"></tbody>
                                 <tfoot id="attHistoryTableFoot" class="bg-slate-50 font-semibold"></tfoot>
@@ -1345,12 +1346,9 @@
                             <input type="checkbox" id="payrollOtSundayToggle" class="w-4 h-4 accent-blue-600" onchange="togglePayrollSundayHoliday(this)">
                             Incluir dominicales y festivos
                         </label>
-                        <button onclick="resetPayrollOtEdits()" data-perm="employees.edit_payroll" title="Quita todos los ajustes manuales de este periodo (pide motivo y queda registrado)" class="text-xs font-semibold px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition flex items-center gap-1.5">
-                            <i class="fa-solid fa-arrow-rotate-left"></i> Quitar ajustes del periodo
-                        </button>
                     </div>
                     <p class="text-3xs text-slate-400 flex items-center gap-1.5 pt-1">
-                        <i class="fa-solid fa-pen"></i> Las celdas de HON, HED, HEN y Total se pueden corregir: cada ajuste pide un motivo, se guarda y queda registrado con su autor.
+                        <i class="fa-solid fa-circle-info"></i> Los valores salen de las marcaciones de cada día. Para corregir un día, usa "Corregir" en los días pendientes o en el detalle del colaborador (botón "Ver").
                     </p>
                 </div>
 
@@ -1383,8 +1381,6 @@
                     </table>
                 </div>
 
-                <!-- Historial de ajustes manuales del periodo -->
-                <div id="payrollOtAdjHistory" class="hidden bg-white rounded-xl border border-slate-200 shadow-sm p-4"></div>
 
             </div>
 
@@ -1395,13 +1391,14 @@
     <div id="payrollOtDetailModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
         <div class="bg-white rounded-xl max-w-lg w-full p-5 shadow-2xl border border-slate-200">
             <h3 class="font-bold text-slate-800 mb-1">Detalle por fecha — <span id="payrollOtDetailName"></span></h3>
-            <p class="text-2xs text-slate-500 mb-3">"Real" viene de una marcación de Asistencia ya finalizada; "Estimado" viene del turno programado (aún sin marcación completa).</p>
+            <p class="text-2xs text-slate-500 mb-3">"Real" viene de una marcación de Asistencia ya finalizada; "Corregido" es un día cuya marcación corrigió el administrador. Los días sin marcación cerrada están en el panel de días pendientes.</p>
             <div class="overflow-x-auto max-h-80 overflow-y-auto border border-slate-200 rounded-lg">
                 <table class="w-full text-xs">
                     <thead class="bg-slate-50 text-slate-500 uppercase sticky top-0"><tr>
                         <th class="text-left px-3 py-2">Fecha</th><th class="text-center px-3 py-2">Recargo noct.</th>
                         <th class="text-center px-3 py-2">Extra diurna</th><th class="text-center px-3 py-2">Extra nocturna</th>
                         <th class="text-center px-3 py-2">Origen</th>
+                        <th class="px-3 py-2" data-perm="attendance.mark"></th>
                     </tr></thead>
                     <tbody id="payrollOtDetailTableBody"></tbody>
                 </table>
@@ -1471,6 +1468,32 @@
             <div class="flex justify-end gap-2 border-t pt-3">
                 <button onclick="closeModal('modalSettings')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
                 <button onclick="saveSettingsForm()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow">Guardar Cambios</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Corregir marcaciones de un día -->
+    <div id="modalAttCorrection" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-4 border border-slate-200 max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-start border-b pb-3">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-pen-to-square text-sky-600"></i> Corregir marcaciones del día</h3>
+                    <p class="text-xs text-slate-500 mt-0.5" id="corrSubtitle">-</p>
+                </div>
+                <button onclick="closeModal('modalAttCorrection')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <input type="hidden" id="corrEmpId"><input type="hidden" id="corrDate">
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600" id="corrScheduled">-</div>
+            <div class="grid grid-cols-2 gap-3 text-xs" id="corrFields"></div>
+            <div class="text-xs">
+                <label class="block font-semibold text-slate-700 mb-1">Motivo de la corrección <span class="text-rose-600">*</span></label>
+                <textarea id="corrReason" rows="2" maxlength="300" placeholder="Ej. Olvidó marcar la salida; el supervisor confirma que salió a las 18:10" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none"></textarea>
+                <p class="text-3xs text-slate-400 mt-1">Las marcaciones originales no se borran: la corrección queda registrada aparte, con tu usuario, la fecha y el motivo.</p>
+            </div>
+            <div id="corrHistory" class="hidden text-xs"></div>
+            <div class="flex justify-end gap-2 border-t pt-3">
+                <button onclick="closeModal('modalAttCorrection')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                <button onclick="submitAttendanceCorrection()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow">Guardar corrección</button>
             </div>
         </div>
     </div>
@@ -4120,16 +4143,10 @@
             // anteriores a la existencia del modulo de Asistencia).
             let realByKey = {};
             let attByKey = {}; // todas las marcaciones del periodo (cerradas o incompletas)
-            // Ajustes manuales GUARDADOS en el servidor para ESTE periodo.
-            let adjByEmp = {};
-            let adjHistory = [];
-            if (startDate && endDate) {
-                try {
-                    const adj = await apiFetch(`/api/payroll/adjustments?from=${startDate}&to=${endDate}`);
-                    (adj.rows || []).forEach(a => { adjByEmp[a.employeeId] = a; });
-                    adjHistory = adj.history || [];
-                } catch (e) { /* sin permiso: no se muestran ajustes */ }
-            }
+            // Los valores salen SOLO de las marcaciones de cada dia (las correcciones
+            // se hacen por dia, en la marcacion). No hay ajustes sobre totales.
+            const adjByEmp = {};
+            const adjHistory = [];
             if (startDate && endDate) {
                 try {
                     const [{ rows: realRows }, { rows: histRows }] = await Promise.all([
@@ -4230,7 +4247,8 @@
                 acc.domHours = (acc.domHours || 0) + domHours;
                 acc.domPay += domPay;
                 acc.shiftsCount++;
-                acc.detail.push({ date: s.date, hon, hed, hen, origin });
+                if (real && real.corrected) acc.correctedDays = (acc.correctedDays || 0) + 1;
+                acc.detail.push({ date: s.date, hon, hed, hen, origin, corrected: !!(real && real.corrected) });
             });
 
             // Aplica ajustes manuales guardados (si el usuario ya editó alguna celda de este colaborador)
@@ -4313,7 +4331,7 @@
                         <span class="text-xl font-black text-emerald-400 font-mono block">${money(sumTotalPay)}</span>
                         <span class="block text-2xs text-slate-300 font-semibold">${periodLabel}</span>
                         <span class="block text-3xs text-slate-400">${empsWithOvertime} colaborador(es) con novedades · ${domOn ? 'incluye dominicales y festivos' : 'tarifas de jornada ordinaria'}</span>
-                        ${rows.some(r => r.adjustment) ? `<span class="block text-3xs text-sky-300 font-semibold">${rows.filter(r => r.adjustment).length} colaborador(es) con ajuste manual</span>` : ''}
+                        ${rows.some(r => r.correctedDays) ? `<span class="block text-3xs text-sky-300 font-semibold">${rows.reduce((a, r) => a + (r.correctedDays || 0), 0)} día(s) con marcación corregida</span>` : ''}
                         <span class="block text-3xs ${(appState._payrollOtPending || {}).includeEstimates ? 'text-amber-300' : 'text-emerald-300'} font-semibold mt-0.5">${(appState._payrollOtPending || {}).includeEstimates ? 'Incluye días estimados sin marcación' : 'Solo marcaciones reales cerradas'}</span>
                     </div>
                 `;
@@ -4323,7 +4341,6 @@
             const pendingByEmp = {};
             pend.days.forEach(d => { pendingByEmp[d.emp.id] = (pendingByEmp[d.emp.id] || 0) + 1; });
             renderPayrollPendingBox(pend, money);
-            renderPayrollAdjHistory();
 
             const tbody = document.getElementById('payrollOtTableBody');
             const tfoot = document.getElementById('payrollOtTableFoot');
@@ -4344,26 +4361,20 @@
                         <tr class="hover:bg-slate-50">
                             <td class="p-2.5 font-bold text-slate-800">${r.emp.name}
                                 ${pendingByEmp[r.emp.id] ? `<span class="block mt-0.5 text-3xs font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 w-fit" title="Días sin marcación cerrada: no incluidos en el valor">${pendingByEmp[r.emp.id]} día(s) pendiente(s)</span>` : ''}
-                                ${r.adjustment ? `<span class="block mt-0.5 text-3xs font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 w-fit cursor-help" title="Ajuste manual · Motivo: ${escapeHtml(r.adjustment.reason)} · Por: ${escapeHtml(r.adjustment.updatedBy || '-')} · ${escapeHtml(r.adjustment.updatedAt || '')} (UTC)"><i class="fa-solid fa-pen"></i> Ajustado manualmente</span>` : ''}
+                                ${r.correctedDays ? `<span class="block mt-0.5 text-3xs font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 w-fit" title="Días con marcación corregida por el administrador (ver detalle con el botón Ver)"><i class="fa-solid fa-pen"></i> ${r.correctedDays} día(s) corregido(s)</span>` : ''}
                             </td>
                             <td class="p-2.5 text-center">
-                                <input type="number" step="0.01" min="0" value="${r.hon.toFixed(2)}"
-                                    onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hon', this.value)" ${CAN('employees.edit_payroll') ? '' : 'disabled title="Solo lectura"'}
-                                    class="w-20 text-center font-mono border border-purple-200 rounded-lg p-1.5 bg-purple-50/50 text-purple-900 font-bold focus:ring-2 focus:ring-purple-400 focus:outline-none">
+                                <span class="inline-block min-w-[4.5rem] text-center font-mono rounded-lg p-1.5 bg-purple-50/60 border border-purple-200 text-purple-900 font-bold">${r.hon.toFixed(2)}</span>
                                 <span class="block text-2xs font-mono text-purple-700 mt-0.5">${formatHMSigned(r.hon)}</span>
                                 <span class="block text-xs font-mono font-bold text-purple-900">${money(r.honPay)}</span>
                             </td>
                             <td class="p-2.5 text-center">
-                                <input type="number" step="0.01" min="0" value="${r.hed.toFixed(2)}"
-                                    onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hed', this.value)" ${CAN('employees.edit_payroll') ? '' : 'disabled title="Solo lectura"'}
-                                    class="w-20 text-center font-mono border border-amber-200 rounded-lg p-1.5 bg-amber-50/50 text-amber-900 font-bold focus:ring-2 focus:ring-amber-400 focus:outline-none">
+                                <span class="inline-block min-w-[4.5rem] text-center font-mono rounded-lg p-1.5 bg-amber-50/60 border border-amber-200 text-amber-900 font-bold">${r.hed.toFixed(2)}</span>
                                 <span class="block text-2xs font-mono text-amber-700 mt-0.5">${formatHMSigned(r.hed)}</span>
                                 <span class="block text-xs font-mono font-bold text-amber-900">${money(r.hedPay)}</span>
                             </td>
                             <td class="p-2.5 text-center">
-                                <input type="number" step="0.01" min="0" value="${r.hen.toFixed(2)}"
-                                    onchange="handlePayrollOtHoursEdit(${r.emp.id}, 'hen', this.value)" ${CAN('employees.edit_payroll') ? '' : 'disabled title="Solo lectura"'}
-                                    class="w-20 text-center font-mono border border-rose-200 rounded-lg p-1.5 bg-rose-50/50 text-rose-900 font-bold focus:ring-2 focus:ring-rose-400 focus:outline-none">
+                                <span class="inline-block min-w-[4.5rem] text-center font-mono rounded-lg p-1.5 bg-rose-50/60 border border-rose-200 text-rose-900 font-bold">${r.hen.toFixed(2)}</span>
                                 <span class="block text-2xs font-mono text-rose-700 mt-0.5">${formatHMSigned(r.hen)}</span>
                                 <span class="block text-xs font-mono font-bold text-rose-900">${money(r.henPay)}</span>
                             </td>
@@ -4372,10 +4383,7 @@
                                 <span class="block text-xs font-mono font-bold text-blue-900">${money(r.domPay)}</span>
                             </td>` : ''}
                             <td class="p-2.5 text-right">
-                                <input type="number" step="1" min="0" value="${Math.round(r.total)}"
-                                    id="payrollOtTotalInput_${r.emp.id}"
-                                    onchange="handlePayrollOtTotalEdit(${r.emp.id}, this.value)" ${CAN('employees.edit_payroll') ? '' : 'disabled title="Solo lectura"'}
-                                    class="w-28 text-right font-mono font-bold border border-emerald-200 rounded-lg p-1.5 bg-emerald-50/50 text-emerald-800 focus:ring-2 focus:ring-emerald-400 focus:outline-none">
+                                <span id="payrollOtTotalInput_${r.emp.id}" class="inline-block min-w-[7rem] text-right font-mono font-bold rounded-lg p-1.5 bg-emerald-50/60 border border-emerald-200 text-emerald-800">${money(r.total)}</span>
                             </td>
                             <td class="p-2.5 text-center">
                                 <button onclick="payrollOtOpenDetail(${r.emp.id})" class="text-2xs px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600"><i class="fa-solid fa-list"></i> Ver</button>
@@ -4415,8 +4423,9 @@
                     <td class="px-3 py-2 text-center font-mono">${d.hon.toFixed(2)}h</td>
                     <td class="px-3 py-2 text-center font-mono ${d.hed < 0 ? 'text-rose-600' : ''}">${d.hed.toFixed(2)}h</td>
                     <td class="px-3 py-2 text-center font-mono">${d.hen.toFixed(2)}h</td>
-                    <td class="px-3 py-2 text-center">${d.origin === 'real' ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-2xs font-semibold">Real</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-2xs font-semibold">Estimado</span>'}</td>
-                </tr>`).join('') || `<tr><td colspan="5" class="px-3 py-6 text-center text-slate-400">Sin turnos en este periodo.</td></tr>`;
+                    <td class="px-3 py-2 text-center">${d.corrected ? '<span class="px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 text-2xs font-semibold">Corregido</span>' : (d.origin === 'real' ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-2xs font-semibold">Real</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-2xs font-semibold">Estimado</span>')}</td>
+                    <td class="px-3 py-2 text-right" data-perm="attendance.mark"><button onclick="openAttendanceCorrection(${row.emp.id}, '${d.date}')" class="text-2xs font-semibold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200">Corregir</button></td>
+                </tr>`).join('') || `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Sin turnos en este periodo.</td></tr>`;
             document.getElementById('payrollOtDetailModal').classList.remove('hidden');
             document.getElementById('payrollOtDetailModal').classList.add('flex');
         }
@@ -4623,6 +4632,7 @@
                             <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Fecha</th>
                             <th class="text-left px-3 py-2">Turno programado</th><th class="text-left px-3 py-2">Situación</th>
                             <th class="text-right px-3 py-2">Valor estimado</th>
+                            <th class="px-3 py-2" data-perm="attendance.mark"></th>
                         </tr></thead>
                         <tbody>${days.map(d => `
                             <tr class="border-t border-amber-100">
@@ -4633,6 +4643,7 @@
                                     ? '<span class="font-semibold text-rose-700">Sin ninguna marcación</span>'
                                     : `<span class="font-semibold text-amber-800">Marcación incompleta</span><span class="block text-3xs text-slate-500">Registró: ${escapeHtml(d.marks.join(', '))}</span>`}</td>
                                 <td class="px-3 py-2 text-right font-mono">${money(d.estPay)}</td>
+                                <td class="px-3 py-2 text-right" data-perm="attendance.mark"><button onclick="openAttendanceCorrection(${d.emp.id}, '${d.date}')" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white"><i class="fa-solid fa-pen-to-square"></i> Corregir</button></td>
                             </tr>`).join('')}
                         </tbody>
                     </table>
@@ -4650,6 +4661,74 @@
             try {
                 await downloadXLSX(`Dias_pendientes_${cache.startDate}_al_${cache.endDate}.xlsx`, header, data, 'Pendientes');
             } catch (e) { showAppToast(e.message); }
+        }
+
+        // ---- Corrección de marcaciones de un día (solo Administrador) ----
+        const CORR_LABELS = { entrada: 'Entrada', inicio_almuerzo: 'Inicio de almuerzo', fin_almuerzo: 'Fin de almuerzo', salida: 'Salida' };
+        const CORR_SPLIT_LABELS = { entrada: 'Inicio Etapa 1', inicio_almuerzo: 'Final Etapa 1', fin_almuerzo: 'Inicio Etapa 2', salida: 'Final Etapa 2' };
+        async function openAttendanceCorrection(empId, dateISO) {
+            if (!CAN('attendance.mark')) return;
+            const emp = appState.employees.find(e => Number(e.id) === Number(empId));
+            const shift = appState.shifts.find(s => Number(s.empId) === Number(empId) && s.date === dateISO && !s.isOffDay);
+            if (!emp || !shift) { showAppToast('Ese día el colaborador no tiene un turno con horario.'); return; }
+            const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+            if (dateISO >= today) { showAppToast('Solo se pueden corregir días ya pasados.'); return; }
+            document.getElementById('corrEmpId').value = emp.id;
+            document.getElementById('corrDate').value = dateISO;
+            document.getElementById('corrReason').value = '';
+            const hol = holidayNameCO(dateISO);
+            document.getElementById('corrSubtitle').textContent = `${emp.name} · ${dateISO.split('-').reverse().join('/')}${hol ? ' · Festivo: ' + hol : ''}`;
+            document.getElementById('corrScheduled').innerHTML = `<strong>Turno programado:</strong> ${escapeHtml(shiftTimeLabel(shift))} · descanso ${Number(shift.breakM) || 0} min`;
+            let day = null, corrections = [];
+            try {
+                const [{ rows }, corr] = await Promise.all([
+                    apiFetch(`/api/attendance/history?from=${dateISO}&to=${dateISO}&employeeId=${emp.id}`),
+                    apiFetch(`/api/attendance/corrections?from=${dateISO}&to=${dateISO}&employeeId=${emp.id}`),
+                ]);
+                day = rows[0] || null;
+                corrections = corr.rows || [];
+            } catch (e) { /* sin datos previos */ }
+            const labels = shift.isSplit ? CORR_SPLIT_LABELS : CORR_LABELS;
+            const current = {
+                entrada: day && day.entrada_real, inicio_almuerzo: day && day.inicio_almuerzo_real,
+                fin_almuerzo: day && day.fin_almuerzo_real, salida: day && day.salida_real,
+            };
+            document.getElementById('corrFields').innerHTML = Object.keys(labels).map(k => `
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">${labels[k]}</label>
+                    <input type="time" id="corrTime_${k}" value="${current[k] || ''}" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none ${current[k] ? '' : 'border-amber-400 bg-amber-50'}">
+                    <span class="block text-3xs mt-0.5 ${current[k] ? 'text-slate-400' : 'text-amber-700 font-semibold'}">${current[k] ? 'Registrada: ' + current[k] : 'Sin marcación registrada'}</span>
+                </div>`).join('');
+            const histBox = document.getElementById('corrHistory');
+            if (corrections.length) {
+                histBox.classList.remove('hidden');
+                histBox.innerHTML = `<p class="font-semibold text-slate-700 mb-1">Correcciones anteriores de este día</p>` + corrections.map(c =>
+                    `<div class="border-t border-slate-100 py-1"><span class="text-slate-500">${escapeHtml(c.created_at)} · ${escapeHtml(c.created_by_email || '-')}</span><br>
+                     ${labels[c.mark_type] || c.mark_type}: <span class="font-mono">${c.original_time || 'sin marcar'}</span> → <span class="font-mono font-bold">${c.corrected_time}</span> · ${escapeHtml(c.reason)}</div>`).join('');
+            } else { histBox.classList.add('hidden'); histBox.innerHTML = ''; }
+            openModal('modalAttCorrection');
+        }
+        async function submitAttendanceCorrection() {
+            const empId = Number(document.getElementById('corrEmpId').value);
+            const date = document.getElementById('corrDate').value;
+            const reason = document.getElementById('corrReason').value.trim();
+            const times = {};
+            ['entrada', 'inicio_almuerzo', 'fin_almuerzo', 'salida'].forEach(k => { times[k] = document.getElementById('corrTime_' + k).value; });
+            if (Object.values(times).some(v => !v)) { showAppToast('Completa las 4 horas del día.'); return; }
+            if (reason.length < 5) { showAppToast('Escribe el motivo de la corrección (mínimo 5 caracteres).'); return; }
+            try {
+                await apiFetch('/api/attendance/corrections', { method: 'POST', body: JSON.stringify({ employeeId: empId, date, times, reason }) });
+                closeModal('modalAttCorrection');
+                showAppToast('Corrección guardada. El día se recalculó con las horas corregidas.');
+                if (!document.getElementById('view-payrollot').classList.contains('hidden')) {
+                    const dm = document.getElementById('payrollOtDetailModal');
+                    if (dm) { dm.classList.add('hidden'); dm.classList.remove('flex'); }
+                    renderPayrollOvertimeView();
+                }
+                if (!document.getElementById('view-attendance').classList.contains('hidden')) attendanceLoadHistory();
+            } catch (e) {
+                showAppToast('No se pudo guardar: ' + e.message);
+            }
         }
 
         // Interruptor de la organización: liquidar recargos dominicales y festivos.
@@ -4696,13 +4775,13 @@
                 'Extra Diurna (horas)', 'Extra Diurna (COP)',
                 'Extra Nocturna (horas)', 'Extra Nocturna (COP)',
                 ...(appState.includeSundayHoliday ? ['Dominical/Festivo (horas)', 'Dominical/Festivo (COP)'] : []),
-                'Total a Liquidar (COP)', 'Ajuste manual (motivo)'];
+                'Total a Liquidar (COP)', 'Días con marcación corregida'];
             const dataRows = cache.rows.map(r => [r.emp.name, r.emp.department || '',
                 Number(r.hon.toFixed(2)), Math.round(r.honPay),
                 Number(r.hed.toFixed(2)), Math.round(r.hedPay),
                 Number(r.hen.toFixed(2)), Math.round(r.henPay),
                 ...(appState.includeSundayHoliday ? [Number((r.domHours || 0).toFixed(2)), Math.round(r.domPay || 0)] : []),
-                Math.round(r.total), r.adjustment ? r.adjustment.reason : '']);
+                Math.round(r.total), r.correctedDays || 0]);
             const t = (f) => cache.rows.reduce((a, r) => a + (r[f] || 0), 0);
             dataRows.push(['TOTAL PERIODO', '',
                 Number(t('hon').toFixed(2)), Math.round(t('honPay')),
@@ -6019,8 +6098,9 @@
                         <td class="px-3 py-2">${attRecargoCell(r)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.hed_min)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.hen_min)}</td>
-                        <td class="px-3 py-2">${attStatusBadge(r.status, r.is_split)}</td>
-                    </tr>`).join('') || `<tr><td colspan="14" class="px-3 py-6 text-center text-slate-400">Sin marcaciones en este rango de fechas.</td></tr>`;
+                        <td class="px-3 py-2">${attStatusBadge(r.status, r.is_split)}${r.corrected ? '<span class="block mt-0.5 text-3xs font-bold text-sky-700"><i class="fa-solid fa-pen"></i> Corregido</span>' : ''}</td>
+                        <td class="px-3 py-2 text-right" data-perm="attendance.mark">${r.shift_date < bogotaTodayISO() ? `<button onclick="openAttendanceCorrection(${r.employee_id}, '${r.shift_date}')" class="text-2xs font-semibold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200">Corregir</button>` : ''}</td>
+                    </tr>`).join('') || `<tr><td colspan="15" class="px-3 py-6 text-center text-slate-400">Sin marcaciones en este rango de fechas.</td></tr>`;
 
                 const closed = rows.filter(r => r.status === 'turno_finalizado');
                 if (foot && closed.length) {
