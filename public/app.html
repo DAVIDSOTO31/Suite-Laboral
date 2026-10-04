@@ -1338,10 +1338,6 @@
                                 <option value="_ALL_">Todas las áreas</option>
                             </select>
                         </div>
-                        <label class="flex items-center gap-2 text-xs font-semibold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 cursor-pointer" title="No recomendado: liquida los días sin marcación como si se hubiera cumplido el turno programado">
-                            <input type="checkbox" id="payrollOtIncludeEstimates" class="w-4 h-4 accent-slate-600" onchange="renderPayrollOvertimeView()">
-                            Incluir días sin marcación (estimado)
-                        </label>
                         <button onclick="setPayrollOtCurrentPeriod()" class="text-xs font-semibold px-3 py-2 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition flex items-center gap-1.5">
                             <i class="fa-solid fa-calendar-days"></i> Quincena actual
                         </button>
@@ -4134,7 +4130,7 @@
             // Solo se liquidan dias con marcacion REAL cerrada. Los dias ya pasados
             // sin marcacion (o con marcacion incompleta) quedan "pendientes por
             // revisar" y NO se pagan, salvo que se active el estimado a proposito.
-            const includeEstimates = !!document.getElementById('payrollOtIncludeEstimates')?.checked;
+            const includeEstimates = false; // politica fija: los dias sin marcacion cerrada nunca se liquidan
             const todayISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
             const pendingDays = [];
             let upcomingDays = 0;
