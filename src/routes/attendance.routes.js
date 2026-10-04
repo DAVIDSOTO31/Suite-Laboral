@@ -81,8 +81,8 @@ function upsertAttendanceDay(orgId, employeeId, shiftDateISO, shift, patch) {
 
 function insertAlert(orgId, employeeId, shiftDateISO, alertType, scheduledTime, actualTime, diffMinutes, metadata) {
   db.prepare(`
-    INSERT INTO attendance_alerts (id, organization_id, employee_id, shift_date, alert_type, scheduled_time, actual_time, diff_minutes, metadata_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO attendance_alerts (id, organization_id, employee_id, shift_date, alert_type, scheduled_time, actual_time, diff_minutes, metadata_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-5 hours'))
   `).run(uid('alert'), orgId, employeeId, shiftDateISO, alertType, scheduledTime || null, actualTime || null, diffMinutes == null ? null : Math.round(diffMinutes), JSON.stringify(metadata || {}));
 }
 
@@ -492,7 +492,7 @@ async function enrollFaceProfile(req, res) {
   if (existing) {
     db.prepare(`
       UPDATE employee_face_profiles
-      SET descriptor_json = ?, enrolled_by_user_id = ?, consent_given = 1, consent_at = ?, consent_text = ?, active = 1, updated_at = datetime('now')
+      SET descriptor_json = ?, enrolled_by_user_id = ?, consent_given = 1, consent_at = ?, consent_text = ?, active = 1, updated_at = datetime('now', '-5 hours')
       WHERE employee_id = ?
     `).run(JSON.stringify(body.descriptor), req.user.id, nowIso, FACE_CONSENT_TEXT, employeeId);
   } else {
@@ -517,7 +517,7 @@ async function deactivateFaceProfile(req, res, params) {
   const employeeId = Number(params.id);
   const employee = db.prepare('SELECT * FROM employees WHERE id = ? AND organization_id = ?').get(employeeId, orgId);
   if (!employee) return sendJson(res, 404, { error: 'Colaborador no encontrado en esta organizacion.' });
-  db.prepare("UPDATE employee_face_profiles SET active = 0, updated_at = datetime('now') WHERE employee_id = ? AND organization_id = ?").run(employeeId, orgId);
+  db.prepare("UPDATE employee_face_profiles SET active = 0, updated_at = datetime('now', '-5 hours') WHERE employee_id = ? AND organization_id = ?").run(employeeId, orgId);
   logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.face_deactivate', resourceType: 'employee', resourceId: String(employeeId), ip: getClientIp(req), metadata: { employeeName: employee.name } });
   sendJson(res, 200, { ok: true });
 }
@@ -862,8 +862,8 @@ async function registerCorrection(req, res) {
     shift.startTime, shift.endTime, retraso, exceso, adeudado,
     cat.hod, cat.hon, hedFinal, cat.hen, employee.id, date);
 
-  const insertCorr = db.prepare(`INSERT INTO attendance_corrections (id, organization_id, employee_id, shift_date, mark_type, original_time, corrected_time, reason, created_by)
-                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insertCorr = db.prepare(`INSERT INTO attendance_corrections (id, organization_id, employee_id, shift_date, mark_type, original_time, corrected_time, reason, created_by, created_at)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-5 hours'))`);
   const changes = [];
   for (const k of rules.MARK_SEQUENCE) {
     if (current[k] !== final[k]) {
