@@ -422,6 +422,28 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get('roles_v2_per
 // usuario de la suite cuando se le invita con ese mismo correo.
 const empColumns2 = db.prepare('PRAGMA table_info(employees)').all().map(c => c.name);
 if (!empColumns2.includes('email')) db.exec('ALTER TABLE employees ADD COLUMN email TEXT NULL');
+// Cierres de periodo de la liquidacion. Recargos (nocturno y dominical/festivo)
+// y horas extras se cierran por SEPARADO, porque se liquidan en fechas
+// distintas. Cada cierre guarda la "foto" (snapshot) de los valores aprobados.
+// En los cierres de extras, el saldo NEGATIVO de extras diurnas de cada
+// colaborador queda guardado para trasladarse al siguiente periodo.
+db.exec(`
+CREATE TABLE IF NOT EXISTS payroll_closures (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  closure_type TEXT NOT NULL CHECK(closure_type IN ('recargos','extras')),
+  period_start TEXT NOT NULL,
+  period_end TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'cerrado' CHECK(status IN ('cerrado','reabierto')),
+  snapshot_json TEXT NOT NULL,
+  pending_days INTEGER NOT NULL DEFAULT 0,
+  previous_closure_id TEXT,
+  closed_by TEXT, closed_at TEXT NOT NULL DEFAULT (datetime('now')),
+  reopened_by TEXT, reopened_at TEXT, reopen_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_payroll_closures_org ON payroll_closures(organization_id, closure_type, period_start);
+`);
+
 // Correcciones de marcacion por dia (solo Administrador, con motivo). Las
 // marcaciones originales NUNCA se modifican: la correccion se guarda aparte y
 // el dia (attendance_days) se recalcula con las horas corregidas.
