@@ -559,6 +559,32 @@ function seedDemoDataForOrg(organizationId) {
               ON CONFLICT(organization_id) DO NOTHING`).run(organizationId, 'Empresa Demo', 1750905);
 }
 
+// ---------------------------------------------------------------------------
+// MIGRATION (horario Bogota): los registros que se muestran en informes,
+// liquidaciones y auditoria pasan a guardarse en hora de Colombia (UTC-5).
+// Se ajustan UNA sola vez los registros que ya existian en UTC.
+// (Los vencimientos internos de invitaciones, claves y bloqueos de inicio de
+// sesion siguen en UTC, porque se comparan entre si.)
+// ---------------------------------------------------------------------------
+db.exec("CREATE TABLE IF NOT EXISTS app_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))");
+if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get('horario_bogota_v1')) {
+  const shift = (table, col) => {
+    try { db.prepare(`UPDATE ${table} SET ${col} = datetime(${col}, '-5 hours') WHERE ${col} IS NOT NULL`).run(); } catch { /* tabla o columna ausente */ }
+  };
+  db.exec('BEGIN');
+  try {
+    shift('audit_logs', 'created_at');
+    shift('attendance_alerts', 'created_at');
+    shift('attendance_corrections', 'created_at');
+    shift('payroll_closures', 'closed_at');
+    shift('payroll_closures', 'reopened_at');
+    shift('payroll_adjustments', 'updated_at');
+    shift('employee_face_profiles', 'updated_at');
+    db.prepare('INSERT INTO app_migrations (name) VALUES (?)').run('horario_bogota_v1');
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+
 module.exports = {
   db,
   uid,
