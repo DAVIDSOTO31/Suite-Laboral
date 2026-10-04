@@ -102,6 +102,10 @@ route('PUT', '/api/org/settings', [requirePermission('settings.manage')], (req, 
 route('GET', '/api/payroll/adjustments', [requirePermission('reports.view')], (req, res, params, query) => org.listPayrollAdjustments(req, res, query));
 route('PUT', '/api/payroll/adjustments', [requirePermission('employees.edit_payroll')], (req, res) => org.savePayrollAdjustment(req, res));
 route('POST', '/api/payroll/adjustments/reset', [requirePermission('employees.edit_payroll')], (req, res) => org.resetPayrollAdjustments(req, res));
+// Cierres de periodo (recargos y horas extras por separado).
+route('GET', '/api/payroll/closures', [requirePermission('reports.view')], (req, res, params, query) => org.listPayrollClosures(req, res, query));
+route('POST', '/api/payroll/closures', [requirePermission('employees.edit_payroll')], (req, res) => org.createPayrollClosure(req, res));
+route('POST', '/api/payroll/closures/:id/reopen', [requirePermission('employees.edit_payroll')], (req, res, params) => org.reopenPayrollClosure(req, res, params));
 route('PUT', '/api/org/departments', [requirePermission('settings.manage')], (req, res) => org.replaceDepartments(req, res));
 route('PUT', '/api/org/shift-presets', [requirePermission('shifts.edit')], (req, res) => org.replaceShiftPresets(req, res));
 route('POST', '/api/org/sync', [(req, res, user) => user.isSuperAdmin || user.permissions.has('shifts.edit') || user.permissions.has('employees.edit') ? true : (sendJson(res, 403, { error: 'No tienes permiso para guardar cambios.' }), false)], (req, res) => org.syncEmployeesAndShifts(req, res));
