@@ -4642,7 +4642,7 @@
                 <div id="payrollOtAdjHistoryList" class="hidden overflow-x-auto border border-slate-200 rounded-lg">
                     <table class="w-full text-xs">
                         <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
-                            <th class="text-left px-3 py-2">Fecha y hora (UTC)</th><th class="text-left px-3 py-2">Usuario</th>
+                            <th class="text-left px-3 py-2">Fecha y hora (Colombia)</th><th class="text-left px-3 py-2">Usuario</th>
                             <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Cambio</th>
                             <th class="text-left px-3 py-2">Motivo</th>
                         </tr></thead>
@@ -4733,7 +4733,7 @@
                             <div>
                                 <p class="text-3xs uppercase font-bold text-emerald-700">${title}</p>
                                 <p class="font-bold text-emerald-900 text-sm"><i class="fa-solid fa-lock"></i> Periodo cerrado · ${money(sumPay)}</p>
-                                <p class="text-3xs text-emerald-800 mt-0.5">Cerrado el ${escapeHtml(closed.closedAt)} (UTC) por ${escapeHtml(closed.closedBy || '-')}${closed.pendingDays ? ` · quedaron ${closed.pendingDays} día(s) pendiente(s) sin incluir` : ''}</p>
+                                <p class="text-3xs text-emerald-800 mt-0.5">Cerrado el ${escapeHtml(closed.closedAt)} (hora Colombia) por ${escapeHtml(closed.closedBy || '-')}${closed.pendingDays ? ` · quedaron ${closed.pendingDays} día(s) pendiente(s) sin incluir` : ''}</p>
                                 <p class="text-3xs text-emerald-700">${subtitle}</p>
                             </div>
                             ${canClose ? `<button onclick="reopenPayrollPeriod('${closed.id}', '${type}')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 shrink-0"><i class="fa-solid fa-lock-open"></i> Reabrir</button>` : ''}
@@ -4774,7 +4774,7 @@
                 <p class="text-3xs uppercase font-bold ${closed ? 'text-emerald-700' : 'text-amber-700'}">Cierre de horas extras</p>
                 ${closed
                     ? `<p class="font-bold text-emerald-900 text-sm"><i class="fa-solid fa-lock"></i> Periodo cerrado · ${money(sumExt)}</p>
-                       <p class="text-3xs text-emerald-800">Del ${fmt(closed.from)} al ${fmt(closed.to)} · cerrado el ${escapeHtml(closed.closedAt)} (UTC) por ${escapeHtml(closed.closedBy || '-')}${closed.pendingDays ? ` · quedaron ${closed.pendingDays} día(s) pendiente(s) sin incluir` : ''}</p>`
+                       <p class="text-3xs text-emerald-800">Del ${fmt(closed.from)} al ${fmt(closed.to)} · cerrado el ${escapeHtml(closed.closedAt)} (hora Colombia) por ${escapeHtml(closed.closedBy || '-')}${closed.pendingDays ? ` · quedaron ${closed.pendingDays} día(s) pendiente(s) sin incluir` : ''}</p>`
                     : `<p class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-lock-open text-slate-400"></i> Periodo abierto · ${money(sumExt)}</p>`}
                 <div class="flex flex-wrap items-end gap-2 mt-2">
                     <div>
@@ -4787,6 +4787,7 @@
                     </div>
                     <button onclick="applyExtrasRange()" class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-50"><i class="fa-solid fa-eye"></i> Revisar</button>
                     <button onclick="exportPayrollOvertimeOnlyXLSX()" class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"><i class="fa-solid fa-file-excel text-emerald-600"></i> Excel</button>
+                    ${closed ? `<button onclick="exportClosurePdf('extras')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white"><i class="fa-solid fa-file-pdf"></i> PDF del cierre</button>` : ''}
                     ${canClose && closed ? `<button onclick="reopenPayrollPeriod('${closed.id}', 'extras')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100"><i class="fa-solid fa-lock-open"></i> Reabrir</button>` : ''}
                     ${canClose && !closed && !others.length ? `<button onclick="closePayrollPeriod('extras')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white"><i class="fa-solid fa-lock"></i> Cerrar periodo</button>` : ''}
                 </div>
@@ -4817,6 +4818,179 @@
             if (from > to) { showAppToast('La fecha "Desde" no puede ser posterior a "Hasta".'); return; }
             setPayrollRange(from, to);
         }
+        // -----------------------------------------------------------------
+        // PDF CONSOLIDADO DE UN CIERRE (recargos u horas extras).
+        // Se arma con los valores CONGELADOS del cierre (snapshot), así el PDF
+        // siempre muestra lo que se aprobó, aunque después cambie algo.
+        // -----------------------------------------------------------------
+        function bogotaNowText() {
+            return new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', dateStyle: 'long', timeStyle: 'short' }).format(new Date());
+        }
+        function pdfHM(hours) {
+            const v = Number(hours) || 0;
+            const sign = v < 0 ? '-' : '';
+            const t = Math.round(Math.abs(v) * 60);
+            return `${sign}${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+        }
+        function pdfMoney(v) { return '$' + Math.round(Number(v) || 0).toLocaleString('es-CO'); }
+        function pdfDate(iso) { return (iso || '').split('-').reverse().join('/'); }
+        function nextDayISO(iso) { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + 1); return formatDateISO(d); }
+
+        async function exportClosurePdf(type) {
+            const cache = appState._payrollOtCache;
+            const closure = cache && cache.closures && cache.closures[type];
+            if (!closure) { showAppToast('Este periodo no está cerrado.'); return; }
+            try {
+                await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
+            } catch (e) { showAppToast(e.message); return; }
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+            const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+            const M = 12;
+            let y = M;
+            const org = appState.orgName || '';
+            const emps = [...(closure.snapshot.employees || [])].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+            const ensure = (h) => { if (y + h > H - 14) { doc.addPage(); y = M; return true; } return false; };
+            const text = (str, x, size = 9, style = 'normal', color = [30, 41, 59], opts = {}) => {
+                doc.setFont('helvetica', style); doc.setFontSize(size); doc.setTextColor(...color); doc.text(String(str), x, y, opts);
+            };
+            // Tabla simple con salto de página y encabezado repetido.
+            const table = (cols, rows, totalRow) => {
+                const totalW = cols.reduce((a, c) => a + c.w, 0);
+                const scale = (W - 2 * M) / totalW;
+                cols.forEach(c => { c.ww = c.w * scale; });
+                const head = () => {
+                    doc.setFillColor(15, 23, 42); doc.rect(M, y - 4, W - 2 * M, 8, 'F');
+                    let x = M;
+                    cols.forEach(c => {
+                        doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(255, 255, 255);
+                        const lines = doc.splitTextToSize(c.h, c.ww - 2);
+                        doc.text(lines, c.align === 'right' ? x + c.ww - 1 : x + 1, y - (lines.length > 1 ? 1.2 : 0), { align: c.align === 'right' ? 'right' : 'left' });
+                        x += c.ww;
+                    });
+                    y += 6;
+                };
+                head();
+                const drawRow = (vals, bold, fill) => {
+                    if (ensure(6)) head();
+                    if (fill) { doc.setFillColor(...fill); doc.rect(M, y - 4, W - 2 * M, 6, 'F'); }
+                    let x = M;
+                    cols.forEach((c, i) => {
+                        doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(7.5);
+                        const v = vals[i] == null ? '' : String(vals[i]);
+                        doc.setTextColor(...(c.color && c.color(vals[i]) ? c.color(vals[i]) : [30, 41, 59]));
+                        const clipped = doc.splitTextToSize(v, c.ww - 2)[0] || '';
+                        doc.text(clipped, c.align === 'right' ? x + c.ww - 1 : x + 1, y, { align: c.align === 'right' ? 'right' : 'left' });
+                        x += c.ww;
+                    });
+                    doc.setDrawColor(226, 232, 240); doc.line(M, y + 2, W - M, y + 2);
+                    y += 6;
+                };
+                rows.forEach((r, i) => drawRow(r, false, i % 2 ? [248, 250, 252] : null));
+                if (totalRow) drawRow(totalRow, true, [226, 232, 240]);
+                y += 2;
+            };
+            const kv = (pairs) => {
+                pairs.forEach(([k, v]) => {
+                    ensure(5);
+                    text(k, M, 8.5, 'bold', [71, 85, 105]);
+                    text(v, M + 58, 8.5, 'normal');
+                    y += 5;
+                });
+            };
+            const section = (title) => { ensure(12); y += 3; text(title, M, 11, 'bold', [15, 23, 42]); y += 2; doc.setDrawColor(148, 163, 184); doc.line(M, y, W - M, y); y += 6; };
+
+            // ---- Encabezado ----
+            const title = type === 'extras' ? 'Cierre de periodo - Horas extras' : 'Cierre de periodo - Recargos nocturnos' + (closure.snapshot.includeSundayHoliday ? ' y dominicales/festivos' : '');
+            text(title, M, 15, 'bold', [15, 23, 42]); y += 6;
+            text(org, M, 10, 'normal', [71, 85, 105]); y += 7;
+            kv([
+                ['Periodo liquidado:', `del ${pdfDate(closure.from)} al ${pdfDate(closure.to)}`],
+                ['Estado:', closure.status === 'cerrado' ? 'Cerrado (valores congelados)' : 'Reabierto'],
+                ['Cerrado el:', `${closure.closedAt || '-'} (hora Colombia) por ${closure.closedBy || '-'}`],
+                ['Días pendientes no incluidos:', closure.pendingDays ? `${closure.pendingDays} día(s) sin marcación cerrada al momento del cierre` : 'Ninguno'],
+            ]);
+
+            if (type === 'recargos') {
+                const tH = emps.reduce((a, e) => a + (e.hon || 0), 0), tP = emps.reduce((a, e) => a + (e.honPay || 0), 0);
+                const dH = emps.reduce((a, e) => a + (e.domHours || 0), 0), dP = emps.reduce((a, e) => a + (e.domPay || 0), 0);
+                section('Resumen');
+                kv([
+                    ['Recargo nocturno (35%):', `${pdfHM(tH)} h  ·  ${pdfMoney(tP)}`],
+                    ...(closure.snapshot.includeSundayHoliday ? [['Recargo dominical/festivo:', `${pdfHM(dH)} h  ·  ${pdfMoney(dP)}`]] : []),
+                    ['Total pagado en el cierre:', pdfMoney(tP + dP)],
+                    ['Colaboradores:', String(emps.length)],
+                ]);
+                section('Detalle por colaborador');
+                const cols = [
+                    { h: 'Colaborador', w: 46 }, { h: 'Área', w: 30 },
+                    { h: 'Horas recargo nocturno', w: 22, align: 'right' }, { h: 'Valor recargo nocturno', w: 24, align: 'right' },
+                    ...(closure.snapshot.includeSundayHoliday ? [{ h: 'Horas dominical/festivo', w: 22, align: 'right' }, { h: 'Valor dominical/festivo', w: 24, align: 'right' }] : []),
+                    { h: 'Total pagado', w: 24, align: 'right' },
+                ];
+                const rows = emps.map(e => [e.name, e.department || '', pdfHM(e.hon), pdfMoney(e.honPay),
+                    ...(closure.snapshot.includeSundayHoliday ? [pdfHM(e.domHours), pdfMoney(e.domPay)] : []), pdfMoney((e.honPay || 0) + (e.domPay || 0))]);
+                table(cols, rows, ['TOTAL', '', pdfHM(tH), pdfMoney(tP), ...(closure.snapshot.includeSundayHoliday ? [pdfHM(dH), pdfMoney(dP)] : []), pdfMoney(tP + dP)]);
+            } else {
+                const sum = (f) => emps.reduce((a, e) => a + (Number(e[f]) || 0), 0);
+                const debtors = emps.filter(e => (e.carryOut || 0) < 0);
+                kv([['Saldo anterior tomado de:', closure.previous ? `cierre de extras del ${pdfDate(closure.previous.from)} al ${pdfDate(closure.previous.to)}` : 'No había saldo anterior']]);
+                section('Resumen');
+                kv([
+                    ['Extra diurna pagada:', `${pdfHM(sum('hed'))} h  ·  ${pdfMoney(sum('hedPay'))}`],
+                    ['Extra nocturna pagada:', `${pdfHM(sum('hen'))} h  ·  ${pdfMoney(sum('henPay'))}  (descuento por deuda diurna: ${pdfMoney(sum('offsetValue'))})`],
+                    ['Total pagado en el cierre:', pdfMoney(sum('hedPay') + sum('henPay'))],
+                    ['Tiempo pendiente por compensar:', debtors.length ? `${pdfHM(sum('carryOut'))} h en ${debtors.length} colaborador(es) (pasa al periodo que inicia el ${pdfDate(nextDayISO(closure.to))})` : 'Ninguno'],
+                ]);
+                section('Detalle por colaborador');
+                const red = (v) => (String(v).startsWith('-') ? [190, 18, 60] : null);
+                table([
+                    { h: 'Colaborador', w: 38 }, { h: 'Área', w: 22 },
+                    { h: 'Diurna de los días', w: 17, align: 'right', color: red }, { h: 'Saldo anterior', w: 16, align: 'right', color: red },
+                    { h: 'Diurna pagada', w: 15, align: 'right' }, { h: 'Valor diurna', w: 19, align: 'right' },
+                    { h: 'Nocturna (horas)', w: 15, align: 'right' }, { h: 'Descuento deuda diurna', w: 19, align: 'right', color: (v) => (v && v !== '$0' ? [190, 18, 60] : null) },
+                    { h: 'Valor nocturna pagado', w: 19, align: 'right' }, { h: 'Total pagado', w: 19, align: 'right' },
+                    { h: 'Queda debiendo (horas)', w: 18, align: 'right', color: red },
+                ], emps.map(e => [e.name, e.department || '', pdfHM(e.hedDays), pdfHM(e.carryIn), pdfHM(e.hed), pdfMoney(e.hedPay),
+                    pdfHM(e.hen), e.offsetValue ? '-' + pdfMoney(e.offsetValue) : '$0', pdfMoney(e.henPay), pdfMoney((e.hedPay || 0) + (e.henPay || 0)), pdfHM(e.carryOut)]),
+                ['TOTAL', '', pdfHM(sum('hedDays')), pdfHM(sum('carryIn')), pdfHM(sum('hed')), pdfMoney(sum('hedPay')),
+                    pdfHM(sum('hen')), sum('offsetValue') ? '-' + pdfMoney(sum('offsetValue')) : '$0', pdfMoney(sum('henPay')), pdfMoney(sum('hedPay') + sum('henPay')), pdfHM(sum('carryOut'))]);
+
+                section('Tiempo adeudado al empleador que pasa al siguiente periodo');
+                if (!debtors.length) {
+                    ensure(6); text('Ningún colaborador quedó con tiempo pendiente por compensar.', M, 9); y += 6;
+                } else {
+                    const nxt = closure.next;
+                    table([
+                        { h: 'Colaborador', w: 50 }, { h: 'Área', w: 34 }, { h: 'Horas que debe', w: 22, align: 'right', color: red },
+                        { h: 'Se compensa a partir del', w: 30 }, { h: 'Verificación en el siguiente cierre', w: 80 },
+                    ], debtors.map(e => {
+                        let check;
+                        if (!nxt) check = 'Siguiente periodo aún no cerrado';
+                        else {
+                            const got = nxt.carryIn ? nxt.carryIn[e.employeeId] : undefined;
+                            check = got === undefined
+                                ? `NO aparece en el cierre del ${pdfDate(nxt.from)} al ${pdfDate(nxt.to)} - REVISAR`
+                                : (Math.abs(got - e.carryOut) < 0.01
+                                    ? `Coincide: recibido ${pdfHM(got)} en el cierre del ${pdfDate(nxt.from)} al ${pdfDate(nxt.to)}`
+                                    : `NO coincide: recibido ${pdfHM(got)} en el cierre del ${pdfDate(nxt.from)} al ${pdfDate(nxt.to)} - REVISAR`);
+                        }
+                        return [e.name, e.department || '', pdfHM(e.carryOut), pdfDate(nextDayISO(closure.to)), check];
+                    }), ['TOTAL', '', pdfHM(sum('carryOut')), '', '']);
+                }
+            }
+            // ---- Pie de página ----
+            const pages = doc.getNumberOfPages();
+            for (let i = 1; i <= pages; i++) {
+                doc.setPage(i);
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139);
+                doc.text(`Generado el ${bogotaNowText()} (hora Colombia) · ${org}`, M, H - 6);
+                doc.text(`Página ${i} de ${pages}`, W - M, H - 6, { align: 'right' });
+            }
+            doc.save(`Cierre_${type === 'extras' ? 'Horas_Extras' : 'Recargos'}_${closure.from}_al_${closure.to}.pdf`);
+            showAppToast('PDF del cierre descargado.');
+        }
+
         // Recargos: periodos continuos. El periodo abierto empieza el día después
         // del último cierre (o desde la primera marcación) y se corta en la fecha
         // que elija el administrador (máximo ayer).
@@ -4831,10 +5005,13 @@
                         <div>
                             <p class="text-3xs uppercase font-bold text-emerald-700">Cierre de recargos</p>
                             <p class="font-bold text-emerald-900 text-sm"><i class="fa-solid fa-lock"></i> Periodo cerrado · ${money(sumRec)}</p>
-                            <p class="text-3xs text-emerald-800 mt-0.5">${label} del ${fmt(cl.recargos.from)} al ${fmt(cl.recargos.to)} · cerrado el ${escapeHtml(cl.recargos.closedAt)} (UTC) por ${escapeHtml(cl.recargos.closedBy || '-')}</p>
+                            <p class="text-3xs text-emerald-800 mt-0.5">${label} del ${fmt(cl.recargos.from)} al ${fmt(cl.recargos.to)} · cerrado el ${escapeHtml(cl.recargos.closedAt)} (hora Colombia) por ${escapeHtml(cl.recargos.closedBy || '-')}</p>
                             ${info.nextStart ? `<p class="text-3xs text-emerald-700">El periodo siguiente está abierto desde el ${fmt(info.nextStart)}.</p>` : ''}
                         </div>
-                        ${canClose && isLast ? `<button onclick="reopenPayrollPeriod('${cl.recargos.id}', 'recargos')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 shrink-0"><i class="fa-solid fa-lock-open"></i> Reabrir</button>` : ''}
+                        <div class="flex flex-col gap-1.5 shrink-0">
+                            <button onclick="exportClosurePdf('recargos')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white"><i class="fa-solid fa-file-pdf"></i> PDF del cierre</button>
+                            ${canClose && isLast ? `<button onclick="reopenPayrollPeriod('${cl.recargos.id}', 'recargos')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100"><i class="fa-solid fa-lock-open"></i> Reabrir</button>` : ''}
+                        </div>
                     </div>
                 </div>`;
             }
