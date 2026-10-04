@@ -82,7 +82,9 @@ function getOrgData(req, res, query) {
 
   sendJson(res, 200, {
     organizationId: orgId,
-    orgSettings: settingsRow ? { orgName: settingsRow.org_name, logo: settingsRow.logo_base64, minimumWage: settingsRow.minimum_wage } : { orgName: 'Empresa', logo: null, minimumWage: 1750905 },
+    orgSettings: settingsRow
+      ? { orgName: settingsRow.org_name, logo: settingsRow.logo_base64, minimumWage: settingsRow.minimum_wage, includeSundayHoliday: settingsRow.include_sunday_holiday === 1 }
+      : { orgName: 'Empresa', logo: null, minimumWage: 1750905, includeSundayHoliday: false },
     departments,
     shiftPresets: presetRows.map(r => JSON.parse(r.data_json)),
     employees,
@@ -111,11 +113,16 @@ async function updateSettings(req, res) {
   const orgName = body.orgName != null ? String(body.orgName).slice(0, 120) : (current ? current.org_name : 'Empresa');
   const logo = body.logo !== undefined ? body.logo : (current ? current.logo_base64 : null);
   const minimumWage = body.minimumWage != null ? Number(body.minimumWage) : (current ? current.minimum_wage : 1750905);
+  // Liquidar recargos dominicales y festivos: desactivado por defecto.
+  const includeSundayHoliday = body.includeSundayHoliday !== undefined
+    ? (body.includeSundayHoliday ? 1 : 0)
+    : (current && current.include_sunday_holiday === 1 ? 1 : 0);
   db.prepare(`
-    INSERT INTO org_settings (organization_id, org_name, logo_base64, minimum_wage, updated_at) VALUES (?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(organization_id) DO UPDATE SET org_name = excluded.org_name, logo_base64 = excluded.logo_base64, minimum_wage = excluded.minimum_wage, updated_at = datetime('now')
-  `).run(orgId, orgName, logo, minimumWage);
-  logAction({ organizationId: orgId, userId: req.user.id, action: 'settings.update', ip: getClientIp(req), metadata: { orgName } });
+    INSERT INTO org_settings (organization_id, org_name, logo_base64, minimum_wage, include_sunday_holiday, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(organization_id) DO UPDATE SET org_name = excluded.org_name, logo_base64 = excluded.logo_base64, minimum_wage = excluded.minimum_wage,
+      include_sunday_holiday = excluded.include_sunday_holiday, updated_at = datetime('now')
+  `).run(orgId, orgName, logo, minimumWage, includeSundayHoliday);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'settings.update', ip: getClientIp(req), metadata: { orgName, dominicalesYFestivos: !!includeSundayHoliday } });
   sendJson(res, 200, { ok: true });
 }
 
