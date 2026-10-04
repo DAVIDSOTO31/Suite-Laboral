@@ -1301,6 +1301,9 @@
                             <button onclick="exportPayrollOvertimeOnlyXLSX()" title="Solo horas extras diurnas y nocturnas del periodo" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition flex items-center gap-2 shadow">
                                 <i class="fa-solid fa-file-excel"></i> Excel Horas Extras
                             </button>
+                            <button onclick="exportPayrollSundayXLSX()" id="payrollOtSundayExportBtn" title="Solo recargo dominical y festivo del periodo" class="hidden bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition flex items-center gap-2 shadow">
+                                <i class="fa-solid fa-file-excel"></i> Excel Dominical / Festivo
+                            </button>
                             <button onclick="exportPayrollOvertimeCSV()" title="Todos los conceptos juntos" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition flex items-center gap-2 shadow">
                                 <i class="fa-solid fa-file-excel"></i> Excel Completo
                             </button>
@@ -1335,6 +1338,10 @@
                                 <option value="_ALL_">Todas las áreas</option>
                             </select>
                         </div>
+                        <label class="flex items-center gap-2 text-xs font-semibold text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 cursor-pointer" title="Domingos y días marcados como festivo en el cuadro de turnos">
+                            <input type="checkbox" id="payrollOtSundayToggle" class="w-4 h-4 accent-blue-600" onchange="togglePayrollSundayHoliday(this)">
+                            Incluir dominicales y festivos
+                        </label>
                         <button onclick="setPayrollOtCurrentPeriod()" class="text-xs font-semibold px-3 py-2 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition flex items-center gap-1.5">
                             <i class="fa-solid fa-calendar-days"></i> Quincena actual
                         </button>
@@ -1361,6 +1368,7 @@
                                 <th class="p-2.5 text-center text-purple-700">Recargo Nocturno Ordinario (+35%)</th>
                                 <th class="p-2.5 text-center text-amber-700">Hora Extra Diurna (+25%)</th>
                                 <th class="p-2.5 text-center text-rose-700">Hora Extra Nocturna (+75%)</th>
+                                <th class="p-2.5 text-center text-blue-700 hidden" id="payrollOtDomHeader">Dominical / Festivo</th>
                                 <th class="p-2.5 text-right">Total a Liquidar</th>
                                 <th class="p-2.5 text-center">Detalle</th>
                             </tr>
@@ -4132,7 +4140,7 @@
                 acc.shiftsCount++;
 
                 const real = realByKey[`${emp.id}_${s.date}`];
-                let hon, hed, hen, honPay, hedPay, henPay, origin;
+                let hon, hed, hen, ordHours, origin;
                 if (real) {
                     // Datos REALES (de la marcacion de asistencia): ya vienen en minutos,
                     // e incluyen el descuento por salida anticipada (regla 6/7), que
@@ -4140,28 +4148,33 @@
                     hon = real.hon_min / 60;
                     hed = real.hed_min / 60;
                     hen = real.hen_min / 60;
-                    honPay = hon * acc.hourlyRate * appState.settings.percHON;
-                    hedPay = hed * acc.hourlyRate * (1 + appState.settings.percHED);
-                    henPay = hen * acc.hourlyRate * (1 + appState.settings.percHEN);
+                    ordHours = ((real.hod_min || 0) + (real.hon_min || 0)) / 60;
                     origin = 'real';
                 } else {
                     // Sin marcacion real todavia: se usa el turno programado como estimado.
-                    // Todas las horas se valoran con tarifas de jornada ORDINARIA,
-                    // tambien en domingos y festivos (este modulo no liquida dominicales).
                     hon = s.res.hon || 0;
                     hed = (s.res.hed || 0) + (s.res.hedd || 0);
                     hen = (s.res.hen || 0) + (s.res.hend || 0);
-                    honPay = hon * acc.hourlyRate * appState.settings.percHON;
-                    hedPay = hed * acc.hourlyRate * (1 + appState.settings.percHED);
-                    henPay = hen * acc.hourlyRate * (1 + appState.settings.percHEN);
+                    ordHours = (s.res.hod || 0) + (s.res.hon || 0);
                     origin = 'estimado';
                 }
+                // Tarifas: jornada ordinaria siempre, salvo que la organizacion active
+                // "Incluir dominicales y festivos" y el dia sea domingo o festivo.
+                const st = appState.settings;
+                const isDom = !!(appState.includeSundayHoliday && s.res && s.res.isSunday);
+                const honPay = hon * acc.hourlyRate * st.percHON;
+                const hedPay = hed * acc.hourlyRate * (1 + (isDom ? st.percHEDD : st.percHED));
+                const henPay = hen * acc.hourlyRate * (1 + (isDom ? st.percHEND : st.percHEN));
+                const domHours = isDom ? ordHours : 0;
+                const domPay = domHours * acc.hourlyRate * st.percDOM;
                 acc.hon += hon;
                 acc.hed += hed;
                 acc.hen += hen;
                 acc.honPay += honPay;
                 acc.hedPay += hedPay;
                 acc.henPay += henPay;
+                acc.domHours = (acc.domHours || 0) + domHours;
+                acc.domPay += domPay;
                 acc.detail.push({ date: s.date, hon, hed, hen, origin });
             });
 
@@ -4170,20 +4183,28 @@
             const edits = payrollOtEditsForPeriod();
 
             let rows = Object.values(byEmp).map(r => {
+                // Tarifa efectiva por hora de cada concepto (puede incluir dominicales):
+                // se usa al corregir manualmente las horas.
+                const st = appState.settings;
+                r.rateHon = r.hon ? r.honPay / r.hon : r.hourlyRate * st.percHON;
+                r.rateHed = r.hed ? r.hedPay / r.hed : r.hourlyRate * (1 + st.percHED);
+                r.rateHen = r.hen ? r.henPay / r.hen : r.hourlyRate * (1 + st.percHEN);
+                r.domHours = r.domHours || 0;
+                if (!appState.includeSundayHoliday) { r.domPay = 0; r.domHours = 0; }
                 const edit = edits[r.emp.id];
                 if (edit) {
                     r.hon = edit.hon;
                     r.hed = edit.hed;
                     r.hen = edit.hen;
-                    r.honPay = r.hon * r.hourlyRate * appState.settings.percHON;
-                    r.hedPay = r.hed * r.hourlyRate * (1 + appState.settings.percHED);
-                    r.henPay = r.hen * r.hourlyRate * (1 + appState.settings.percHEN);
+                    r.honPay = r.hon * r.rateHon;
+                    r.hedPay = r.hed * r.rateHed;
+                    r.henPay = r.hen * r.rateHen;
                     r.totalManual = !!edit.totalManual;
                     r.totalOverride = edit.total;
                 } else {
                     r.totalManual = false;
                 }
-                r.total = r.totalManual ? r.totalOverride : (r.honPay + r.hedPay + r.henPay);
+                r.total = r.totalManual ? r.totalOverride : (r.honPay + r.hedPay + r.henPay + r.domPay);
                 return r;
             }).sort((a, b) => a.emp.name.localeCompare(b.emp.name));
 
@@ -4207,8 +4228,10 @@
                 sumHON += r.hon; sumHED += r.hed; sumHEN += r.hen;
                 sumHONPay += r.honPay; sumHEDPay += r.hedPay; sumHENPay += r.henPay; sumDomPay += (r.domPay || 0);
                 sumTotalPay += r.total;
-                if ((r.hon + r.hed + r.hen) > 0) empsWithOvertime++;
+                if ((r.hon + r.hed + r.hen) > 0 || (r.domPay || 0) > 0) empsWithOvertime++;
             });
+            const sumDomHours = rows.reduce((a, r) => a + (r.domHours || 0), 0);
+            const domOn = !!appState.includeSundayHoliday;
             const money = (v) => '$' + Math.round(v || 0).toLocaleString('es-CO');
             const periodLabel = (cache.startDate && cache.endDate)
                 ? `Del ${cache.startDate.split('-').reverse().join('/')} al ${cache.endDate.split('-').reverse().join('/')}` : '';
@@ -4226,20 +4249,30 @@
                     ${card('bg-purple-50 border-purple-200 text-purple-950', 'text-purple-700', 'Recargo Nocturno Ordinario (+35%)', sumHON, sumHONPay)}
                     ${card('bg-amber-50 border-amber-200 text-amber-950', 'text-amber-700', 'Horas Extra Diurnas (+25%)', sumHED, sumHEDPay)}
                     ${card('bg-rose-50 border-rose-200 text-rose-950', 'text-rose-700', 'Horas Extra Nocturnas (+75%)', sumHEN, sumHENPay)}
+                    ${domOn ? card('bg-blue-50 border-blue-200 text-blue-950', 'text-blue-700', `Recargo Dominical / Festivo (+${Math.round(appState.settings.percDOM * 100)}%)`, sumDomHours, sumDomPay) : ''}
                     <div class="bg-slate-900 p-4 rounded-xl border border-slate-700">
                         <span class="text-3xs text-slate-300 font-bold uppercase block">Total a Liquidar</span>
                         <span class="text-xl font-black text-emerald-400 font-mono block">${money(sumTotalPay)}</span>
                         <span class="block text-2xs text-slate-300 font-semibold">${periodLabel}</span>
-                        <span class="block text-3xs text-slate-400">${empsWithOvertime} colaborador(es) con novedades · tarifas de jornada ordinaria</span>
+                        <span class="block text-3xs text-slate-400">${empsWithOvertime} colaborador(es) con novedades · ${domOn ? 'incluye dominicales y festivos' : 'tarifas de jornada ordinaria'}</span>
                     </div>
                 `;
             }
 
             const tbody = document.getElementById('payrollOtTableBody');
             const tfoot = document.getElementById('payrollOtTableFoot');
+            document.getElementById('payrollOtDomHeader')?.classList.toggle('hidden', !domOn);
+            document.getElementById('payrollOtSundayExportBtn')?.classList.toggle('hidden', !domOn);
+            if (kpiContainer) kpiContainer.className = `grid grid-cols-2 ${domOn ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3`;
+            const toggle = document.getElementById('payrollOtSundayToggle');
+            if (toggle) {
+                toggle.checked = domOn;
+                toggle.disabled = !CAN('settings.manage');
+                toggle.closest('label').title = toggle.disabled ? 'Solo el administrador puede cambiar esta opción' : 'Domingos y días marcados como festivo en el cuadro de turnos';
+            }
             if (tbody) {
                 if (rows.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-400 text-xs">No hay turnos registrados en el periodo/área seleccionada.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="${domOn ? 7 : 6}" class="p-6 text-center text-slate-400 text-xs">No hay turnos registrados en el periodo/área seleccionada.</td></tr>`;
                 } else {
                     tbody.innerHTML = rows.map(r => `
                         <tr class="hover:bg-slate-50">
@@ -4265,6 +4298,10 @@
                                 <span class="block text-2xs font-mono text-rose-700 mt-0.5">${formatHMSigned(r.hen)}</span>
                                 <span class="block text-xs font-mono font-bold text-rose-900">${money(r.henPay)}</span>
                             </td>
+                            ${domOn ? `<td class="p-2.5 text-center">
+                                <span class="block text-2xs font-mono text-blue-700">${formatHMSigned(r.domHours || 0)}</span>
+                                <span class="block text-xs font-mono font-bold text-blue-900">${money(r.domPay)}</span>
+                            </td>` : ''}
                             <td class="p-2.5 text-right">
                                 <input type="number" step="1" min="0" value="${Math.round(r.total)}"
                                     id="payrollOtTotalInput_${r.emp.id}"
@@ -4286,6 +4323,7 @@
                         <td class="p-3 text-center font-mono text-purple-300">${formatHMSigned(sumHON)}<span class="block text-white">${money(sumHONPay)}</span></td>
                         <td class="p-3 text-center font-mono text-amber-300">${formatHMSigned(sumHED)}<span class="block text-white">${money(sumHEDPay)}</span></td>
                         <td class="p-3 text-center font-mono text-rose-300">${formatHMSigned(sumHEN)}<span class="block text-white">${money(sumHENPay)}</span></td>
+                        ${domOn ? `<td class="p-3 text-center font-mono text-blue-300">${formatHMSigned(sumDomHours)}<span class="block text-white">${money(sumDomPay)}</span></td>` : ''}
                         <td class="p-3 text-right font-mono text-emerald-400 text-sm">$${Math.round(sumTotalPay).toLocaleString('es-CO')}</td>
                         <td class="p-3"></td>
                     </tr>
@@ -4327,10 +4365,10 @@
             if (isNaN(value) || value < 0) value = 0;
             row[field] = value;
 
-            row.honPay = row.hon * row.hourlyRate * appState.settings.percHON;
-            row.hedPay = row.hed * row.hourlyRate * (1 + appState.settings.percHED);
-            row.henPay = row.hen * row.hourlyRate * (1 + appState.settings.percHEN);
-            row.total = row.honPay + row.hedPay + row.henPay;
+            row.honPay = row.hon * row.rateHon;
+            row.hedPay = row.hed * row.rateHed;
+            row.henPay = row.hen * row.rateHen;
+            row.total = row.honPay + row.hedPay + row.henPay + (row.domPay || 0);
             row.totalManual = false;
 
             payrollOtEditsForPeriod()[empId] = { hon: row.hon, hed: row.hed, hen: row.hen, total: row.total, totalManual: false };
@@ -4390,8 +4428,8 @@
             const rows = cache ? cache.rows.filter(r => Math.abs(r.hed) > 0.0001 || Math.abs(r.hen) > 0.0001) : [];
             if (!rows.length) { showAppToast('No hay horas extras en el periodo seleccionado.'); return; }
             const header = ['Colaborador', 'Área',
-                'Extra diurna (decimal)', 'Extra diurna (h:mm)', 'Valor extra diurna 125% (COP)',
-                'Extra nocturna (decimal)', 'Extra nocturna (h:mm)', 'Valor extra nocturna 175% (COP)',
+                'Extra diurna (decimal)', 'Extra diurna (h:mm)', appState.includeSundayHoliday ? 'Valor extra diurna (COP, incluye tarifa dominical/festiva)' : 'Valor extra diurna 125% (COP)',
+                'Extra nocturna (decimal)', 'Extra nocturna (h:mm)', appState.includeSundayHoliday ? 'Valor extra nocturna (COP, incluye tarifa dominical/festiva)' : 'Valor extra nocturna 175% (COP)',
                 'Total horas extras (COP)'];
             const data = rows.map(r => [r.emp.name, r.emp.department || '',
                 Number(r.hed.toFixed(2)), hmText(r.hed), Math.round(r.hedPay),
@@ -4408,6 +4446,39 @@
             } catch (e) { showAppToast(e.message); }
         }
 
+        // Interruptor de la organización: liquidar recargos dominicales y festivos.
+        async function togglePayrollSundayHoliday(chk) {
+            if (!CAN('settings.manage')) { chk.checked = !!appState.includeSundayHoliday; return; }
+            const value = chk.checked;
+            const msg = value
+                ? '¿Activar los recargos dominicales y festivos en la liquidación? Se aplicarán a los domingos y a los días marcados como festivo en el cuadro de turnos.'
+                : '¿Desactivar los recargos dominicales y festivos? Todas las horas se liquidarán con tarifas de jornada ordinaria.';
+            if (!confirm(msg)) { chk.checked = !value; return; }
+            try {
+                await apiFetch('/api/org/settings', { method: 'PUT', body: JSON.stringify({ includeSundayHoliday: value }) });
+                appState.includeSundayHoliday = value;
+                showAppToast(value ? 'Recargos dominicales y festivos activados.' : 'Recargos dominicales y festivos desactivados.');
+                renderPayrollOvertimeView();
+            } catch (e) {
+                chk.checked = !value;
+                showAppToast('No se pudo guardar: ' + e.message);
+            }
+        }
+        async function exportPayrollSundayXLSX() {
+            const cache = appState._payrollOtCache;
+            const rows = cache ? cache.rows.filter(r => (r.domPay || 0) > 0) : [];
+            if (!rows.length) { showAppToast('No hay recargos dominicales o festivos en el periodo seleccionado.'); return; }
+            const pct = Math.round(appState.settings.percDOM * 100);
+            const header = ['Colaborador', 'Área', 'Horas ordinarias en domingo/festivo (decimal)', 'Horas (h:mm)', 'Valor hora ordinaria (COP)', `Recargo dominical/festivo ${pct}% (COP)`];
+            const data = rows.map(r => [r.emp.name, r.emp.department || '', Number((r.domHours || 0).toFixed(2)), hmText(r.domHours || 0), Math.round(r.hourlyRate), Math.round(r.domPay)]);
+            const totH = rows.reduce((a, r) => a + (r.domHours || 0), 0), totP = rows.reduce((a, r) => a + r.domPay, 0);
+            data.push(['TOTAL PERIODO', '', Number(totH.toFixed(2)), hmText(totH), '', Math.round(totP)]);
+            try {
+                await downloadXLSX(`Dominical_Festivo_${cache.startDate}_al_${cache.endDate}.xlsx`, header, data, 'Dominical y festivo');
+                showAppToast('Reporte de dominicales y festivos exportado.');
+            } catch (e) { showAppToast(e.message); }
+        }
+
         async function exportPayrollOvertimeCSV() {
             const cache = appState._payrollOtCache;
             if (!cache || cache.rows.length === 0) {
@@ -4418,17 +4489,20 @@
                 'Recargo Nocturno (horas)', 'Recargo Nocturno (COP)',
                 'Extra Diurna (horas)', 'Extra Diurna (COP)',
                 'Extra Nocturna (horas)', 'Extra Nocturna (COP)',
+                ...(appState.includeSundayHoliday ? ['Dominical/Festivo (horas)', 'Dominical/Festivo (COP)'] : []),
                 'Total a Liquidar (COP)'];
             const dataRows = cache.rows.map(r => [r.emp.name, r.emp.department || '',
                 Number(r.hon.toFixed(2)), Math.round(r.honPay),
                 Number(r.hed.toFixed(2)), Math.round(r.hedPay),
                 Number(r.hen.toFixed(2)), Math.round(r.henPay),
+                ...(appState.includeSundayHoliday ? [Number((r.domHours || 0).toFixed(2)), Math.round(r.domPay || 0)] : []),
                 Math.round(r.total)]);
             const t = (f) => cache.rows.reduce((a, r) => a + (r[f] || 0), 0);
             dataRows.push(['TOTAL PERIODO', '',
                 Number(t('hon').toFixed(2)), Math.round(t('honPay')),
                 Number(t('hed').toFixed(2)), Math.round(t('hedPay')),
                 Number(t('hen').toFixed(2)), Math.round(t('henPay')),
+                ...(appState.includeSundayHoliday ? [Number(t('domHours').toFixed(2)), Math.round(t('domPay'))] : []),
                 Math.round(t('total'))]);
             try {
                 await downloadXLSX(`Liquidacion_Extras_Recargos_${cache.startDate || 'periodo'}_a_${cache.endDate || ''}.xlsx`, header, dataRows, 'Liquidacion');
@@ -5128,6 +5202,7 @@
             appState.orgName = data.orgSettings.orgName || 'Empresa';
             appState.companyLogo = data.orgSettings.logo || null;
             appState.settings.smlmv2026 = data.orgSettings.minimumWage || 1750905;
+            appState.includeSundayHoliday = data.orgSettings.includeSundayHoliday === true;
             appState.departments = (data.departments && data.departments.length) ? data.departments : getPredefinedDepartments();
             appState.shiftPresets = (data.shiftPresets && data.shiftPresets.length) ? data.shiftPresets : loadShiftPresets();
             if (!appState.shiftPresets.some(p => p.id === SPLIT_PRESET_ID)) {
