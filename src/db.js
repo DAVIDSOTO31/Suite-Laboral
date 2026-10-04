@@ -422,6 +422,27 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get('roles_v2_per
 // usuario de la suite cuando se le invita con ese mismo correo.
 const empColumns2 = db.prepare('PRAGMA table_info(employees)').all().map(c => c.name);
 if (!empColumns2.includes('email')) db.exec('ALTER TABLE employees ADD COLUMN email TEXT NULL');
+// Correcciones de marcacion por dia (solo Administrador, con motivo). Las
+// marcaciones originales NUNCA se modifican: la correccion se guarda aparte y
+// el dia (attendance_days) se recalcula con las horas corregidas.
+db.exec(`
+CREATE TABLE IF NOT EXISTS attendance_corrections (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  employee_id INTEGER NOT NULL,
+  shift_date TEXT NOT NULL,
+  mark_type TEXT NOT NULL,
+  original_time TEXT,
+  corrected_time TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  created_by TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_att_corrections_org_date ON attendance_corrections(organization_id, shift_date);
+`);
+const attDayCols = db.prepare('PRAGMA table_info(attendance_days)').all().map(c => c.name);
+if (!attDayCols.includes('corrected')) db.exec('ALTER TABLE attendance_days ADD COLUMN corrected INTEGER NOT NULL DEFAULT 0');
+
 // Ajustes manuales de la liquidacion de extras y recargos: uno por colaborador
 // y periodo liquidado, con el motivo obligatorio y quien lo hizo. El historial
 // completo de cada cambio queda en la auditoria (audit_logs).
