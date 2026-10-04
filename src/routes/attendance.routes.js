@@ -136,6 +136,7 @@ function recalculateFinalizedDays() {
     SELECT d.*, e.night_surcharge AS emp_night_surcharge
     FROM attendance_days d JOIN employees e ON e.id = d.employee_id
     WHERE d.status = 'turno_finalizado' AND d.scheduled_entrada IS NOT NULL AND d.scheduled_salida IS NOT NULL
+      AND COALESCE(d.corrected, 0) = 0
   `).all();
   const update = db.prepare(
     "UPDATE attendance_days SET hod_min = ?, hon_min = ?, hed_min = ?, hen_min = ?, updated_at = datetime('now') WHERE id = ?"
@@ -762,10 +763,128 @@ function listPayrollAttendance(req, res, query) {
   const from = query.from || bogota.todayISOInBogota();
   const to = query.to || from;
   const rows = db.prepare(`
-    SELECT employee_id, shift_date, status, hod_min, hon_min, hed_min, hen_min, retraso_min, exceso_almuerzo_min, salida_anticipada_min
+    SELECT employee_id, shift_date, status, hod_min, hon_min, hed_min, hen_min, retraso_min, exceso_almuerzo_min, salida_anticipada_min, corrected
     FROM attendance_days
     WHERE organization_id = ? AND shift_date BETWEEN ? AND ? AND status = 'turno_finalizado'
   `).all(orgId, from, to);
+  sendJson(res, 200, { rows });
+}
+
+// ---------------------------------------------------------------------------
+// CORRECCION DE MARCACIONES POR DIA (solo Administrador, motivo obligatorio)
+// POST /api/attendance/corrections
+//   { employeeId, date, times: { entrada, inicio_almuerzo, fin_almuerzo, salida }, reason }
+// - Solo para dias ya pasados (antes de hoy, hora Colombia).
+// - Las marcaciones originales NO se tocan; se guarda cada cambio (hora
+//   original -> corregida) en attendance_corrections y se recalcula el dia con
+//   las mismas reglas del motor (recargo, barrera de 30 min, salida anticipada).
+// ---------------------------------------------------------------------------
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+async function registerCorrection(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const date = String(body.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: 'Fecha invalida.' });
+  if (date >= bogota.todayISOInBogota()) return sendJson(res, 400, { error: 'Solo se pueden corregir dias ya pasados.' });
+  const reason = String(body.reason || '').trim().slice(0, 300);
+  if (reason.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo de la correccion (minimo 5 caracteres).' });
+  const employee = db.prepare('SELECT * FROM employees WHERE id = ? AND organization_id = ?').get(Number(body.employeeId), orgId);
+  if (!employee) return sendJson(res, 404, { error: 'Colaborador no encontrado.' });
+  const shift = getShiftForEmployeeDate(orgId, employee.id, date);
+  if (!shift || shift.isOffDay || !shift.startTime || !shift.endTime) return sendJson(res, 400, { error: 'Ese dia el colaborador no tiene un turno con horario asignado.' });
+
+  let day = db.prepare('SELECT * FROM attendance_days WHERE employee_id = ? AND shift_date = ?').get(employee.id, date);
+  const current = {
+    entrada: day ? day.entrada_real : null,
+    inicio_almuerzo: day ? day.inicio_almuerzo_real : null,
+    fin_almuerzo: day ? day.fin_almuerzo_real : null,
+    salida: day ? day.salida_real : null,
+  };
+  const times = body.times && typeof body.times === 'object' ? body.times : {};
+  const final = {};
+  for (const k of rules.MARK_SEQUENCE) {
+    const v = times[k] != null && times[k] !== '' ? String(times[k]) : current[k];
+    if (!v || !HHMM.test(v)) return sendJson(res, 400, { error: 'Completa las 4 horas del dia en formato HH:MM.' });
+    final[k] = v;
+  }
+
+  // Minutos absolutos desde la medianoche del dia del turno (cruza medianoche si hace falta).
+  const scheduledEntradaMin = rules.timeToMinutes(shift.startTime);
+  const scheduledSalidaMin = rules.scheduledAbsoluteMinutes(shift.endTime, shift.startTime);
+  const abs = {};
+  let prev = null;
+  for (const k of rules.MARK_SEQUENCE) {
+    let m = rules.timeToMinutes(final[k]);
+    if (prev === null) {
+      if (m < scheduledEntradaMin - 720) m += 1440; // entrada pasada la medianoche de un turno nocturno
+    } else {
+      while (m < prev) m += 1440;
+    }
+    abs[k] = m;
+    prev = m;
+  }
+  if (abs.salida - abs.entrada > 24 * 60) return sendJson(res, 400, { error: 'Las horas no forman una jornada valida (mas de 24 horas).' });
+
+  const breakMinutes = abs.fin_almuerzo - abs.inicio_almuerzo;
+  const nightEnabled = employee.night_surcharge === 0 ? 0 : 1;
+  const cat = rules.categorizeWorkedMinutes({
+    scheduledEntradaMin, scheduledSalidaMin,
+    actualEntradaMin: abs.entrada, actualSalidaMin: abs.salida,
+    breakMinutes, nightSurchargeEnabled: nightEnabled !== 0,
+  });
+  const retraso = Math.max(0, abs.entrada - scheduledEntradaMin);
+  const exceso = rules.classifyAlmuerzo(Number(shift.breakM) || 0, breakMinutes).excessMinutes;
+  const adeudado = rules.classifySalida(scheduledSalidaMin, abs.salida).adeudadoMinutes;
+  const hedFinal = rules.applyEarlyLeaveDeduction(cat.hed, adeudado);
+
+  if (!day) {
+    db.prepare(`INSERT INTO attendance_days (id, organization_id, employee_id, shift_date, status, scheduled_entrada, scheduled_salida)
+                VALUES (?, ?, ?, ?, 'pendiente_entrada', ?, ?)`).run(uid('att'), orgId, employee.id, date, shift.startTime, shift.endTime);
+  }
+  db.prepare(`
+    UPDATE attendance_days SET
+      entrada_real = ?, inicio_almuerzo_real = ?, fin_almuerzo_real = ?, salida_real = ?,
+      scheduled_entrada = COALESCE(scheduled_entrada, ?), scheduled_salida = COALESCE(scheduled_salida, ?),
+      retraso_min = ?, exceso_almuerzo_min = ?, salida_anticipada_min = ?,
+      hod_min = ?, hon_min = ?, hed_min = ?, hen_min = ?,
+      status = 'turno_finalizado', corrected = 1, updated_at = datetime('now')
+    WHERE employee_id = ? AND shift_date = ?
+  `).run(final.entrada, final.inicio_almuerzo, final.fin_almuerzo, final.salida,
+    shift.startTime, shift.endTime, retraso, exceso, adeudado,
+    cat.hod, cat.hon, hedFinal, cat.hen, employee.id, date);
+
+  const insertCorr = db.prepare(`INSERT INTO attendance_corrections (id, organization_id, employee_id, shift_date, mark_type, original_time, corrected_time, reason, created_by)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const changes = [];
+  for (const k of rules.MARK_SEQUENCE) {
+    if (current[k] !== final[k]) {
+      insertCorr.run(uid('corr'), orgId, employee.id, date, k, current[k], final[k], reason, req.user.id);
+      changes.push({ marcacion: k, antes: current[k], despues: final[k] });
+    }
+  }
+  logAction({
+    organizationId: orgId, userId: req.user.id, action: 'attendance.correction',
+    resourceType: 'employee', resourceId: String(employee.id), ip: getClientIp(req),
+    metadata: { colaborador: employee.name, fecha: date, cambios: changes, motivo: reason },
+  });
+  sendJson(res, 200, { ok: true, changes, hours: { hod_min: cat.hod, hon_min: cat.hon, hed_min: hedFinal, hen_min: cat.hen } });
+}
+
+// GET /api/attendance/corrections?from=&to=[&employeeId=]
+function listCorrections(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const to = query.to || bogota.todayISOInBogota();
+  const from = query.from || bogota.addDaysISO(to, -31);
+  const employeeId = query.employeeId ? Number(query.employeeId) : null;
+  const rows = db.prepare(`
+    SELECT c.employee_id, c.shift_date, c.mark_type, c.original_time, c.corrected_time, c.reason, c.created_at, u.email AS created_by_email
+    FROM attendance_corrections c LEFT JOIN users u ON u.id = c.created_by
+    WHERE c.organization_id = ? AND c.shift_date BETWEEN ? AND ? AND (? IS NULL OR c.employee_id = ?)
+    ORDER BY c.created_at DESC
+  `).all(orgId, from, to, employeeId, employeeId);
   sendJson(res, 200, { rows });
 }
 
@@ -786,7 +905,7 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(HOURS_ENGINE_
 
 module.exports = {
   recalculateFinalizedDays,
-  listEmployeesToday, registerMark, listHistory, listMyHistory, listAlerts, listFaceProfiles, enrollFaceProfile, deactivateFaceProfile, registerMarkByFace,
+  listEmployeesToday, registerMark, listHistory, listMyHistory, listAlerts, registerCorrection, listCorrections, listFaceProfiles, enrollFaceProfile, deactivateFaceProfile, registerMarkByFace,
   listDevices, createDevice, rotateDeviceToken, deactivateDevice, getDeviceAssignments, setDeviceAssignments,
   kioskEmployeesToday, kioskMark, kioskMarkByFace,
   listPayrollAttendance,
