@@ -406,6 +406,15 @@
                         </div>
                     </div>
 
+                    <!-- Herramientas: copiar semana, rotaciones, publicar, historial -->
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button type="button" data-perm="shifts.edit" onclick="openCopyWeekModal()" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5"><i class="fa-solid fa-copy"></i> Copiar semana anterior</button>
+                        <button type="button" data-perm="shifts.edit" onclick="openRotationModal()" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5"><i class="fa-solid fa-arrows-rotate"></i> Rotaciones</button>
+                        <button type="button" data-perm="shifts.edit" onclick="openPublishModal()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm"><i class="fa-solid fa-bullhorn"></i> Publicar cuadro</button>
+                        <button type="button" data-perm="shifts.view" onclick="openShiftChangesModal()" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5"><i class="fa-solid fa-clock-rotate-left"></i> Historial de cambios</button>
+                    </div>
+                    <div id="rosterPublishBanner"></div>
+
                     <!-- Cuadrícula Semanal (Lunes a Domingo) -->
                     <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                         <div class="overflow-x-auto">
@@ -1469,6 +1478,139 @@
             <div class="flex justify-end gap-2 border-t pt-3">
                 <button onclick="closeModal('modalSettings')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
                 <button onclick="saveSettingsForm()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow">Guardar Cambios</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Publicar cuadro de turnos -->
+    <div id="modalPublish" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-200">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-bullhorn text-emerald-600"></i> Publicar cuadro de turnos</h3>
+                <button onclick="closeModal('modalPublish')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <p class="text-xs text-slate-600">Por defecto se publica la <strong>semana completa</strong> que estás viendo. Si aún no quieres publicarla toda, ajusta las fechas.</p>
+            <div class="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Desde</label>
+                    <input type="date" id="publishFrom" oninput="updatePublishSummary()" class="w-full p-2 border rounded-lg">
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Hasta</label>
+                    <input type="date" id="publishTo" oninput="updatePublishSummary()" class="w-full p-2 border rounded-lg">
+                </div>
+            </div>
+            <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                <input type="checkbox" id="publishNotify" checked class="w-4 h-4 accent-emerald-600">
+                Enviar a cada colaborador su horario por correo
+            </label>
+            <div id="publishSummary" class="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-600"></div>
+            <div class="flex justify-end gap-2 border-t pt-3">
+                <button onclick="closeModal('modalPublish')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                <button onclick="submitPublish()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow">Publicar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Copiar semana anterior -->
+    <div id="modalCopyWeek" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-200">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-copy text-sky-600"></i> Copiar semana anterior</h3>
+                <button onclick="closeModal('modalCopyWeek')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <p class="text-xs text-slate-600" id="copyWeekInfo">-</p>
+            <div class="text-xs space-y-2">
+                <label class="block font-semibold text-slate-700">Área</label>
+                <select id="copyWeekDept" class="w-full p-2 border rounded-lg bg-white"></select>
+                <label class="flex items-start gap-2 cursor-pointer mt-2"><input type="radio" name="copyWeekMode" value="empty" checked class="mt-0.5"> <span><strong>Solo días vacíos</strong> (recomendado): no toca lo que ya asignaste esta semana.</span></label>
+                <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="copyWeekMode" value="replace" class="mt-0.5"> <span><strong>Reemplazar la semana</strong>: deja la semana exactamente igual a la anterior.</span></label>
+                <label class="flex items-center gap-2 cursor-pointer mt-2"><input type="checkbox" id="copyWeekAbsences" class="w-4 h-4"> Copiar también vacaciones, incapacidades y "sin horario"</label>
+            </div>
+            <div class="flex justify-end gap-2 border-t pt-3">
+                <button onclick="closeModal('modalCopyWeek')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                <button onclick="submitCopyWeek()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow">Copiar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Rotaciones -->
+    <div id="modalRotation" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-3xl w-full p-6 shadow-2xl space-y-4 border border-slate-200 max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-arrows-rotate text-violet-600"></i> Patrones de rotación</h3>
+                <button onclick="closeModal('modalRotation')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="text-xs space-y-3">
+                <div class="bg-violet-50 border border-violet-200 rounded-lg p-3 space-y-2">
+                    <p class="font-bold text-violet-900">1. Patrón</p>
+                    <div class="flex flex-wrap items-end gap-2">
+                        <div>
+                            <label class="block font-semibold text-slate-700 mb-1">Patrón guardado</label>
+                            <select id="rotPatternSelect" onchange="loadRotationPattern(this.value)" class="p-2 border rounded-lg bg-white min-w-[200px]"></select>
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-700 mb-1">Nombre</label>
+                            <input type="text" id="rotName" maxlength="60" placeholder="Ej. 4 mañanas, 2 tardes, 1 descanso" class="p-2 border rounded-lg min-w-[240px]">
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-700 mb-1">Días del ciclo</label>
+                            <select id="rotLength" onchange="resizeRotationDays()" class="p-2 border rounded-lg bg-white">
+                                <option value="7">7 días</option><option value="14">14 días</option><option value="21">21 días</option><option value="28">28 días</option>
+                                <option value="3">3 días</option><option value="4">4 días</option><option value="5">5 días</option><option value="6">6 días</option>
+                                <option value="8">8 días</option><option value="10">10 días</option><option value="12">12 días</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="rotDays" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2"></div>
+                    <div class="flex gap-2">
+                        <button onclick="saveRotationPattern()" class="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white font-semibold">Guardar patrón</button>
+                        <button onclick="deleteRotationPattern()" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 hover:bg-slate-50">Eliminar patrón</button>
+                    </div>
+                </div>
+                <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+                    <p class="font-bold text-slate-800">2. Aplicar</p>
+                    <div class="flex flex-wrap items-end gap-2">
+                        <div><label class="block font-semibold text-slate-700 mb-1">Desde</label><input type="date" id="rotFrom" class="p-2 border rounded-lg"></div>
+                        <div><label class="block font-semibold text-slate-700 mb-1">Hasta</label><input type="date" id="rotTo" class="p-2 border rounded-lg"></div>
+                        <div><label class="block font-semibold text-slate-700 mb-1">Área</label><select id="rotDept" onchange="renderRotationEmployees()" class="p-2 border rounded-lg bg-white"></select></div>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <label class="block font-semibold text-slate-700">Colaboradores</label>
+                        <button onclick="document.querySelectorAll('#rotEmployees input').forEach(c => c.checked = true)" class="text-violet-700 underline">Seleccionar todos</button>
+                    </div>
+                    <div id="rotEmployees" class="grid grid-cols-2 sm:grid-cols-3 gap-1 max-h-40 overflow-y-auto bg-white border border-slate-200 rounded-lg p-2"></div>
+                    <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="rotStagger" class="w-4 h-4"> Escalonar: cada colaborador empieza el ciclo un día después que el anterior (para que no descansen todos el mismo día)</label>
+                    <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="rotMode" value="empty" checked class="mt-0.5"> <span><strong>Solo días vacíos</strong> (recomendado)</span></label>
+                    <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="rotMode" value="replace" class="mt-0.5"> <span><strong>Reemplazar</strong> lo que haya en esas fechas (vacaciones e incapacidades se respetan siempre)</span></label>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 border-t pt-3">
+                <button onclick="closeModal('modalRotation')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cerrar</button>
+                <button onclick="applyRotation()" class="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-semibold shadow">Aplicar rotación</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Historial de cambios de turnos publicados -->
+    <div id="modalShiftChanges" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-3xl w-full p-6 shadow-2xl space-y-4 border border-slate-200 max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b pb-3">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-clock-rotate-left text-slate-600"></i> Historial de cambios en turnos publicados</h3>
+                    <p class="text-xs text-slate-500" id="shiftChangesSubtitle">-</p>
+                </div>
+                <button onclick="closeModal('modalShiftChanges')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                <table class="w-full text-xs">
+                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
+                        <th class="text-left px-3 py-2">Cambiado el (Colombia)</th><th class="text-left px-3 py-2">Por</th>
+                        <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Día del turno</th>
+                        <th class="text-left px-3 py-2">Antes → Ahora</th><th class="text-left px-3 py-2">Aviso</th>
+                    </tr></thead>
+                    <tbody id="shiftChangesBody"></tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -3090,6 +3232,7 @@
 
         function renderWeeklyRoster() {
             scheduleDataSync();
+            renderPublishBanner();
             const monday = appState.rosterCurrentMonday;
             const sunday = addDays(monday, 6);
             const weekDays = getWeekDaysArray(monday);
@@ -3208,6 +3351,7 @@
                             <span class="block text-[11px] font-black tracking-wider">${d.shortName}</span>
                             <span class="block text-3xs font-normal opacity-70">${d.displayDate}</span>
                             ${d.holidayName ? '<span class="block text-[9px] font-bold uppercase tracking-wide">Festivo</span>' : ''}
+                            ${isDatePublishedCO(d.dateISO) ? '<span class="block text-[9px] font-bold text-emerald-300" title="Publicado: los empleados lo ven">● Publicado</span>' : '<span class="block text-[9px] font-bold text-amber-300" title="Borrador: los empleados aún no lo ven (la marcación funciona igual)">○ Borrador</span>'}
                         </td>
                     `).join('')}
                     <td class="p-2 text-center bg-slate-950 font-mono text-3xs text-slate-300">
@@ -4818,6 +4962,250 @@
             if (from > to) { showAppToast('La fecha "Desde" no puede ser posterior a "Hasta".'); return; }
             setPayrollRange(from, to);
         }
+        // =================================================================
+        // CUADRO DE TURNOS: PUBLICACIÓN, COPIAR SEMANA, ROTACIONES, HISTORIAL
+        // La MARCACIÓN siempre usa el turno asignado, esté publicado o no.
+        // Publicar solo decide qué ven los empleados en "Mi horario".
+        // =================================================================
+        function isDatePublishedCO(iso) {
+            return (appState.publications || []).some(p => p.from <= iso && iso <= p.to);
+        }
+        function renderPublishBanner() {
+            const box = document.getElementById('rosterPublishBanner');
+            if (!box) return;
+            const days = getWeekDaysArray(appState.rosterCurrentMonday).map(d => d.dateISO);
+            const pending = days.filter(d => !isDatePublishedCO(d));
+            const fmt = (iso) => iso.split('-').reverse().join('/');
+            if (!pending.length) {
+                const pub = (appState.publications || []).filter(p => p.to >= days[0] && p.from <= days[6]).slice(-1)[0];
+                box.innerHTML = `<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 font-semibold"><i class="fa-solid fa-circle-check"></i> Semana publicada: los colaboradores la ven en "Mi horario".${pub && pub.publishedAt ? ` Última publicación: ${escapeHtml(pub.publishedAt)} por ${escapeHtml(pub.publishedBy || '-')}.` : ''} Si cambias un turno, se registra en el historial y se avisa al colaborador.</div>`;
+                return;
+            }
+            const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+            const daysToStart = Math.round((new Date(pending[0] + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
+            const urgent = daysToStart <= 2;
+            box.innerHTML = `<div class="rounded-lg border ${urgent ? 'border-rose-300 bg-rose-50 text-rose-800' : 'border-amber-300 bg-amber-50 text-amber-800'} px-3 py-2 text-xs font-semibold flex flex-wrap items-center justify-between gap-2">
+                <span><i class="fa-solid fa-triangle-exclamation"></i> ${pending.length === 7 ? 'La semana del ' + fmt(days[0]) + ' al ' + fmt(days[6]) + ' aún no está publicada' : pending.length + ' día(s) de esta semana sin publicar (' + pending.map(fmt).join(', ') + ')'}: los colaboradores todavía no los ven en "Mi horario". La marcación en el kiosco funciona igual.
+                ${urgent ? (daysToStart <= 0 ? ' <strong>¡Ya empezó!</strong>' : ` <strong>Empieza en ${daysToStart} día(s).</strong>`) : ''}</span>
+                <button data-perm="shifts.edit" onclick="openPublishModal()" class="px-3 py-1 rounded-lg ${urgent ? 'bg-rose-600 hover:bg-rose-700' : 'bg-amber-600 hover:bg-amber-700'} text-white">Publicar</button>
+            </div>`;
+        }
+        function openPublishModal() {
+            const days = getWeekDaysArray(appState.rosterCurrentMonday).map(d => d.dateISO);
+            document.getElementById('publishFrom').value = days[0];
+            document.getElementById('publishTo').value = days[6];
+            document.getElementById('publishNotify').checked = true;
+            updatePublishSummary();
+            openModal('modalPublish');
+        }
+        function updatePublishSummary() {
+            const from = document.getElementById('publishFrom').value, to = document.getElementById('publishTo').value;
+            const box = document.getElementById('publishSummary');
+            if (!from || !to || from > to) { box.innerHTML = '<span class="text-rose-700 font-semibold">Revisa las fechas: "Desde" debe ser anterior o igual a "Hasta".</span>'; return; }
+            const inRange = appState.shifts.filter(sh => sh.date >= from && sh.date <= to);
+            const emps = new Set(inRange.map(sh => Number(sh.empId)));
+            const withEmail = [...emps].filter(id => { const e = appState.employees.find(x => Number(x.id) === id); return e && (e.email || (e.linkedUser && e.linkedUser.email)); }).length;
+            const already = [];
+            for (let d = new Date(from + 'T00:00:00'); formatDateISO(d) <= to; d.setDate(d.getDate() + 1)) { if (isDatePublishedCO(formatDateISO(d))) already.push(formatDateISO(d)); }
+            box.innerHTML = `<strong>${inRange.length}</strong> turno(s) de <strong>${emps.size}</strong> colaborador(es) en el rango.
+                ${already.length ? `<br>${already.length} día(s) del rango ya estaban publicados.` : ''}
+                <br>${withEmail} colaborador(es) tienen correo para recibir su horario${emps.size - withEmail > 0 ? `; ${emps.size - withEmail} no tienen correo registrado` : ''}.`;
+        }
+        async function submitPublish() {
+            const from = document.getElementById('publishFrom').value, to = document.getElementById('publishTo').value;
+            if (!from || !to || from > to) { showAppToast('Revisa las fechas.'); return; }
+            const notify = document.getElementById('publishNotify').checked;
+            try {
+                await flushDataSync();
+                const r = await apiFetch('/api/shifts/publish', { method: 'POST', body: JSON.stringify({ from, to, notify }) });
+                appState.publications = r.publications || appState.publications;
+                closeModal('modalPublish');
+                showAppToast(`Cuadro publicado del ${from.split('-').reverse().join('/')} al ${to.split('-').reverse().join('/')}.` + (notify ? ` Se envió el horario a ${r.notified} colaborador(es)${r.withoutEmail ? `; ${r.withoutEmail} sin correo` : ''}.` : ''));
+                renderWeeklyRoster();
+            } catch (e) { showAppToast('No se pudo publicar: ' + e.message); }
+        }
+
+        // ---- Copiar semana anterior ----
+        function fillDeptSelect(id) {
+            const sel = document.getElementById(id);
+            sel.innerHTML = '<option value="_ALL_">Todas las áreas</option>' + appState.departments.map(d => `<option value="${escapeHtml(d.name)}">${escapeHtml(d.name)}</option>`).join('');
+        }
+        function openCopyWeekModal() {
+            const mon = appState.rosterCurrentMonday, prev = addDays(mon, -7);
+            const f = (d) => `${d.getDate()}/${d.getMonth() + 1}`;
+            document.getElementById('copyWeekInfo').innerHTML = `Copia los turnos de la semana del <strong>${f(prev)} al ${f(addDays(prev, 6))}</strong> a la semana que estás viendo (<strong>${f(mon)} al ${f(addDays(mon, 6))}</strong>), día por día. Los turnos copiados quedan en <strong>borrador</strong> hasta que publiques.`;
+            fillDeptSelect('copyWeekDept');
+            openModal('modalCopyWeek');
+        }
+        // Rehace un turno para otra fecha (recalcula domingo/festivo y valores).
+        function cloneShiftToDate(sh, emp, dateISO) {
+            if (sh.absenceType && ABSENCE_TYPES[sh.absenceType]) {
+                const a = buildAbsenceShift(emp.id, dateISO, sh.absenceType);
+                if (sh.functionTag) a.functionTag = sh.functionTag;
+                return a;
+            }
+            const overnight = (sh.res && sh.res.endMin || 0) >= 1440;
+            const res = calculateShift(sh.startTime, sh.endTime, Number(sh.breakM) || 0, Number(sh.limit) || 8, isSundayOrHolidayCO(dateISO), overnight, emp.salary, empNightSurcharge(emp));
+            const copy = { ...sh, empId: emp.id, date: dateISO, res };
+            delete copy.id;
+            return copy;
+        }
+        function submitCopyWeek() {
+            const mode = document.querySelector('input[name="copyWeekMode"]:checked').value;
+            const withAbs = document.getElementById('copyWeekAbsences').checked;
+            const dept = document.getElementById('copyWeekDept').value;
+            const mon = appState.rosterCurrentMonday, prev = addDays(mon, -7);
+            const emps = appState.employees.filter(e => dept === '_ALL_' || e.department === dept);
+            let copied = 0, skipped = 0;
+            for (const emp of emps) {
+                for (let i = 0; i < 7; i++) {
+                    const src = formatDateISO(addDays(prev, i)), dst = formatDateISO(addDays(mon, i));
+                    const from = appState.shifts.find(s => Number(s.empId) === Number(emp.id) && s.date === src);
+                    const existing = appState.shifts.find(s => Number(s.empId) === Number(emp.id) && s.date === dst);
+                    if (mode === 'empty' && existing) { if (from) skipped++; continue; }
+                    if (from && from.absenceType && !withAbs) { continue; }
+                    // Reemplazar: la semana queda igual a la anterior (incluidos los descansos).
+                    if (mode === 'replace' && existing && !(existing.absenceType && !withAbs)) appState.shifts = appState.shifts.filter(s => s !== existing);
+                    if (from) { appState.shifts.push(cloneShiftToDate(from, emp, dst)); copied++; }
+                }
+            }
+            closeModal('modalCopyWeek');
+            showAppToast(`${copied} turno(s) copiados${skipped ? `; ${skipped} día(s) ya tenían turno y se respetaron` : ''}. Quedan en borrador hasta publicar.`);
+            renderWeeklyRoster(); updateDashboardMetrics();
+        }
+
+        // ---- Rotaciones ----
+        let rotationDraft = { id: '', name: '', days: ['descanso', 'descanso', 'descanso', 'descanso', 'descanso', 'descanso', 'descanso'] };
+        function rotationOptionHtml(selected) {
+            const opts = appState.shiftPresets.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === selected ? 'selected' : ''}>${escapeHtml(p.name)} (${escapeHtml(shiftTimeLabel(p).replace(/ - /g, '-'))})</option>`).join('');
+            return `<option value="descanso" ${selected === 'descanso' ? 'selected' : ''}>Descanso</option>${opts}`;
+        }
+        function renderRotationDays() {
+            document.getElementById('rotDays').innerHTML = rotationDraft.days.map((d, i) => `
+                <div><label class="block text-3xs font-bold text-slate-500 mb-0.5">Día ${i + 1}</label>
+                <select onchange="rotationDraft.days[${i}] = this.value" class="w-full p-1.5 border rounded-lg bg-white text-xs">${rotationOptionHtml(d)}</select></div>`).join('');
+        }
+        function resizeRotationDays() {
+            const n = Number(document.getElementById('rotLength').value);
+            const d = rotationDraft.days.slice(0, n);
+            while (d.length < n) d.push('descanso');
+            rotationDraft.days = d;
+            renderRotationDays();
+        }
+        function renderRotationPatternSelect(selectedId) {
+            const sel = document.getElementById('rotPatternSelect');
+            sel.innerHTML = '<option value="">— Nuevo patrón —</option>' + (appState.rotationPatterns || []).map(p => `<option value="${escapeHtml(p.id)}" ${p.id === selectedId ? 'selected' : ''}>${escapeHtml(p.name)} (${p.days.length} días)</option>`).join('');
+        }
+        function loadRotationPattern(id) {
+            const p = (appState.rotationPatterns || []).find(x => x.id === id);
+            rotationDraft = p ? { id: p.id, name: p.name, days: [...p.days] } : { id: '', name: '', days: Array(7).fill('descanso') };
+            document.getElementById('rotName').value = rotationDraft.name;
+            const lenSel = document.getElementById('rotLength');
+            if (![...lenSel.options].some(o => Number(o.value) === rotationDraft.days.length)) lenSel.insertAdjacentHTML('beforeend', `<option value="${rotationDraft.days.length}">${rotationDraft.days.length} días</option>`);
+            lenSel.value = String(rotationDraft.days.length);
+            renderRotationDays();
+        }
+        function renderRotationEmployees() {
+            const dept = document.getElementById('rotDept').value;
+            const emps = appState.employees.filter(e => dept === '_ALL_' || e.department === dept).sort((a, b) => a.name.localeCompare(b.name));
+            document.getElementById('rotEmployees').innerHTML = emps.map(e => `<label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" value="${e.id}" class="w-3.5 h-3.5"> ${escapeHtml(e.name)}</label>`).join('') || '<span class="text-slate-400">Sin colaboradores en esta área.</span>';
+        }
+        function openRotationModal() {
+            renderRotationPatternSelect('');
+            loadRotationPattern((appState.rotationPatterns || [])[0] ? appState.rotationPatterns[0].id : '');
+            renderRotationPatternSelect(rotationDraft.id);
+            const mon = appState.rosterCurrentMonday;
+            document.getElementById('rotFrom').value = formatDateISO(mon);
+            document.getElementById('rotTo').value = formatDateISO(addDays(mon, 27));
+            fillDeptSelect('rotDept');
+            renderRotationEmployees();
+            openModal('modalRotation');
+        }
+        async function persistRotationPatterns() {
+            await apiFetch('/api/org/rotation-patterns', { method: 'PUT', body: JSON.stringify({ patterns: appState.rotationPatterns }) });
+        }
+        async function saveRotationPattern() {
+            const name = document.getElementById('rotName').value.trim();
+            if (!name) { showAppToast('Escribe un nombre para el patrón.'); return; }
+            if (rotationDraft.days.every(d => d === 'descanso')) { showAppToast('El patrón debe tener al menos un día con turno.'); return; }
+            const list = appState.rotationPatterns || (appState.rotationPatterns = []);
+            if (rotationDraft.id) {
+                const p = list.find(x => x.id === rotationDraft.id);
+                if (p) { p.name = name; p.days = [...rotationDraft.days]; }
+            } else {
+                rotationDraft.id = 'rot_' + Date.now();
+                list.push({ id: rotationDraft.id, name, days: [...rotationDraft.days] });
+            }
+            rotationDraft.name = name;
+            try { await persistRotationPatterns(); showAppToast(`Patrón "${name}" guardado.`); } catch (e) { showAppToast('No se pudo guardar: ' + e.message); }
+            renderRotationPatternSelect(rotationDraft.id);
+        }
+        async function deleteRotationPattern() {
+            if (!rotationDraft.id) return;
+            if (!confirm(`¿Eliminar el patrón "${rotationDraft.name}"? Los turnos ya asignados no cambian.`)) return;
+            appState.rotationPatterns = (appState.rotationPatterns || []).filter(p => p.id !== rotationDraft.id);
+            try { await persistRotationPatterns(); showAppToast('Patrón eliminado.'); } catch (e) { showAppToast('No se pudo eliminar: ' + e.message); }
+            renderRotationPatternSelect('');
+            loadRotationPattern('');
+        }
+        function applyRotation() {
+            const from = document.getElementById('rotFrom').value, to = document.getElementById('rotTo').value;
+            if (!from || !to || from > to) { showAppToast('Revisa las fechas de la rotación.'); return; }
+            const span = (new Date(to + 'T00:00:00') - new Date(from + 'T00:00:00')) / 86400000 + 1;
+            if (span > 186) { showAppToast('Aplica la rotación máximo por 6 meses a la vez.'); return; }
+            const ids = [...document.querySelectorAll('#rotEmployees input:checked')].map(c => Number(c.value));
+            if (!ids.length) { showAppToast('Selecciona al menos un colaborador.'); return; }
+            if (rotationDraft.days.every(d => d === 'descanso')) { showAppToast('El patrón no tiene días con turno.'); return; }
+            const mode = document.querySelector('input[name="rotMode"]:checked').value;
+            const stagger = document.getElementById('rotStagger').checked;
+            const n = rotationDraft.days.length;
+            let assigned = 0, kept = 0;
+            ids.forEach((empId, idx) => {
+                const emp = appState.employees.find(e => Number(e.id) === empId);
+                if (!emp) return;
+                for (let i = 0; i < span; i++) {
+                    const date = formatDateISO(addDays(new Date(from + 'T00:00:00'), i));
+                    const slot = rotationDraft.days[(i + (stagger ? idx : 0)) % n];
+                    const existing = appState.shifts.find(s => Number(s.empId) === empId && s.date === date);
+                    if (existing && existing.absenceType) { kept++; continue; } // vacaciones/incapacidad se respetan
+                    if (existing && mode === 'empty') { kept++; continue; }
+                    if (existing) appState.shifts = appState.shifts.filter(s => s !== existing);
+                    if (slot === 'descanso') continue;
+                    const preset = appState.shiftPresets.find(p => p.id === slot);
+                    if (!preset) continue;
+                    appState.shifts.push(buildShiftFromPreset(preset, empId, date));
+                    assigned++;
+                }
+            });
+            closeModal('modalRotation');
+            showAppToast(`Rotación aplicada: ${assigned} turno(s) asignados a ${ids.length} colaborador(es)${kept ? `; ${kept} día(s) se respetaron` : ''}. Quedan en borrador hasta publicar.`);
+            renderWeeklyRoster(); updateDashboardMetrics();
+        }
+
+        // ---- Historial de cambios en turnos publicados ----
+        async function openShiftChangesModal() {
+            const days = getWeekDaysArray(appState.rosterCurrentMonday).map(d => d.dateISO);
+            const fmt = (iso) => iso.split('-').reverse().join('/');
+            document.getElementById('shiftChangesSubtitle').textContent = `Turnos de la semana del ${fmt(days[0])} al ${fmt(days[6])} que se cambiaron después de publicados.`;
+            const body = document.getElementById('shiftChangesBody');
+            body.innerHTML = '<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>';
+            openModal('modalShiftChanges');
+            try {
+                await flushDataSync();
+                const { rows } = await apiFetch(`/api/shifts/changes?from=${days[0]}&to=${days[6]}`);
+                body.innerHTML = rows.map(c => `<tr class="border-t border-slate-100 align-top">
+                    <td class="px-3 py-2 whitespace-nowrap text-slate-500">${escapeHtml(c.changedAt)}</td>
+                    <td class="px-3 py-2">${escapeHtml(c.changedBy || '-')}</td>
+                    <td class="px-3 py-2 font-semibold">${escapeHtml(c.employeeName || '-')}</td>
+                    <td class="px-3 py-2 whitespace-nowrap">${fmt(c.date)}</td>
+                    <td class="px-3 py-2"><span class="text-slate-500">${escapeHtml(c.before)}</span> → <strong>${escapeHtml(c.after)}</strong></td>
+                    <td class="px-3 py-2">${c.notified ? '<span class="text-emerald-700 font-semibold">Correo enviado</span>' : '<span class="text-slate-400">Sin correo</span>'}</td>
+                </tr>`).join('') || '<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">No hay cambios después de publicar en esta semana.</td></tr>';
+            } catch (e) {
+                body.innerHTML = `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">${escapeHtml(e.message)}</td></tr>`;
+            }
+        }
+
         // -----------------------------------------------------------------
         // PDF CONSOLIDADO DE UN CIERRE (recargos u horas extras).
         // Se arma con los valores CONGELADOS del cierre (snapshot), así el PDF
@@ -5859,6 +6247,9 @@
         // (los presets/departamentos/nombre/logo se guardan al instante desde
         // sus propias funciones; ver README para el detalle de este enfoque)
         function handleSyncResult(r) {
+            if (r && r.shiftChanges) {
+                showAppToast(`${r.shiftChanges} cambio(s) en días ya publicados: quedaron en el historial y se avisó por correo a los colaboradores.`);
+            }
             if (r && Array.isArray(r.ignored) && r.ignored.length) {
                 showAppToast('Algunos cambios no se guardaron: ' + r.ignored.join('; ') + '.');
             }
@@ -5939,7 +6330,10 @@
                 const iso = formatDateISO(date);
                 const sh = appState.shifts.find(s => Number(s.empId) === Number(emp.id) && s.date === iso);
                 let body, cls;
-                if (sh && sh.absenceType && ABSENCE_TYPES[sh.absenceType]) {
+                if (!isDatePublishedCO(iso)) {
+                    cls = 'bg-slate-50 text-slate-500 border-slate-200 border-dashed';
+                    body = `<div class="font-semibold text-xs">Horario en preparación</div>`;
+                } else if (sh && sh.absenceType && ABSENCE_TYPES[sh.absenceType]) {
                     const a = ABSENCE_TYPES[sh.absenceType];
                     cls = SHIFT_COLOR_THEMES[a.color].bg;
                     body = `<div class="font-extrabold uppercase text-xs">${a.label}</div>`;
@@ -6042,6 +6436,8 @@
             appState.employees = (data.employees || []).map(e => ({ ...e, email: e.email || '', linkedUser: e.linkedUser || null, countWorkedDays: e.countWorkedDays === true, nightSurcharge: e.nightSurcharge !== false, nightSurchargeReason: e.nightSurchargeReason || '' }));
             appState.shifts = data.shifts || [];
             appState.viewer = data.viewer || { scope: 'all', employeeId: null };
+            appState.publications = data.publications || [];
+            appState.rotationPatterns = data.rotationPatterns || [];
             // Turnos partidos ya asignados que quedaron en cian -> amarillo vivo.
             appState.shifts.forEach(sh => { if (sh.isSplit && sh.color === 'cyan') sh.color = 'vivid_yellow'; });
             appState.employees.filter(e => !e.nightSurcharge).forEach(e => recomputeShiftsForEmployee(e.id));
