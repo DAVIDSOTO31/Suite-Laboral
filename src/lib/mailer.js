@@ -25,7 +25,7 @@ function toAbsoluteLink(link) {
   return `${base}${link}`;
 }
 
-async function sendMail({ to, subject, link, kind }) {
+async function sendMail({ to, subject, link, kind, bodyHtml, bodyText }) {
   const absoluteLink = toAbsoluteLink(link);
 
   if (env.EMAIL_MODE === 'brevo') {
@@ -41,8 +41,10 @@ async function sendMail({ to, subject, link, kind }) {
           sender: parseSender(env.MAIL_FROM),
           to: [{ email: to }],
           subject,
-          htmlContent: `<p>${subject}</p><p><a href="${absoluteLink}">${absoluteLink}</a></p>`,
-          textContent: `${subject}\n\n${absoluteLink}`,
+          // bodyHtml / bodyText (opcionales): contenido propio del correo, por
+          // ejemplo el horario publicado. Si no vienen, se usa el formato simple.
+          htmlContent: bodyHtml ? `${bodyHtml}<p><a href="${absoluteLink}">${absoluteLink}</a></p>` : `<p>${subject}</p><p><a href="${absoluteLink}">${absoluteLink}</a></p>`,
+          textContent: bodyText ? `${bodyText}\n\n${absoluteLink}` : `${subject}\n\n${absoluteLink}`,
         }),
       });
       const data = await resp.json().catch(() => ({}));
@@ -65,6 +67,7 @@ async function sendMail({ to, subject, link, kind }) {
     console.log('Para:     ', to);
     console.log('Asunto:   ', subject);
     console.log('Tipo:     ', kind);
+    if (bodyText) console.log('Contenido:\n' + bodyText);
     console.log('Enlace:   ', absoluteLink);
     console.log('============================================================\n');
     return { delivered: false, mode: 'console', link: absoluteLink };
