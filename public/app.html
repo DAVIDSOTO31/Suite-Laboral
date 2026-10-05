@@ -5085,7 +5085,9 @@
             const box = document.getElementById('payrollOtDayZeroBox');
             if (!box) return;
             const fmt = (iso) => (iso || '').split('-').reverse().join('/');
-            const canSet = CAN('settings.manage') && !appState.dayZeroLocked;
+            // Sin Dia 0 se puede definir siempre (el servidor valida que quede antes
+            // de los periodos ya cerrados). Ya definido, solo se cambia sin cierres.
+            const canSet = CAN('settings.manage') && (!appState.dayZero || !appState.dayZeroLocked);
             const missing = appState._payrollOtOpenMissing || [];
             const missNote = missing.length ? `<p class="text-3xs font-semibold text-amber-800 mt-1"><i class="fa-solid fa-triangle-exclamation"></i> ${missing.length} saldo(s) inicial(es) aún sin cerrar corresponden a un periodo anterior a este rango (por ejemplo, ${escapeHtml(missing[0].emp.name)}: periodo que incluye el ${fmt(missing[0].day)}). Revisa ese periodo.</p>` : '';
             if (!appState.dayZero) {
