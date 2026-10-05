@@ -125,8 +125,9 @@ function getOrgData(req, res, query) {
   sendJson(res, 200, {
     organizationId: orgId,
     orgSettings: settingsRow
-      ? { orgName: settingsRow.org_name, logo: settingsRow.logo_base64, minimumWage: settingsRow.minimum_wage, includeSundayHoliday: settingsRow.include_sunday_holiday === 1 }
-      : { orgName: 'Empresa', logo: null, minimumWage: 1750905, includeSundayHoliday: false },
+      ? { orgName: settingsRow.org_name, logo: settingsRow.logo_base64, minimumWage: settingsRow.minimum_wage, includeSundayHoliday: settingsRow.include_sunday_holiday === 1, dayZero: settingsRow.day_zero || null, dayZeroLocked: hasActiveClosures(orgId) }
+      : { orgName: 'Empresa', logo: null, minimumWage: 1750905, includeSundayHoliday: false, dayZero: null, dayZeroLocked: false },
+    openingBalances: canSeePayroll ? listOpeningBalances(orgId) : [],
     departments,
     shiftPresets: presetRows.map(r => JSON.parse(r.data_json)),
     rotationPatterns: scope === 'all' ? db.prepare('SELECT data_json FROM rotation_patterns WHERE organization_id = ?').all(orgId).map(r => JSON.parse(r.data_json)) : [],
@@ -628,8 +629,103 @@ function lastRecargosClosure(orgId) {
 function nextRecargosStart(orgId) {
   const last = lastRecargosClosure(orgId);
   if (last) return addDaysISO(last.period_end, 1);
+  // Con Dia 0 definido, el primer periodo de recargos inicia el dia siguiente.
+  const dz = getDayZero(orgId);
+  if (dz) return addDaysISO(dz, 1);
   const first = db.prepare('SELECT MIN(shift_date) AS d FROM attendance_days WHERE organization_id = ?').get(orgId);
   return first && first.d ? first.d : null;
+}
+
+// ---------------------------------------------------------------------------
+// DIA 0 Y SALDOS INICIALES
+// ---------------------------------------------------------------------------
+function getDayZero(orgId) {
+  const r = db.prepare('SELECT day_zero FROM org_settings WHERE organization_id = ?').get(orgId);
+  return r && r.day_zero ? r.day_zero : null;
+}
+function hasActiveClosures(orgId) {
+  return !!db.prepare("SELECT 1 FROM payroll_closures WHERE organization_id = ? AND status = 'cerrado' LIMIT 1").get(orgId);
+}
+// Un saldo inicial queda BLOQUEADO cuando ya se cerro un periodo (de extras o
+// de recargos) que incluye el dia siguiente a su fecha de corte.
+function openingBalanceLock(orgId, cutoff) {
+  const day = addDaysISO(cutoff, 1);
+  return db.prepare(`SELECT closure_type, period_start, period_end FROM payroll_closures
+    WHERE organization_id = ? AND status = 'cerrado' AND period_start <= ? AND period_end >= ?`).all(orgId, day, day);
+}
+function listOpeningBalances(orgId) {
+  return db.prepare(`SELECT b.employee_id AS employeeId, b.cutoff_date AS cutoff, b.hed, b.hen, b.hon, b.dom, b.note,
+      b.updated_at AS updatedAt, u.email AS updatedBy
+    FROM employee_opening_balances b LEFT JOIN users u ON u.id = b.updated_by
+    WHERE b.organization_id = ?`).all(orgId)
+    .map(b => ({ ...b, lockedBy: openingBalanceLock(orgId, b.cutoff).map(c => ({ type: c.closure_type, from: c.period_start, to: c.period_end })) }));
+}
+
+// PUT /api/org/day-zero { date }
+async function setDayZero(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const date = body.date === null ? null : String(body.date || '');
+  if (date !== null && !ISO_DATE.test(date)) return sendJson(res, 400, { error: 'Fecha invalida.' });
+  if (hasActiveClosures(orgId)) return sendJson(res, 409, { error: 'El Dia 0 ya no se puede cambiar porque existen periodos cerrados.' });
+  const tooEarly = date && db.prepare('SELECT employee_id FROM employee_opening_balances WHERE organization_id = ? AND cutoff_date < ? LIMIT 1').get(orgId, date);
+  if (tooEarly) return sendJson(res, 409, { error: 'Hay saldos iniciales con fecha de corte anterior a ese Dia 0. Ajustalos primero.' });
+  const exists = db.prepare('SELECT 1 FROM org_settings WHERE organization_id = ?').get(orgId);
+  if (exists) db.prepare(`UPDATE org_settings SET day_zero = ?, updated_at = datetime('now') WHERE organization_id = ?`).run(date, orgId);
+  else db.prepare(`INSERT INTO org_settings (organization_id, org_name, day_zero) VALUES (?, 'Empresa', ?)`).run(orgId, date);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'payroll.day_zero_set', ip: getClientIp(req), metadata: { diaCero: date } });
+  sendJson(res, 200, { ok: true, dayZero: date });
+}
+
+// PUT /api/payroll/opening-balance { employeeId, cutoff, hed, hen, hon, dom, note }
+async function saveOpeningBalance(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const dz = getDayZero(orgId);
+  if (!dz) return sendJson(res, 400, { error: 'Primero define el Dia 0 de la organizacion.' });
+  const emp = db.prepare('SELECT id, name FROM employees WHERE id = ? AND organization_id = ?').get(Number(body.employeeId), orgId);
+  if (!emp) return sendJson(res, 404, { error: 'Colaborador no encontrado.' });
+  const cutoff = String(body.cutoff || '');
+  if (!ISO_DATE.test(cutoff) || cutoff < dz) return sendJson(res, 400, { error: `La fecha de corte debe ser igual o posterior al Dia 0 (${dz}).` });
+  const n = (v) => { const x = Number(v); return isFinite(x) ? Math.round(x * 100) / 100 : NaN; };
+  const hed = n(body.hed || 0), hen = n(body.hen || 0), hon = n(body.hon || 0), dom = n(body.dom || 0);
+  if ([hed, hen, hon, dom].some(isNaN)) return sendJson(res, 400, { error: 'Valores invalidos.' });
+  if (hen < 0 || hon < 0 || dom < 0) return sendJson(res, 400, { error: 'Solo la extra diurna puede ser negativa (tiempo que debe el colaborador).' });
+  const note = String(body.note || '').trim().slice(0, 300);
+  if (note.length < 5) return sendJson(res, 400, { error: 'Escribe la nota de soporte (minimo 5 caracteres).' });
+  const prev = db.prepare('SELECT cutoff_date FROM employee_opening_balances WHERE organization_id = ? AND employee_id = ?').get(orgId, emp.id);
+  const locks = [...(prev ? openingBalanceLock(orgId, prev.cutoff_date) : []), ...openingBalanceLock(orgId, cutoff)];
+  if (locks.length) return sendJson(res, 409, { error: `El saldo inicial ya se aplico en el cierre de ${locks[0].closure_type} del ${locks[0].period_start} al ${locks[0].period_end}. Para cambiarlo, reabre ese periodo.` });
+  db.prepare(`INSERT INTO employee_opening_balances (organization_id, employee_id, cutoff_date, hed, hen, hon, dom, note, updated_by, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-5 hours'))
+    ON CONFLICT(organization_id, employee_id) DO UPDATE SET cutoff_date = excluded.cutoff_date, hed = excluded.hed, hen = excluded.hen,
+      hon = excluded.hon, dom = excluded.dom, note = excluded.note, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+    .run(orgId, emp.id, cutoff, hed, hen, hon, dom, note, req.user.id);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'payroll.opening_balance_set', resourceType: 'employee', resourceId: String(emp.id), ip: getClientIp(req),
+    metadata: { colaborador: emp.name, corte: cutoff, extraDiurna: hed, extraNocturna: hen, recargoNocturno: hon, dominical: dom, nota: note } });
+  sendJson(res, 200, { ok: true, balances: listOpeningBalances(orgId) });
+}
+
+// POST /api/payroll/opening-balance/:employeeId/delete { reason }
+async function deleteOpeningBalance(req, res, params) {
+  let body;
+  try { body = await readBody(req); } catch { body = {}; }
+  const orgId = req.user.organizationId;
+  const empId = Number(params.employeeId);
+  const prev = db.prepare('SELECT * FROM employee_opening_balances WHERE organization_id = ? AND employee_id = ?').get(orgId, empId);
+  if (!prev) return sendJson(res, 404, { error: 'Ese colaborador no tiene saldo inicial.' });
+  const locks = openingBalanceLock(orgId, prev.cutoff_date);
+  if (locks.length) return sendJson(res, 409, { error: `El saldo inicial ya se aplico en el cierre de ${locks[0].closure_type} del ${locks[0].period_start} al ${locks[0].period_end}. Para eliminarlo, reabre ese periodo.` });
+  const reason = String(body.reason || '').trim().slice(0, 300);
+  if (reason.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo (minimo 5 caracteres).' });
+  db.prepare('DELETE FROM employee_opening_balances WHERE organization_id = ? AND employee_id = ?').run(orgId, empId);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'payroll.opening_balance_deleted', resourceType: 'employee', resourceId: String(empId), ip: getClientIp(req),
+    metadata: { anterior: { corte: prev.cutoff_date, extraDiurna: prev.hed, extraNocturna: prev.hen, recargoNocturno: prev.hon, dominical: prev.dom, nota: prev.note }, motivo: reason } });
+  sendJson(res, 200, { ok: true, balances: listOpeningBalances(orgId) });
 }
 
 // GET /api/payroll/closures?from=&to=
@@ -661,6 +757,9 @@ async function createPayrollClosure(req, res) {
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   const { type, from, to } = body;
   if (!CLOSURE_TYPES.includes(type)) return sendJson(res, 400, { error: 'Tipo de cierre invalido.' });
+  // Nada anterior o igual al Dia 0 se cierra con marcaciones: eso ya es saldo inicial.
+  const dz0 = getDayZero(orgId);
+  if (dz0 && from <= dz0) return sendJson(res, 400, { error: `El periodo debe iniciar despues del Dia 0 (${dz0}). Lo anterior se maneja como saldo inicial.` });
   if (!ISO_DATE.test(from || '') || !ISO_DATE.test(to || '') || from > to) return sendJson(res, 400, { error: 'Periodo invalido.' });
   const snapshot = body.snapshot && typeof body.snapshot === 'object' ? body.snapshot : null;
   if (!snapshot || !Array.isArray(snapshot.employees)) return sendJson(res, 400, { error: 'Faltan los valores del cierre.' });
@@ -803,6 +902,7 @@ async function replaceRotationPatterns(req, res) {
 }
 
 module.exports = {
+  setDayZero, saveOpeningBalance, deleteOpeningBalance,
   publishShifts, listShiftChanges, replaceRotationPatterns,
   listPayrollClosures, createPayrollClosure, reopenPayrollClosure,
   listPayrollAdjustments, savePayrollAdjustment, resetPayrollAdjustments,
