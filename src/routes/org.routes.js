@@ -91,8 +91,8 @@ function getOrgData(req, res, query) {
   const settingsRow = db.prepare('SELECT * FROM org_settings WHERE organization_id = ?').get(orgId);
   const departments = db.prepare('SELECT id, name, icon FROM departments WHERE organization_id = ? ORDER BY position ASC').all(orgId);
   const presetRows = db.prepare('SELECT data_json FROM shift_presets WHERE organization_id = ?').all(orgId);
-  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason, email, count_worked_days FROM employees WHERE organization_id = ?').all(orgId)
-    .map(({ night_surcharge, night_surcharge_reason, email, count_worked_days, ...e }) => ({ ...e, email: email || '', nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '', countWorkedDays: count_worked_days === 1 }));
+  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number FROM employees WHERE organization_id = ?').all(orgId)
+    .map(({ night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, ...e }) => ({ ...e, email: email || '', nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '', countWorkedDays: count_worked_days === 1, documentType: document_type || 'CC', documentNumber: document_number || '' }));
   // Usuario de la suite vinculado a cada colaborador (solo para quien gestiona usuarios).
   if (can(req, 'users.view')) {
     const linkedUsers = new Map(db.prepare('SELECT employee_id, email, status FROM users WHERE organization_id = ? AND employee_id IS NOT NULL').all(orgId)
@@ -127,6 +127,7 @@ function getOrgData(req, res, query) {
     orgSettings: settingsRow
       ? { orgName: settingsRow.org_name, logo: settingsRow.logo_base64, minimumWage: settingsRow.minimum_wage, includeSundayHoliday: settingsRow.include_sunday_holiday === 1, dayZero: settingsRow.day_zero || null, dayZeroLocked: hasActiveClosures(orgId) }
       : { orgName: 'Empresa', logo: null, minimumWage: 1750905, includeSundayHoliday: false, dayZero: null, dayZeroLocked: false },
+    orgNit: (db.prepare('SELECT nit FROM organizations WHERE id = ?').get(orgId) || {}).nit || '',
     openingBalances: canSeePayroll ? listOpeningBalances(orgId) : [],
     departments,
     shiftPresets: presetRows.map(r => JSON.parse(r.data_json)),
@@ -225,7 +226,7 @@ async function syncEmployeesAndShifts(req, res) {
     // Los empleados se ACTUALIZAN (no se borran y recrean) para no arrastrar en
     // cascada su historial de asistencia ni su perfil biometrico.
     const existing = new Map(
-      db.prepare('SELECT id, name, salary, night_surcharge, night_surcharge_reason, email, count_worked_days FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
+      db.prepare('SELECT id, name, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
     );
     const incomingIds = new Set(body.employees.map(e => Number(e.id)));
     const toDelete = [...existing.keys()].filter(id => !incomingIds.has(id));
@@ -240,16 +241,19 @@ async function syncEmployeesAndShifts(req, res) {
     const settingsRow = db.prepare('SELECT minimum_wage FROM org_settings WHERE organization_id = ?').get(orgId);
     const defaultSalary = (settingsRow && settingsRow.minimum_wage) || 1750905;
     const upsert = db.prepare(`
-      INSERT INTO employees (id, organization_id, name, role, department, department_id, salary, night_surcharge, night_surcharge_reason, email, count_worked_days)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO employees (id, organization_id, name, role, department, department_id, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, department = excluded.department, department_id = excluded.department_id, salary = excluded.salary,
-        night_surcharge = excluded.night_surcharge, night_surcharge_reason = excluded.night_surcharge_reason, email = excluded.email, count_worked_days = excluded.count_worked_days
+        night_surcharge = excluded.night_surcharge, night_surcharge_reason = excluded.night_surcharge_reason, email = excluded.email, count_worked_days = excluded.count_worked_days,
+        document_type = excluded.document_type, document_number = excluded.document_number
     `);
     let payrollIgnored = false;
     // Correos ya usados por colaboradores que NO vienen en la lista (y se conservan).
     const usedEmails = new Map();
+    const usedDocs = new Map();
     for (const [id, r] of existing) {
       if (!incomingIds.has(id) && !canDelete && r.email) usedEmails.set(String(r.email).toLowerCase(), id);
+      if (!incomingIds.has(id) && !canDelete && r.document_number) usedDocs.set(`${r.document_type || 'CC'}:${r.document_number}`, id);
     }
     for (const e of body.employees) {
       const prev = existing.get(Number(e.id));
@@ -264,6 +268,25 @@ async function syncEmployeesAndShifts(req, res) {
         email = prev && prev.email && String(prev.email).toLowerCase() !== email ? prev.email : null;
       }
       if (email) usedEmails.set(String(email).toLowerCase(), Number(e.id));
+
+      // Documento de identidad (opcional): tipo valido, numero con formato y unico.
+      const DOC_TYPES = ['CC', 'CE', 'PPT', 'PA', 'TI'];
+      let docType = DOC_TYPES.includes(String(e.documentType || '').toUpperCase()) ? String(e.documentType).toUpperCase() : 'CC';
+      let docNumber = String(e.documentNumber || '').replace(/[\s.]/g, '').toUpperCase().slice(0, 20) || null;
+      if (docNumber) {
+        const okFormat = ['CC', 'TI'].includes(docType) ? /^\d{3,12}$/.test(docNumber) : /^[A-Z0-9-]{3,20}$/.test(docNumber);
+        if (!okFormat) {
+          ignored.push(`documento no valido para "${String(e.name || '').slice(0, 60)}"`);
+          docType = prev ? (prev.document_type || 'CC') : 'CC'; docNumber = prev ? prev.document_number : null;
+        } else {
+          const key = `${docType}:${docNumber}`;
+          if (usedDocs.has(key) && usedDocs.get(key) !== Number(e.id)) {
+            ignored.push(`el documento ${docType} ${docNumber} ya pertenece a otro colaborador`);
+            docType = prev ? (prev.document_type || 'CC') : 'CC'; docNumber = prev ? prev.document_number : null;
+          }
+        }
+      }
+      if (docNumber) usedDocs.set(`${docType}:${docNumber}`, Number(e.id));
 
       const incomingNight = e.nightSurcharge === false ? 0 : 1;
       const incomingReason = incomingNight ? null : (String(e.nightSurchargeReason || '').slice(0, 300) || null);
@@ -285,7 +308,7 @@ async function syncEmployeesAndShifts(req, res) {
         const salaryChanged = e.salary !== undefined && Number(e.salary) !== Number(salary);
         if (salaryChanged || incomingNight !== nightSurcharge) payrollIgnored = true;
       }
-      upsert.run(e.id, orgId, String(e.name || '').slice(0, 120), String(e.role || '').slice(0, 120), e.department || null, e.departmentId || null, salary, nightSurcharge, reason, email || null, countDays);
+      upsert.run(e.id, orgId, String(e.name || '').slice(0, 120), String(e.role || '').slice(0, 120), e.department || null, e.departmentId || null, salary, nightSurcharge, reason, email || null, countDays, docNumber ? docType : null, docNumber);
       // Trazabilidad: activar/desactivar el conteo de dias laborados.
       const prevCount = prev ? (prev.count_worked_days === 1 ? 1 : 0) : 0;
       if (prevCount !== countDays) {
