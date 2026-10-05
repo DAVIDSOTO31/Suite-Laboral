@@ -559,6 +559,13 @@ function seedDemoDataForOrg(organizationId) {
               ON CONFLICT(organization_id) DO NOTHING`).run(organizationId, 'Empresa Demo', 1750905);
 }
 
+// Marcaciones MANUALES (administrador o "Seleccion manual" del kiosco): motivo
+// obligatorio guardado en la marcacion y marca en el dia para identificarlas.
+const markCols = db.prepare('PRAGMA table_info(attendance_marks)').all().map(c => c.name);
+if (!markCols.includes('manual_reason')) db.exec('ALTER TABLE attendance_marks ADD COLUMN manual_reason TEXT NULL');
+const dayCols2 = db.prepare('PRAGMA table_info(attendance_days)').all().map(c => c.name);
+if (!dayCols2.includes('manual_marks')) db.exec('ALTER TABLE attendance_days ADD COLUMN manual_marks INTEGER NOT NULL DEFAULT 0');
+
 // ---------------------------------------------------------------------------
 // CUADRO DE TURNOS: publicacion, historial de cambios y patrones de rotacion.
 //  - shift_publications: rangos de fechas publicados (los empleados solo ven
