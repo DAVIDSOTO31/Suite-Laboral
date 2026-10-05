@@ -102,6 +102,10 @@ route('PUT', '/api/org/settings', [requirePermission('settings.manage')], (req, 
 route('GET', '/api/payroll/adjustments', [requirePermission('reports.view')], (req, res, params, query) => org.listPayrollAdjustments(req, res, query));
 route('PUT', '/api/payroll/adjustments', [requirePermission('employees.edit_payroll')], (req, res) => org.savePayrollAdjustment(req, res));
 route('POST', '/api/payroll/adjustments/reset', [requirePermission('employees.edit_payroll')], (req, res) => org.resetPayrollAdjustments(req, res));
+// Dia 0 de la organizacion y saldos iniciales de colaboradores (migraciones).
+route('PUT', '/api/org/day-zero', [requirePermission('settings.manage')], (req, res) => org.setDayZero(req, res));
+route('PUT', '/api/payroll/opening-balance', [requirePermission('employees.edit_payroll')], (req, res) => org.saveOpeningBalance(req, res));
+route('POST', '/api/payroll/opening-balance/:employeeId/delete', [requirePermission('employees.edit_payroll')], (req, res, params) => org.deleteOpeningBalance(req, res, params));
 // Cuadro de turnos: publicar, historial de cambios y patrones de rotacion.
 route('POST', '/api/shifts/publish', [requirePermission('shifts.edit')], (req, res) => org.publishShifts(req, res));
 route('GET', '/api/shifts/changes', [requirePermission('shifts.view')], (req, res, params, query) => org.listShiftChanges(req, res, query));
