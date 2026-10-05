@@ -5004,10 +5004,11 @@
             const cache = appState._payrollOtCache;
             const rows = cache ? cache.rows.filter(r => Math.abs(r.hon) > 0.0001) : [];
             if (!rows.length) { showAppToast('No hay recargo nocturno en el periodo seleccionado.'); return; }
-            const header = ['Colaborador', 'Documento', 'Área', 'Horas recargo nocturno (decimal)', 'Horas recargo nocturno (h:mm)', 'Valor hora ordinaria (COP)', 'Valor recargo nocturno 35% (COP)'];
-            const data = rows.map(r => [r.emp.name, docLabel(r.emp), r.emp.department || '', Number(r.hon.toFixed(2)), hmText(r.hon), Math.round(r.hourlyRate), Math.round(r.honPay)]);
+            const header = ['Colaborador', 'Documento', 'Área', 'Horas recargo nocturno (decimal)', 'Horas recargo nocturno (h:mm)', 'Valor hora ordinaria (COP)', 'Valor hora recargo 35% (COP)', 'Valor recargo nocturno (COP)'];
+            const data = rows.map(r => [r.emp.name, docLabel(r.emp), r.emp.department || '', Number(r.hon.toFixed(2)), hmText(r.hon), Math.round(r.hourlyRate),
+                Math.round(r.hon ? r.honPay / r.hon : r.hourlyRate * appState.settings.percHON), Math.round(r.honPay)]);
             const totH = rows.reduce((a, r) => a + r.hon, 0), totP = rows.reduce((a, r) => a + r.honPay, 0);
-            data.push(['TOTAL PERIODO', '', '', Number(totH.toFixed(2)), hmText(totH), '', Math.round(totP)]);
+            data.push(['TOTAL PERIODO', '', '', Number(totH.toFixed(2)), hmText(totH), '', '', Math.round(totP)]);
             try {
                 await downloadXLSX(`Recargo_Nocturno_${cache.startDate}_al_${cache.endDate}${cache.closures && cache.closures.recargos ? '_CERRADO' : ''}.xlsx`, header, data, 'Recargo nocturno');
                 showAppToast('Reporte de recargo nocturno exportado.');
@@ -5020,22 +5021,26 @@
             const closed = cache.closures && cache.closures.extras;
             const header = ['Colaborador', 'Documento', 'Área',
                 'Extra diurna de los días (h:mm)', 'Saldo anterior (h:mm)', 'Extra diurna a pagar (decimal)', 'Extra diurna a pagar (h:mm)',
+                'Valor hora extra diurna (COP)',
                 appState.includeSundayHoliday ? 'Valor extra diurna (COP, incluye tarifa dominical/festiva)' : 'Valor extra diurna 125% (COP)',
                 'Saldo negativo que se traslada (h:mm)',
-                'Extra nocturna (decimal)', 'Extra nocturna (h:mm)', appState.includeSundayHoliday ? 'Valor extra nocturna (COP, incluye tarifa dominical/festiva)' : 'Valor extra nocturna 175% (COP)',
+                'Extra nocturna (decimal)', 'Extra nocturna (h:mm)', 'Valor hora extra nocturna (COP)', appState.includeSundayHoliday ? 'Valor extra nocturna (COP, incluye tarifa dominical/festiva)' : 'Valor extra nocturna 175% (COP)',
                 'Horas diurnas debidas compensadas (h:mm)', 'Descuento por deuda en diurnas (COP)', 'Extra nocturna a pagar (COP)',
                 'Total horas extras (COP)'];
             const data = rows.map(r => [r.emp.name, docLabel(r.emp), r.emp.department || '',
                 hmText(r.hedDays || 0), hmText(r.carryIn || 0), Number(r.hed.toFixed(2)), hmText(r.hed),
+                Math.round(r.hed ? r.hedPay / r.hed : (r.rateHed || r.hourlyRate * (1 + appState.settings.percHED))),
                 Math.round(r.hedPay), hmText(r.carryOut || 0),
-                Number(r.hen.toFixed(2)), hmText(r.hen), Math.round(r.henPayGross != null ? r.henPayGross : r.henPay),
+                Number(r.hen.toFixed(2)), hmText(r.hen),
+                Math.round(r.hen ? (r.henPayGross != null ? r.henPayGross : r.henPay) / r.hen : r.hourlyRate * (1 + appState.settings.percHEN)),
+                Math.round(r.henPayGross != null ? r.henPayGross : r.henPay),
                 hmText(r.offsetHours || 0), Math.round(r.offsetValue || 0), Math.round(r.henPay),
                 Math.round(r.hedPay + r.henPay)]);
             const sum = (f) => rows.reduce((a, r) => a + (r[f] || 0), 0);
             data.push(['TOTAL PERIODO' + (closed ? ' (CERRADO)' : ''), '', '',
                 hmText(sum('hedDays')), hmText(sum('carryIn')), Number(sum('hed').toFixed(2)), hmText(sum('hed')),
-                Math.round(sum('hedPay')), hmText(sum('carryOut')),
-                Number(sum('hen').toFixed(2)), hmText(sum('hen')), Math.round(rows.reduce((a, r) => a + (r.henPayGross != null ? r.henPayGross : r.henPay), 0)),
+                '', Math.round(sum('hedPay')), hmText(sum('carryOut')),
+                Number(sum('hen').toFixed(2)), hmText(sum('hen')), '', Math.round(rows.reduce((a, r) => a + (r.henPayGross != null ? r.henPayGross : r.henPay), 0)),
                 hmText(sum('offsetHours')), Math.round(sum('offsetValue')), Math.round(sum('henPay')),
                 Math.round(sum('hedPay') + sum('henPay'))]);
             try {
@@ -5531,6 +5536,22 @@
         // =================================================================
         // COLILLAS DE PAGO DESDE PERIODOS CERRADOS (valores congelados)
         // =================================================================
+        // Valor por hora de cada concepto (lo que vale UNA hora de ese concepto).
+        // Si el cierre tiene horas, se usa el valor efectivo (valor / horas), que
+        // incluye tarifas dominicales cuando aplicaron; si no, la tarifa legal.
+        function conceptUnitRates(e, toDate) {
+            const st = appState.settings;
+            const hourly = e.hourlyRate || ((appState.employees.find(x => Number(x.id) === Number(e.employeeId)) || {}).salary || st.smlmv2026) / legalMonthlyDividerForDate(toDate);
+            const henGross = e.henPayGross != null ? e.henPayGross : e.henPay;
+            return {
+                hourly,
+                hon: e.hon ? (e.honPay || 0) / e.hon : hourly * st.percHON,
+                dom: e.domHours ? (e.domPay || 0) / e.domHours : hourly * legalSundayPctForDate(toDate),
+                hed: e.hed ? (e.hedPay || 0) / e.hed : hourly * (1 + st.percHED),
+                hen: e.hen ? (henGross || 0) / e.hen : hourly * (1 + st.percHEN),
+            };
+        }
+
         // Datos del colaborador que se congelan al cerrar (para la colilla).
         function payslipFrozen(r) {
             return {
@@ -5628,28 +5649,30 @@
                 T('Valor hora ordinaria', M + 95, y + 11, 7.5, 'bold', [100, 116, 139]); T(pdfMoney(hourly), M + 95, y + 15.5, 9);
                 y += 26;
                 // Conceptos
-                const lines = [];
+                const u = conceptUnitRates(e, closure.to);
+                const lines = []; // [concepto, horas, valor hora, valor]
                 if (type === 'extras') {
-                    if (e.hedDays) lines.push(['Extra diurna de los días trabajados', pdfHM(e.hedDays) + ' h', '']);
-                    if (e.carryIn) lines.push(['Saldo anterior (tiempo pendiente por compensar)', pdfHM(e.carryIn) + ' h', '']);
-                    if (e.openHed) lines.push(['Saldo inicial (Día 0) - extra diurna', pdfHM(e.openHed) + ' h', '']);
-                    lines.push(['Hora extra diurna pagada (125%)', pdfHM(e.hed) + ' h', pdfMoney(e.hedPay)]);
+                    if (e.hedDays) lines.push(['Extra diurna de los días trabajados', pdfHM(e.hedDays) + ' h', '', '']);
+                    if (e.carryIn) lines.push(['Saldo anterior (tiempo pendiente por compensar)', pdfHM(e.carryIn) + ' h', '', '']);
+                    if (e.openHed) lines.push(['Saldo inicial (Día 0) - extra diurna', pdfHM(e.openHed) + ' h', '', '']);
+                    lines.push(['Hora extra diurna pagada (125%)', pdfHM(e.hed) + ' h', pdfMoney(u.hed), pdfMoney(e.hedPay)]);
                     const henGross = e.henPayGross != null ? e.henPayGross : e.henPay;
-                    lines.push(['Hora extra nocturna (175%)' + (e.openHen ? ` (incluye saldo inicial ${pdfHM(e.openHen)} h)` : ''), pdfHM(e.hen) + ' h', pdfMoney(henGross)]);
-                    if (e.offsetValue) lines.push([`Descuento por tiempo diurno adeudado (${pdfHM(e.offsetHours)} h)`, '', '-' + pdfMoney(e.offsetValue)]);
+                    lines.push(['Hora extra nocturna (175%)' + (e.openHen ? ` (incluye saldo inicial ${pdfHM(e.openHen)} h)` : ''), pdfHM(e.hen) + ' h', pdfMoney(u.hen), pdfMoney(henGross)]);
+                    if (e.offsetValue) lines.push([`Descuento por tiempo diurno adeudado (${pdfHM(e.offsetHours)} h)`, pdfHM(-(e.offsetHours || 0)) + ' h', pdfMoney(u.hed), '-' + pdfMoney(e.offsetValue)]);
                 } else {
-                    lines.push(['Recargo nocturno ordinario (35%)' + (e.openHon ? ` (incluye saldo inicial ${pdfHM(e.openHon)} h)` : ''), pdfHM(e.hon) + ' h', pdfMoney(e.honPay)]);
-                    if (e.domHours || e.domPay) lines.push(['Recargo dominical / festivo' + (e.openDom ? ` (incluye saldo inicial ${pdfHM(e.openDom)} h)` : ''), pdfHM(e.domHours) + ' h', pdfMoney(e.domPay)]);
+                    lines.push(['Recargo nocturno ordinario (35%)' + (e.openHon ? ` (incluye saldo inicial ${pdfHM(e.openHon)} h)` : ''), pdfHM(e.hon) + ' h', pdfMoney(u.hon), pdfMoney(e.honPay)]);
+                    if (e.domHours || e.domPay) lines.push(['Recargo dominical / festivo' + (e.openDom ? ` (incluye saldo inicial ${pdfHM(e.openDom)} h)` : ''), pdfHM(e.domHours) + ' h', pdfMoney(u.dom), pdfMoney(e.domPay)]);
                 }
                 const total = type === 'extras' ? (e.hedPay || 0) + (e.henPay || 0) : (e.honPay || 0) + (e.domPay || 0);
                 doc.setFillColor(15, 23, 42); doc.rect(M, y - 4.5, W - 2 * M, 7, 'F');
-                T('Concepto', M + 3, y, 8, 'bold', [255, 255, 255]); T('Horas', M + 125, y, 8, 'bold', [255, 255, 255], { align: 'right' }); T('Valor', W - M - 3, y, 8, 'bold', [255, 255, 255], { align: 'right' });
+                T('Concepto', M + 3, y, 8, 'bold', [255, 255, 255]); T('Horas', M + 106, y, 8, 'bold', [255, 255, 255], { align: 'right' });
+                T('Valor hora', M + 136, y, 8, 'bold', [255, 255, 255], { align: 'right' }); T('Valor', W - M - 3, y, 8, 'bold', [255, 255, 255], { align: 'right' });
                 y += 8;
                 lines.forEach(l => {
-                    const neg = String(l[2]).startsWith('-') || String(l[1]).startsWith('-');
-                    T(doc.splitTextToSize(l[0], 105)[0], M + 3, y, 8.5);
-                    T(l[1], M + 125, y, 8.5, 'normal', String(l[1]).startsWith('-') ? [190, 18, 60] : [30, 41, 59], { align: 'right' });
-                    T(l[2], W - M - 3, y, 8.5, 'bold', String(l[2]).startsWith('-') ? [190, 18, 60] : [30, 41, 59], { align: 'right' });
+                    T(doc.splitTextToSize(l[0], 88)[0], M + 3, y, 8.5);
+                    T(l[1], M + 106, y, 8.5, 'normal', String(l[1]).startsWith('-') ? [190, 18, 60] : [30, 41, 59], { align: 'right' });
+                    T(l[2], M + 136, y, 8.5, 'normal', [71, 85, 105], { align: 'right' });
+                    T(l[3], W - M - 3, y, 8.5, 'bold', String(l[3]).startsWith('-') ? [190, 18, 60] : [30, 41, 59], { align: 'right' });
                     doc.setDrawColor(226, 232, 240); doc.line(M, y + 2.5, W - M, y + 2.5);
                     y += 7;
                 });
@@ -5789,15 +5812,19 @@
                 ]);
                 section('Detalle por colaborador');
                 const empDoc = (id) => docLabel(appState.employees.find(x => Number(x.id) === Number(id)));
+                const dom = !!closure.snapshot.includeSundayHoliday;
                 const cols = [
-                    { h: 'Colaborador', w: 46 }, { h: 'Documento', w: 28 }, { h: 'Área', w: 30 },
-                    { h: 'Horas recargo nocturno', w: 22, align: 'right' }, { h: 'Valor recargo nocturno', w: 24, align: 'right' },
-                    ...(closure.snapshot.includeSundayHoliday ? [{ h: 'Horas dominical/festivo', w: 22, align: 'right' }, { h: 'Valor dominical/festivo', w: 24, align: 'right' }] : []),
-                    { h: 'Total pagado', w: 24, align: 'right' },
+                    { h: 'Colaborador', w: 40 }, { h: 'Documento', w: 26 }, { h: 'Área', w: 24 },
+                    { h: 'Horas recargo nocturno', w: 20, align: 'right' }, { h: 'Valor hora recargo (35%)', w: 22, align: 'right' }, { h: 'Valor recargo nocturno', w: 22, align: 'right' },
+                    ...(dom ? [{ h: 'Horas dominical/festivo', w: 20, align: 'right' }, { h: 'Valor hora dominical', w: 22, align: 'right' }, { h: 'Valor dominical/festivo', w: 22, align: 'right' }] : []),
+                    { h: 'Total pagado', w: 22, align: 'right' },
                 ];
-                const rows = emps.map(e => [e.name, empDoc(e.employeeId), e.department || '', pdfHM(e.hon), pdfMoney(e.honPay),
-                    ...(closure.snapshot.includeSundayHoliday ? [pdfHM(e.domHours), pdfMoney(e.domPay)] : []), pdfMoney((e.honPay || 0) + (e.domPay || 0))]);
-                table(cols, rows, ['TOTAL', '', '', pdfHM(tH), pdfMoney(tP), ...(closure.snapshot.includeSundayHoliday ? [pdfHM(dH), pdfMoney(dP)] : []), pdfMoney(tP + dP)]);
+                const rows = emps.map(e => {
+                    const u = conceptUnitRates(e, closure.to);
+                    return [e.name, empDoc(e.employeeId), e.department || '', pdfHM(e.hon), pdfMoney(u.hon), pdfMoney(e.honPay),
+                        ...(dom ? [pdfHM(e.domHours), pdfMoney(u.dom), pdfMoney(e.domPay)] : []), pdfMoney((e.honPay || 0) + (e.domPay || 0))];
+                });
+                table(cols, rows, ['TOTAL', '', '', pdfHM(tH), '', pdfMoney(tP), ...(dom ? [pdfHM(dH), '', pdfMoney(dP)] : []), pdfMoney(tP + dP)]);
             } else {
                 const sum = (f) => emps.reduce((a, e) => a + (Number(e[f]) || 0), 0);
                 const debtors = emps.filter(e => (e.carryOut || 0) < 0);
@@ -5813,16 +5840,21 @@
                 const red = (v) => (String(v).startsWith('-') ? [190, 18, 60] : null);
                 const empDocX = (id) => docLabel(appState.employees.find(x => Number(x.id) === Number(id)));
                 table([
-                    { h: 'Colaborador', w: 38 }, { h: 'Documento', w: 22 }, { h: 'Área', w: 20 },
-                    { h: 'Diurna de los días', w: 17, align: 'right', color: red }, { h: 'Saldo anterior', w: 16, align: 'right', color: red },
-                    { h: 'Diurna pagada', w: 15, align: 'right' }, { h: 'Valor diurna', w: 19, align: 'right' },
-                    { h: 'Nocturna (horas)', w: 15, align: 'right' }, { h: 'Descuento deuda diurna', w: 19, align: 'right', color: (v) => (v && v !== '$0' ? [190, 18, 60] : null) },
-                    { h: 'Valor nocturna pagado', w: 19, align: 'right' }, { h: 'Total pagado', w: 19, align: 'right' },
-                    { h: 'Queda debiendo (horas)', w: 18, align: 'right', color: red },
-                ], emps.map(e => [e.name, empDocX(e.employeeId), e.department || '', pdfHM(e.hedDays), pdfHM(e.carryIn), pdfHM(e.hed), pdfMoney(e.hedPay),
-                    pdfHM(e.hen), e.offsetValue ? '-' + pdfMoney(e.offsetValue) : '$0', pdfMoney(e.henPay), pdfMoney((e.hedPay || 0) + (e.henPay || 0)), pdfHM(e.carryOut)]),
-                ['TOTAL', '', '', pdfHM(sum('hedDays')), pdfHM(sum('carryIn')), pdfHM(sum('hed')), pdfMoney(sum('hedPay')),
-                    pdfHM(sum('hen')), sum('offsetValue') ? '-' + pdfMoney(sum('offsetValue')) : '$0', pdfMoney(sum('henPay')), pdfMoney(sum('hedPay') + sum('henPay')), pdfHM(sum('carryOut'))]);
+                    { h: 'Colaborador', w: 32 }, { h: 'Documento', w: 22 }, { h: 'Área', w: 16 },
+                    { h: 'Diurna de los días', w: 14, align: 'right', color: red }, { h: 'Saldo anterior', w: 13, align: 'right', color: red },
+                    { h: 'Diurna pagada (h)', w: 13, align: 'right' }, { h: 'Valor hora diurna', w: 16, align: 'right' }, { h: 'Valor diurna', w: 17, align: 'right' },
+                    { h: 'Nocturna (h)', w: 12, align: 'right' }, { h: 'Valor hora nocturna', w: 16, align: 'right' }, { h: 'Valor nocturna', w: 17, align: 'right' },
+                    { h: 'Descuento deuda diurna', w: 17, align: 'right', color: (v) => (v && v !== '$0' ? [190, 18, 60] : null) },
+                    { h: 'Nocturna pagada', w: 17, align: 'right' }, { h: 'Total pagado', w: 17, align: 'right' },
+                    { h: 'Queda debiendo (h)', w: 14, align: 'right', color: red },
+                ], emps.map(e => {
+                    const u = conceptUnitRates(e, closure.to);
+                    const henGross = e.henPayGross != null ? e.henPayGross : e.henPay;
+                    return [e.name, empDocX(e.employeeId), e.department || '', pdfHM(e.hedDays), pdfHM(e.carryIn), pdfHM(e.hed), pdfMoney(u.hed), pdfMoney(e.hedPay),
+                        pdfHM(e.hen), pdfMoney(u.hen), pdfMoney(henGross), e.offsetValue ? '-' + pdfMoney(e.offsetValue) : '$0', pdfMoney(e.henPay), pdfMoney((e.hedPay || 0) + (e.henPay || 0)), pdfHM(e.carryOut)];
+                }),
+                ['TOTAL', '', '', pdfHM(sum('hedDays')), pdfHM(sum('carryIn')), pdfHM(sum('hed')), '', pdfMoney(sum('hedPay')),
+                    pdfHM(sum('hen')), '', pdfMoney(emps.reduce((a, e) => a + (e.henPayGross != null ? e.henPayGross : (e.henPay || 0)), 0)), sum('offsetValue') ? '-' + pdfMoney(sum('offsetValue')) : '$0', pdfMoney(sum('henPay')), pdfMoney(sum('hedPay') + sum('henPay')), pdfHM(sum('carryOut'))]);
 
                 section('Tiempo adeudado al empleador que pasa al siguiente periodo');
                 if (!debtors.length) {
