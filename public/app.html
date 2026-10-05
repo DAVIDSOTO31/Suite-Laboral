@@ -930,6 +930,7 @@
                     <div>
                         <h3 class="font-bold text-slate-800 text-base">Volante Oficial de Liquidación de Recargos y Horas Extras</h3>
                         <p class="text-xs text-slate-500">Genere el anexo formal de nómina para adjuntar al desprendible de pago del colaborador.</p>
+                        <p class="text-3xs text-amber-700 font-semibold mt-1"><i class="fa-solid fa-circle-info"></i> Este volante es una estimación desde el cuadro de turnos. Para el soporte de pago oficial usa <strong>Liquidación → periodo cerrado → Colillas de pago</strong>.</p>
                     </div>
                     <div class="flex items-center gap-3">
                         <select id="reportEmpSelector" onchange="renderReportsView()" class="text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500">
@@ -1488,6 +1489,28 @@
             <div class="flex justify-end gap-2 border-t pt-3">
                 <button onclick="closeModal('modalSettings')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
                 <button onclick="saveSettingsForm()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow">Guardar Cambios</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Colillas de pago de un periodo cerrado -->
+    <div id="modalPayslip" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-200">
+            <div class="flex justify-between items-center border-b pb-3">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-receipt text-rose-600"></i> Colillas de pago</h3>
+                    <p class="text-xs text-slate-500" id="payslipSubtitle">-</p>
+                </div>
+                <button onclick="closeModal('modalPayslip')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <p class="text-xs text-slate-600">Se generan con los <strong>valores congelados del cierre</strong>: lo mismo que se aprobó y pagó. Incluyen el NIT de la empresa, el nombre y documento del colaborador, el detalle de cada concepto, el total en letras y espacio para firmas.</p>
+            <div class="text-xs">
+                <label class="block font-semibold text-slate-700 mb-1">Colaborador</label>
+                <select id="payslipEmp" class="w-full p-2 border rounded-lg bg-white"></select>
+            </div>
+            <div class="flex justify-end gap-2 border-t pt-3">
+                <button onclick="closeModal('modalPayslip')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                <button onclick="generatePayslips()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold shadow"><i class="fa-solid fa-file-pdf"></i> Generar PDF</button>
             </div>
         </div>
     </div>
@@ -5095,7 +5118,8 @@
                     </div>
                     <button onclick="applyExtrasRange()" class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-50"><i class="fa-solid fa-eye"></i> Revisar</button>
                     <button onclick="exportPayrollOvertimeOnlyXLSX()" class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"><i class="fa-solid fa-file-excel text-emerald-600"></i> Excel</button>
-                    ${closed ? `<button onclick="exportClosurePdf('extras')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white"><i class="fa-solid fa-file-pdf"></i> PDF del cierre</button>` : ''}
+                    ${closed ? `<button onclick="exportClosurePdf('extras')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white"><i class="fa-solid fa-file-pdf"></i> PDF del cierre</button>
+                    <button onclick="openPayslipModal('extras')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-50"><i class="fa-solid fa-receipt"></i> Colillas de pago</button>` : ''}
                     ${canClose && closed ? `<button onclick="reopenPayrollPeriod('${closed.id}', 'extras')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100"><i class="fa-solid fa-lock-open"></i> Reabrir</button>` : ''}
                     ${canClose && !closed && !others.length ? `<button onclick="closePayrollPeriod('extras')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white"><i class="fa-solid fa-lock"></i> Cerrar periodo</button>` : ''}
                 </div>
@@ -5504,6 +5528,162 @@
             }
         }
 
+        // =================================================================
+        // COLILLAS DE PAGO DESDE PERIODOS CERRADOS (valores congelados)
+        // =================================================================
+        // Datos del colaborador que se congelan al cerrar (para la colilla).
+        function payslipFrozen(r) {
+            return {
+                documentType: r.emp.documentNumber ? (r.emp.documentType || 'CC') : '',
+                documentNumber: r.emp.documentNumber || '',
+                role: r.emp.role || '',
+                salary: Number(r.emp.salary) || 0,
+                hourlyRate: Number(r.hourlyRate) || 0,
+            };
+        }
+        // Número a letras (pesos colombianos), hasta 999.999.999.
+        function numberToWordsES(n) {
+            n = Math.round(Math.abs(Number(n) || 0));
+            if (n === 0) return 'cero';
+            const U = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve', 'veinte', 'veintiuno', 'veintidós', 'veintitrés', 'veinticuatro', 'veinticinco', 'veintiséis', 'veintisiete', 'veintiocho', 'veintinueve'];
+            const D = ['', '', '', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
+            const C = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
+            const hundreds = (x) => {
+                if (x === 0) return '';
+                if (x === 100) return 'cien';
+                const c = Math.floor(x / 100), r = x % 100;
+                let t = '';
+                if (r < 30) t = U[r];
+                else t = D[Math.floor(r / 10)] + (r % 10 ? ' y ' + U[r % 10] : '');
+                return [C[c], t].filter(Boolean).join(' ');
+            };
+            const millions = Math.floor(n / 1e6), thousands = Math.floor((n % 1e6) / 1000), rest = n % 1000;
+            const parts = [];
+            if (millions) parts.push(millions === 1 ? 'un millón' : hundreds(millions).replace(/uno$/, 'un') + ' millones');
+            if (thousands) parts.push(thousands === 1 ? 'mil' : hundreds(thousands).replace(/uno$/, 'un') + ' mil');
+            if (rest) parts.push(hundreds(rest));
+            let out = parts.join(' ');
+            if (/millón$|millones$/.test(out)) out += ' de';
+            return out;
+        }
+        function moneyInWords(v) {
+            const w = numberToWordsES(v).replace(/uno$/, 'un').replace(/veintiun\b/g, 'veintiún');
+            const unit = Math.round(Math.abs(Number(v) || 0)) === 1 ? 'peso' : 'pesos';
+            return `${w.charAt(0).toUpperCase()}${w.slice(1)} ${unit} m/cte.`;
+        }
+
+        function openPayslipModal(type) {
+            const cache = appState._payrollOtCache;
+            const closure = cache && cache.closures && cache.closures[type];
+            if (!closure) { showAppToast('Este periodo no está cerrado.'); return; }
+            const emps = [...(closure.snapshot.employees || [])].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+            document.getElementById('payslipSubtitle').textContent = `${type === 'extras' ? 'Horas extras' : 'Recargos'} · del ${pdfDate(closure.from)} al ${pdfDate(closure.to)}`;
+            document.getElementById('payslipEmp').innerHTML = `<option value="_ALL_">Todos (${emps.length}) · una colilla por página</option>` +
+                emps.map(e => `<option value="${e.employeeId}">${escapeHtml(e.name)}</option>`).join('');
+            document.getElementById('payslipEmp').dataset.type = type;
+            openModal('modalPayslip');
+        }
+
+        async function generatePayslips() {
+            const sel = document.getElementById('payslipEmp');
+            const type = sel.dataset.type;
+            const cache = appState._payrollOtCache;
+            const closure = cache && cache.closures && cache.closures[type];
+            if (!closure) return;
+            try {
+                await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
+            } catch (e) { showAppToast(e.message); return; }
+            const all = [...(closure.snapshot.employees || [])].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+            const list = sel.value === '_ALL_' ? all : all.filter(e => String(e.employeeId) === sel.value);
+            if (!list.length) { showAppToast('No hay colaboradores en este cierre.'); return; }
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+            const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 16;
+            const org = appState.orgName || '';
+            const T = (str, x, y, size = 9, style = 'normal', color = [30, 41, 59], opts = {}) => {
+                doc.setFont('helvetica', style); doc.setFontSize(size); doc.setTextColor(...color); doc.text(String(str), x, y, opts);
+            };
+            list.forEach((e, idx) => {
+                if (idx > 0) doc.addPage();
+                // Datos actuales solo como respaldo para cierres antiguos (sin datos congelados).
+                const cur = appState.employees.find(x => Number(x.id) === Number(e.employeeId)) || {};
+                const docTxt = e.documentNumber
+                    ? docLabel({ documentType: e.documentType, documentNumber: e.documentNumber })
+                    : (docLabel(cur) || 'Sin registrar');
+                const hourly = e.hourlyRate || ((cur.salary || appState.settings.smlmv2026) / legalMonthlyDividerForDate(closure.to));
+                let y = M;
+                // Encabezado
+                doc.setFillColor(15, 23, 42); doc.rect(0, 0, W, 30, 'F');
+                T(org, M, 13, 14, 'bold', [255, 255, 255]);
+                T(appState.orgNit ? `NIT: ${appState.orgNit}` : 'NIT: sin registrar', M, 20, 9, 'normal', [203, 213, 225]);
+                T(type === 'extras' ? 'COLILLA DE PAGO - HORAS EXTRAS' : 'COLILLA DE PAGO - RECARGOS', W - M, 13, 11, 'bold', [255, 255, 255], { align: 'right' });
+                T(`Periodo: ${pdfDate(closure.from)} al ${pdfDate(closure.to)}`, W - M, 20, 9, 'normal', [203, 213, 225], { align: 'right' });
+                T(`Cierre aprobado el ${closure.closedAt || '-'} (hora Colombia)`, W - M, 25.5, 7.5, 'normal', [148, 163, 184], { align: 'right' });
+                y = 40;
+                // Datos del colaborador
+                doc.setDrawColor(203, 213, 225); doc.setFillColor(248, 250, 252); doc.rect(M, y - 5, W - 2 * M, 22, 'FD');
+                T('Colaborador', M + 3, y, 7.5, 'bold', [100, 116, 139]); T(e.name, M + 3, y + 5, 10, 'bold');
+                T('Documento', M + 95, y, 7.5, 'bold', [100, 116, 139]); T(docTxt, M + 95, y + 5, 10, 'bold');
+                T('Cargo / Área', M + 3, y + 11, 7.5, 'bold', [100, 116, 139]); T(`${e.role || cur.role || '-'} · ${e.department || '-'}`, M + 3, y + 15.5, 9);
+                T('Valor hora ordinaria', M + 95, y + 11, 7.5, 'bold', [100, 116, 139]); T(pdfMoney(hourly), M + 95, y + 15.5, 9);
+                y += 26;
+                // Conceptos
+                const lines = [];
+                if (type === 'extras') {
+                    if (e.hedDays) lines.push(['Extra diurna de los días trabajados', pdfHM(e.hedDays) + ' h', '']);
+                    if (e.carryIn) lines.push(['Saldo anterior (tiempo pendiente por compensar)', pdfHM(e.carryIn) + ' h', '']);
+                    if (e.openHed) lines.push(['Saldo inicial (Día 0) - extra diurna', pdfHM(e.openHed) + ' h', '']);
+                    lines.push(['Hora extra diurna pagada (125%)', pdfHM(e.hed) + ' h', pdfMoney(e.hedPay)]);
+                    const henGross = e.henPayGross != null ? e.henPayGross : e.henPay;
+                    lines.push(['Hora extra nocturna (175%)' + (e.openHen ? ` (incluye saldo inicial ${pdfHM(e.openHen)} h)` : ''), pdfHM(e.hen) + ' h', pdfMoney(henGross)]);
+                    if (e.offsetValue) lines.push([`Descuento por tiempo diurno adeudado (${pdfHM(e.offsetHours)} h)`, '', '-' + pdfMoney(e.offsetValue)]);
+                } else {
+                    lines.push(['Recargo nocturno ordinario (35%)' + (e.openHon ? ` (incluye saldo inicial ${pdfHM(e.openHon)} h)` : ''), pdfHM(e.hon) + ' h', pdfMoney(e.honPay)]);
+                    if (e.domHours || e.domPay) lines.push(['Recargo dominical / festivo' + (e.openDom ? ` (incluye saldo inicial ${pdfHM(e.openDom)} h)` : ''), pdfHM(e.domHours) + ' h', pdfMoney(e.domPay)]);
+                }
+                const total = type === 'extras' ? (e.hedPay || 0) + (e.henPay || 0) : (e.honPay || 0) + (e.domPay || 0);
+                doc.setFillColor(15, 23, 42); doc.rect(M, y - 4.5, W - 2 * M, 7, 'F');
+                T('Concepto', M + 3, y, 8, 'bold', [255, 255, 255]); T('Horas', M + 125, y, 8, 'bold', [255, 255, 255], { align: 'right' }); T('Valor', W - M - 3, y, 8, 'bold', [255, 255, 255], { align: 'right' });
+                y += 8;
+                lines.forEach(l => {
+                    const neg = String(l[2]).startsWith('-') || String(l[1]).startsWith('-');
+                    T(doc.splitTextToSize(l[0], 105)[0], M + 3, y, 8.5);
+                    T(l[1], M + 125, y, 8.5, 'normal', String(l[1]).startsWith('-') ? [190, 18, 60] : [30, 41, 59], { align: 'right' });
+                    T(l[2], W - M - 3, y, 8.5, 'bold', String(l[2]).startsWith('-') ? [190, 18, 60] : [30, 41, 59], { align: 'right' });
+                    doc.setDrawColor(226, 232, 240); doc.line(M, y + 2.5, W - M, y + 2.5);
+                    y += 7;
+                });
+                y += 2;
+                doc.setFillColor(236, 253, 245); doc.rect(M, y - 5, W - 2 * M, 9, 'F');
+                T('TOTAL A PAGAR', M + 3, y + 0.5, 10, 'bold', [6, 95, 70]);
+                T(pdfMoney(total), W - M - 3, y + 0.5, 11, 'bold', [6, 95, 70], { align: 'right' });
+                y += 9;
+                T(`Son: ${moneyInWords(total)}`, M + 3, y, 8.5, 'italic', [71, 85, 105]);
+                y += 8;
+                if (type === 'extras' && (e.carryOut || 0) < 0) {
+                    doc.setFillColor(255, 241, 242); doc.rect(M, y - 4.5, W - 2 * M, 12, 'F');
+                    T(`Tiempo pendiente por compensar: ${pdfHM(e.carryOut)} h`, M + 3, y, 9, 'bold', [190, 18, 60]);
+                    T(`Pasa como saldo al periodo que inicia el ${pdfDate(nextDayISO(closure.to))}.`, M + 3, y + 5, 8, 'normal', [190, 18, 60]);
+                    y += 16;
+                }
+                T('Valores tomados del cierre aprobado del periodo, según las marcaciones de asistencia registradas.', M, y, 7.5, 'normal', [100, 116, 139]);
+                // Firmas
+                const fy = Math.max(y + 35, H - 55);
+                doc.setDrawColor(100, 116, 139);
+                doc.line(M, fy, M + 75, fy); doc.line(W - M - 75, fy, W - M, fy);
+                T('Firma del colaborador', M, fy + 5, 8.5, 'bold');
+                T(`${e.name} · ${docTxt}`, M, fy + 10, 7.5, 'normal', [71, 85, 105]);
+                T('Firma autorizada', W - M - 75, fy + 5, 8.5, 'bold');
+                T(org, W - M - 75, fy + 10, 7.5, 'normal', [71, 85, 105]);
+                T(`Generado el ${bogotaNowText()} (hora Colombia)`, M, H - 10, 7, 'normal', [148, 163, 184]);
+                T(`${idx + 1} / ${list.length}`, W - M, H - 10, 7, 'normal', [148, 163, 184], { align: 'right' });
+            });
+            const who = list.length === 1 ? '_' + String(list[0].name).replace(/\s+/g, '_') : '';
+            doc.save(`Colillas_${type === 'extras' ? 'Horas_Extras' : 'Recargos'}_${closure.from}_al_${closure.to}${who}.pdf`);
+            closeModal('modalPayslip');
+            showAppToast(`${list.length} colilla(s) generada(s).`);
+        }
+
         // -----------------------------------------------------------------
         // PDF CONSOLIDADO DE UN CIERRE (recargos u horas extras).
         // Se arma con los valores CONGELADOS del cierre (snapshot), así el PDF
@@ -5712,6 +5892,7 @@
                         </div>
                         <div class="flex flex-col gap-1.5 shrink-0">
                             <button onclick="exportClosurePdf('recargos')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white"><i class="fa-solid fa-file-pdf"></i> PDF del cierre</button>
+                            <button onclick="openPayslipModal('recargos')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-50"><i class="fa-solid fa-receipt"></i> Colillas de pago</button>
                             ${canClose && isLast ? `<button onclick="reopenPayrollPeriod('${cl.recargos.id}', 'recargos')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100"><i class="fa-solid fa-lock-open"></i> Reabrir</button>` : ''}
                         </div>
                     </div>
@@ -5798,7 +5979,7 @@
                 const emps = rows.filter(r => Math.abs(r.hon) > 0.0001 || (r.domHours || 0) > 0);
                 snapshot = {
                     includeSundayHoliday: !!appState.includeSundayHoliday,
-                    employees: emps.map(r => ({ employeeId: r.emp.id, name: r.emp.name, department: r.emp.department || '', hon: r.hon, honPay: r.honPay, domHours: r.domHours || 0, domPay: r.domPay || 0, openHon: r.openHon || 0, openDom: r.openDom || 0 })),
+                    employees: emps.map(r => ({ employeeId: r.emp.id, name: r.emp.name, department: r.emp.department || '', hon: r.hon, honPay: r.honPay, domHours: r.domHours || 0, domPay: r.domPay || 0, openHon: r.openHon || 0, openDom: r.openDom || 0, ...payslipFrozen(r) })),
                 };
                 snapshot.totals = { pay: emps.reduce((a, r) => a + r.honPay + (r.domPay || 0), 0) };
                 summary = `RECARGOS del ${cache.startDate} al ${cache.endDate}\n${emps.length} colaborador(es) · Total ${money(snapshot.totals.pay)}`;
@@ -5806,6 +5987,7 @@
                 const emps = rows.filter(r => Math.abs(r.hedDays || 0) > 0.0001 || r.carryIn || r.openHed || Math.abs(r.hen) > 0.0001);
                 snapshot = {
                     employees: emps.map(r => ({ employeeId: r.emp.id, name: r.emp.name, department: r.emp.department || '',
+                        ...payslipFrozen(r),
                         hedDays: r.hedDays || 0, carryIn: r.carryIn || 0, hed: r.hed, hedPay: r.hedPay, carryOut: r.carryOut || 0,
                         hen: r.hen, henPayGross: r.henPayGross != null ? r.henPayGross : r.henPay, offsetHours: r.offsetHours || 0, offsetValue: r.offsetValue || 0, henPay: r.henPay,
                         openHed: r.openHed || 0, openHen: r.openHen || 0 })),
