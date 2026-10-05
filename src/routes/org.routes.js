@@ -669,7 +669,13 @@ async function setDayZero(req, res) {
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   const date = body.date === null ? null : String(body.date || '');
   if (date !== null && !ISO_DATE.test(date)) return sendJson(res, 400, { error: 'Fecha invalida.' });
-  if (hasActiveClosures(orgId)) return sendJson(res, 409, { error: 'El Dia 0 ya no se puede cambiar porque existen periodos cerrados.' });
+  // Con periodos cerrados, el Dia 0 solo puede quedar ANTES de todos ellos
+  // (organizaciones que ya liquidaban en la suite antes de existir el Dia 0).
+  const firstClosed = db.prepare("SELECT MIN(period_start) AS d FROM payroll_closures WHERE organization_id = ? AND status = 'cerrado'").get(orgId);
+  if (firstClosed && firstClosed.d) {
+    if (getDayZero(orgId)) return sendJson(res, 409, { error: 'El Dia 0 ya no se puede cambiar porque existen periodos cerrados.' });
+    if (!date || date >= firstClosed.d) return sendJson(res, 409, { error: `Ya hay periodos cerrados desde el ${firstClosed.d}. El Dia 0 debe ser anterior a esa fecha.` });
+  }
   const tooEarly = date && db.prepare('SELECT employee_id FROM employee_opening_balances WHERE organization_id = ? AND cutoff_date < ? LIMIT 1').get(orgId, date);
   if (tooEarly) return sendJson(res, 409, { error: 'Hay saldos iniciales con fecha de corte anterior a ese Dia 0. Ajustalos primero.' });
   const exists = db.prepare('SELECT 1 FROM org_settings WHERE organization_id = ?').get(orgId);
