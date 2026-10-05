@@ -102,6 +102,10 @@ route('PUT', '/api/org/settings', [requirePermission('settings.manage')], (req, 
 route('GET', '/api/payroll/adjustments', [requirePermission('reports.view')], (req, res, params, query) => org.listPayrollAdjustments(req, res, query));
 route('PUT', '/api/payroll/adjustments', [requirePermission('employees.edit_payroll')], (req, res) => org.savePayrollAdjustment(req, res));
 route('POST', '/api/payroll/adjustments/reset', [requirePermission('employees.edit_payroll')], (req, res) => org.resetPayrollAdjustments(req, res));
+// Cuadro de turnos: publicar, historial de cambios y patrones de rotacion.
+route('POST', '/api/shifts/publish', [requirePermission('shifts.edit')], (req, res) => org.publishShifts(req, res));
+route('GET', '/api/shifts/changes', [requirePermission('shifts.view')], (req, res, params, query) => org.listShiftChanges(req, res, query));
+route('PUT', '/api/org/rotation-patterns', [requirePermission('shifts.edit')], (req, res) => org.replaceRotationPatterns(req, res));
 // Cierres de periodo (recargos y horas extras por separado).
 route('GET', '/api/payroll/closures', [requirePermission('reports.view')], (req, res, params, query) => org.listPayrollClosures(req, res, query));
 route('POST', '/api/payroll/closures', [requirePermission('employees.edit_payroll')], (req, res) => org.createPayrollClosure(req, res));
