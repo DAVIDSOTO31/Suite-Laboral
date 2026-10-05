@@ -51,6 +51,9 @@
 
       <div id="manualBox" class="hidden">
         <select id="employeeSelect" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm mb-3"></select>
+        <label class="block text-xs font-semibold text-slate-300 mb-1">¿Por qué marcas manualmente? <span class="text-rose-400">*</span></label>
+        <textarea id="manualReason" rows="2" maxlength="300" placeholder="Ej. La cámara no me reconoció" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm mb-1"></textarea>
+        <p class="text-2xs text-slate-400 mb-3">Obligatorio. Queda registrado y el administrador recibe una alerta.</p>
         <button onclick="doManualMark()" class="w-full py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 font-semibold text-sm">Marcar ahora</button>
       </div>
 
@@ -280,8 +283,19 @@ async function loadEmployeesForManual() {
 async function doManualMark() {
   const sel = document.getElementById('employeeSelect');
   if (!sel.value || sel.selectedOptions[0]?.dataset.noshift) return;
+  const reasonEl = document.getElementById('manualReason');
+  const reason = (reasonEl.value || '').trim();
+  if (reason.length < 5) {
+    const box = document.getElementById('resultBox');
+    box.className = 'mt-4 bg-rose-900/50 border border-rose-700 rounded-xl p-4 text-rose-200 text-sm';
+    box.textContent = 'Escribe por qué marcas manualmente (mínimo 5 caracteres).';
+    box.classList.remove('hidden');
+    reasonEl.focus();
+    return;
+  }
   try {
-    const r = await apiKiosk('/api/kiosk/mark', { method: 'POST', body: JSON.stringify({ employeeId: Number(sel.value) }) });
+    const r = await apiKiosk('/api/kiosk/mark', { method: 'POST', body: JSON.stringify({ employeeId: Number(sel.value), reason }) });
+    reasonEl.value = '';
     renderResult(r);
     loadEmployeesForManual();
   } catch (e) {
