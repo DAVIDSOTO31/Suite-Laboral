@@ -799,6 +799,7 @@
                                     </button>
                                     <span id="detailEmpUserBox" data-perm="users.create"></span>
                                 </div>
+                                <div id="detailEmpOpeningBox" data-perm="reports.view" class="mt-2"></div>
                                 <label class="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-purple-900 cursor-pointer bg-purple-50 border border-purple-200 rounded-lg px-2.5 py-1">
                                     <input type="checkbox" id="detailEmpNightSurcharge" class="w-4 h-4 accent-purple-600" onchange="toggleEmployeeNightSurcharge(this)">
                                     Aplica recargo nocturno
@@ -1365,6 +1366,7 @@
                 </div>
 
                 <!-- KPIs del periodo -->
+                <div id="payrollOtDayZeroBox"></div>
                 <div id="payrollOtClosureBox" class="grid grid-cols-1 lg:grid-cols-2 gap-3"></div>
                 <div id="payrollOtPendingBox" class="hidden"></div>
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" id="payrollOtKpiCards">
@@ -1481,6 +1483,80 @@
             <div class="flex justify-end gap-2 border-t pt-3">
                 <button onclick="closeModal('modalSettings')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
                 <button onclick="saveSettingsForm()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow">Guardar Cambios</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Dia 0 de la organizacion -->
+    <div id="modalDayZero" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-200">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-flag-checkered text-sky-600"></i> Día 0 de la organización</h3>
+                <button onclick="closeModal('modalDayZero')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <p class="text-xs text-slate-600">Es la <strong>fecha de corte</strong> de la migración a la suite. Lo anterior se registra como <strong>saldo inicial</strong> de cada colaborador; desde el día siguiente la suite calcula todo con sus marcaciones. El primer periodo de recargos empieza el día siguiente al Día 0.</p>
+            <div class="text-xs">
+                <label class="block font-semibold text-slate-700 mb-1">Fecha del Día 0</label>
+                <input type="date" id="dayZeroInput" class="w-full p-2 border rounded-lg">
+                <p class="text-3xs text-slate-500 mt-1">Se puede cambiar mientras no exista ningún periodo cerrado. Después queda bloqueado.</p>
+            </div>
+            <div class="flex justify-end gap-2 border-t pt-3">
+                <button onclick="closeModal('modalDayZero')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                <button onclick="submitDayZero()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow">Guardar Día 0</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Saldo inicial del colaborador -->
+    <div id="modalOpening" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-4 border border-slate-200 max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b pb-3">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-scale-balanced text-sky-600"></i> Saldo inicial</h3>
+                    <p class="text-xs text-slate-500" id="openingSubtitle">-</p>
+                </div>
+                <button onclick="closeModal('modalOpening')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <input type="hidden" id="openingEmpId">
+            <div class="text-xs space-y-3">
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Fecha de corte</label>
+                    <input type="date" id="openingCutoff" class="w-full p-2 border rounded-lg">
+                    <p class="text-3xs text-slate-500 mt-1">Para el personal que ya estaba: el Día 0. Para quien llega después con un saldo de antes: su propia fecha de corte. El saldo entra en el primer periodo que incluye el día siguiente.</p>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Extra diurna (horas)</label>
+                        <input type="number" step="0.25" id="openingHed" value="0" class="w-full p-2 border rounded-lg">
+                        <p class="text-3xs text-slate-500 mt-0.5">Positivo: la empresa le debe. Negativo: el colaborador debe tiempo.</p>
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Extra nocturna (horas)</label>
+                        <input type="number" step="0.25" min="0" id="openingHen" value="0" class="w-full p-2 border rounded-lg">
+                        <p class="text-3xs text-slate-500 mt-0.5">Horas pendientes por pagar.</p>
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Recargo nocturno (horas)</label>
+                        <input type="number" step="0.25" min="0" id="openingHon" value="0" class="w-full p-2 border rounded-lg">
+                        <p class="text-3xs text-slate-500 mt-0.5">Horas pendientes por pagar.</p>
+                    </div>
+                    <div id="openingDomBox">
+                        <label class="block font-semibold text-slate-700 mb-1">Dominical/festivo (horas)</label>
+                        <input type="number" step="0.25" min="0" id="openingDom" value="0" class="w-full p-2 border rounded-lg">
+                        <p class="text-3xs text-slate-500 mt-0.5">Solo se liquida si la organización tiene activos los dominicales.</p>
+                    </div>
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Nota de soporte <span class="text-rose-600">*</span></label>
+                    <textarea id="openingNote" rows="2" maxlength="300" placeholder="Ej. Saldo según planilla de Excel de septiembre, aprobada por gerencia" class="w-full p-2 border rounded-lg"></textarea>
+                </div>
+            </div>
+            <div class="flex justify-between gap-2 border-t pt-3">
+                <button id="openingDeleteBtn" onclick="deleteOpeningBalance()" class="px-4 py-2 bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-semibold">Eliminar saldo</button>
+                <div class="flex gap-2">
+                    <button onclick="closeModal('modalOpening')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                    <button onclick="submitOpeningBalance()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow">Guardar saldo</button>
+                </div>
             </div>
         </div>
     </div>
@@ -3150,6 +3226,7 @@
 
             setSafeText('detailEmpName', emp.name);
             setSafeText('detailEmpRole', `${emp.role} • ${emp.department || 'General'}`);
+            renderEmployeeOpeningBox(emp);
             const emailEl = document.getElementById('detailEmpEmail');
             if (emailEl) {
                 emailEl.classList.toggle('hidden', !emp.email);
@@ -4346,6 +4423,9 @@
                 }
                 const acc = byEmp[emp.id];
 
+                // Los dias hasta el Dia 0 (inclusive) ya estan en el saldo inicial:
+                // no se liquidan con marcaciones (evita contarlos dos veces).
+                if (appState.dayZero && s.date <= appState.dayZero) return;
                 const real = realByKey[`${emp.id}_${s.date}`];
                 if (!real) {
                     // Turno sin marcacion real cerrada.
@@ -4417,6 +4497,7 @@
             // Aplica ajustes manuales guardados (si el usuario ya editó alguna celda de este colaborador)
             appState._payrollOtCache = { rows: [], startDate, endDate };
             appState._payrollOtPending = { days: pendingDays, upcoming: upcomingDays, includeEstimates };
+            appState._payrollOtOpenMissing = [];
             appState._payrollOtAdjHistory = adjHistory;
             const edits = adjByEmp;
 
@@ -4460,6 +4541,32 @@
                 const emp = appState.employees.find(e => Number(e.id) === Number(id));
                 if (emp && deptOk(emp)) rows.push(blankRow(emp));
             });
+            // --- Saldos iniciales (Dia 0) --------------------------------------
+            // Cada saldo entra UNA vez: en el periodo que incluye el dia siguiente a
+            // su fecha de corte. Extras: la diurna (+/-) se suma al saldo y la
+            // nocturna se paga. Recargos: se suman las horas pendientes.
+            const openNotIncluded = [];
+            (appState.openingBalances || []).forEach(b => {
+                const day = nextDayISO(b.cutoff);
+                const emp = appState.employees.find(e => Number(e.id) === Number(b.employeeId));
+                if (!emp || !deptOk(emp)) return;
+                if (day < startDate || day > endDate) {
+                    if (day < startDate && !(b.lockedBy || []).length) openNotIncluded.push({ emp, day });
+                    return;
+                }
+                let r = rows.find(x => Number(x.emp.id) === Number(emp.id));
+                if (!r) { r = blankRow(emp); rows.push(r); }
+                const st = appState.settings;
+                r.openHed = Number(b.hed) || 0;
+                r.openHen = Number(b.hen) || 0;
+                r.openHon = Number(b.hon) || 0;
+                r.openDom = appState.includeSundayHoliday ? (Number(b.dom) || 0) : 0;
+                r.openNote = b.note;
+                if (r.openHen) { r.hen += r.openHen; r.henPay += r.openHen * r.hourlyRate * (1 + st.percHEN); }
+                if (r.openHon) { r.hon += r.openHon; r.honPay += r.openHon * r.hourlyRate * st.percHON; }
+                if (r.openDom) { r.domHours = (r.domHours || 0) + r.openDom; r.domPay = (r.domPay || 0) + r.openDom * r.hourlyRate * legalSundayPctForDate(day); }
+                if (!r.rateHed) r.rateHed = r.hourlyRate * (1 + st.percHED);
+            });
             // Las extras diurnas del periodo se suman con el saldo anterior. Si el
             // resultado es negativo, NO se paga extra diurna y el saldo pasa al
             // siguiente periodo para que el colaborador lo compense.
@@ -4475,7 +4582,7 @@
                 r.henPayGross = r.henPay;
                 r.offsetHours = 0;
                 r.offsetValue = 0;
-                const net = r.hedDays + r.carryIn;
+                const net = r.hedDays + r.carryIn + (r.openHed || 0);
                 if (net >= 0) {
                     r.hed = net;
                     r.hedPay = net * r.rateHed;
@@ -4516,6 +4623,7 @@
                 (closedRecargos.snapshot.employees || []).forEach(e => {
                     const r = ensureRow(e); if (!r) return;
                     r.hon = e.hon || 0; r.honPay = e.honPay || 0; r.domHours = e.domHours || 0; r.domPay = e.domPay || 0;
+                    r.openHon = e.openHon || 0; r.openDom = e.openDom || 0;
                 });
             }
             if (closedExtras) {
@@ -4526,10 +4634,12 @@
                     r.carryOut = e.carryOut || 0; r.hen = e.hen || 0; r.henPay = e.henPay || 0;
                     r.henGross = e.hen || 0; r.henPayGross = e.henPayGross != null ? e.henPayGross : (e.henPay || 0);
                     r.offsetHours = e.offsetHours || 0; r.offsetValue = e.offsetValue || 0;
+                    r.openHed = e.openHed || 0; r.openHen = e.openHen || 0;
                 });
             }
             rows.forEach(r => { r.total = r.honPay + r.hedPay + r.henPay + (r.domPay || 0); });
             rows.sort((a, b) => a.emp.name.localeCompare(b.emp.name));
+            appState._payrollOtOpenMissing = openNotIncluded;
 
             // Guardamos el cálculo vigente para reutilizarlo en las ediciones en vivo y la exportación CSV
             appState._payrollOtCache = {
@@ -4593,6 +4703,7 @@
             const pendingByEmp = {};
             pend.days.forEach(d => { pendingByEmp[d.emp.id] = (pendingByEmp[d.emp.id] || 0) + 1; });
             renderPayrollPendingBox(pend, money);
+            renderPayrollDayZeroBox();
             renderPayrollClosureBox(money);
 
             const tbody = document.getElementById('payrollOtTableBody');
@@ -4620,18 +4731,20 @@
                                 <span class="inline-block min-w-[4.5rem] text-center font-mono rounded-lg p-1.5 bg-purple-50/60 border border-purple-200 text-purple-900 font-bold">${r.hon.toFixed(2)}</span>
                                 <span class="block text-2xs font-mono text-purple-700 mt-0.5">${formatHMSigned(r.hon)}</span>
                                 <span class="block text-xs font-mono font-bold text-purple-900">${money(r.honPay)}</span>
+                                ${r.openHon ? `<span class="block text-3xs font-semibold text-sky-700">Incluye saldo inicial: +${formatHM(r.openHon)}</span>` : ''}
                             </td>
                             <td class="p-2.5 text-center">
                                 <span class="inline-block min-w-[4.5rem] text-center font-mono rounded-lg p-1.5 bg-amber-50/60 border border-amber-200 text-amber-900 font-bold">${r.hed.toFixed(2)}</span>
                                 <span class="block text-2xs font-mono text-amber-700 mt-0.5">${formatHMSigned(r.hed)}</span>
                                 <span class="block text-xs font-mono font-bold text-amber-900">${money(r.hedPay)}</span>
-                                ${(r.carryIn || r.carryOut) ? `<span class="block text-3xs text-slate-500 mt-0.5 leading-tight">Días: ${formatHMSigned(r.hedDays || 0)}${r.carryIn ? ` · Saldo anterior: <span class="text-rose-700 font-semibold">${formatHMSigned(r.carryIn)}</span>` : ''}</span>` : ''}
+                                ${(r.carryIn || r.carryOut || r.openHed) ? `<span class="block text-3xs text-slate-500 mt-0.5 leading-tight">Días: ${formatHMSigned(r.hedDays || 0)}${r.carryIn ? ` · Saldo anterior: <span class="text-rose-700 font-semibold">${formatHMSigned(r.carryIn)}</span>` : ''}${r.openHed ? ` · <span class="text-sky-700 font-semibold">Saldo inicial: ${r.openHed > 0 ? '+' : ''}${formatHMSigned(r.openHed)}</span>` : ''}</span>` : ''}
                                 ${r.carryOut ? `<span class="block text-3xs font-bold text-rose-700 leading-tight">Se traslada: ${formatHMSigned(r.carryOut)}</span>` : ''}
                             </td>
                             <td class="p-2.5 text-center">
                                 <span class="inline-block min-w-[4.5rem] text-center font-mono rounded-lg p-1.5 bg-rose-50/60 border border-rose-200 text-rose-900 font-bold">${r.hen.toFixed(2)}</span>
                                 <span class="block text-2xs font-mono text-rose-700 mt-0.5">${formatHMSigned(r.hen)}</span>
                                 <span class="block text-xs font-mono font-bold text-rose-900">${money(r.henPay)}</span>
+                                ${r.openHen ? `<span class="block text-3xs font-semibold text-sky-700">Incluye saldo inicial: +${formatHM(r.openHen)}</span>` : ''}
                                 ${r.offsetValue ? `<span class="block text-3xs text-rose-700 font-semibold leading-tight mt-0.5" title="Valor de las extras nocturnas: ${money(r.henPayGross)}">Descuento por deuda diurna: -${money(r.offsetValue)} (${formatHM(r.offsetHours)})</span>` : ''}
                             </td>
                             ${domOn ? `<td class="p-2.5 text-center">
@@ -4965,6 +5078,127 @@
             if (from > to) { showAppToast('La fecha "Desde" no puede ser posterior a "Hasta".'); return; }
             setPayrollRange(from, to);
         }
+        // =================================================================
+        // DÍA 0 Y SALDOS INICIALES (migración de empresas a la suite)
+        // =================================================================
+        function renderPayrollDayZeroBox() {
+            const box = document.getElementById('payrollOtDayZeroBox');
+            if (!box) return;
+            const fmt = (iso) => (iso || '').split('-').reverse().join('/');
+            const canSet = CAN('settings.manage') && !appState.dayZeroLocked;
+            const missing = appState._payrollOtOpenMissing || [];
+            const missNote = missing.length ? `<p class="text-3xs font-semibold text-amber-800 mt-1"><i class="fa-solid fa-triangle-exclamation"></i> ${missing.length} saldo(s) inicial(es) aún sin cerrar corresponden a un periodo anterior a este rango (por ejemplo, ${escapeHtml(missing[0].emp.name)}: periodo que incluye el ${fmt(missing[0].day)}). Revisa ese periodo.</p>` : '';
+            if (!appState.dayZero) {
+                box.innerHTML = `<div class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 flex flex-wrap items-center justify-between gap-2">
+                    <span><i class="fa-solid fa-flag-checkered"></i> <strong>Día 0 sin definir.</strong> Si la empresa viene de otro sistema, define la fecha de corte y registra el saldo inicial de cada colaborador (horas a favor o que debe).</span>
+                    ${canSet ? '<button onclick="openDayZeroModal()" class="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold">Definir Día 0</button>' : ''}
+                </div>`;
+                return;
+            }
+            const count = (appState.openingBalances || []).length;
+            box.innerHTML = `<div class="rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <span><i class="fa-solid fa-flag-checkered"></i> <strong>Día 0: ${fmt(appState.dayZero)}</strong> ${appState.dayZeroLocked ? '<span class="text-3xs text-sky-700">(bloqueado: ya hay periodos cerrados)</span>' : ''} · ${count} colaborador(es) con saldo inicial (se registra en la ficha de cada colaborador).</span>
+                    ${canSet ? '<button onclick="openDayZeroModal()" class="px-3 py-1.5 rounded-lg bg-white border border-sky-300 text-sky-800 hover:bg-sky-100 font-semibold">Cambiar Día 0</button>' : ''}
+                </div>${missNote}
+            </div>`;
+        }
+        function openDayZeroModal() {
+            document.getElementById('dayZeroInput').value = appState.dayZero || '';
+            openModal('modalDayZero');
+        }
+        async function submitDayZero() {
+            const date = document.getElementById('dayZeroInput').value;
+            if (!date) { showAppToast('Elige la fecha del Día 0.'); return; }
+            if (!confirm(`¿Definir el Día 0 en ${date.split('-').reverse().join('/')}? Los periodos se liquidarán desde el día siguiente.`)) return;
+            try {
+                const r = await apiFetch('/api/org/day-zero', { method: 'PUT', body: JSON.stringify({ date }) });
+                appState.dayZero = r.dayZero;
+                closeModal('modalDayZero');
+                showAppToast('Día 0 guardado.');
+                if (!document.getElementById('view-payrollot').classList.contains('hidden')) renderPayrollOvertimeView();
+                renderSelectedEmployeeLedger();
+            } catch (e) { showAppToast('No se pudo guardar: ' + e.message); }
+        }
+        function renderEmployeeOpeningBox(emp) {
+            const box = document.getElementById('detailEmpOpeningBox');
+            if (!box || !emp) return;
+            const fmt = (iso) => (iso || '').split('-').reverse().join('/');
+            const b = (appState.openingBalances || []).find(x => Number(x.employeeId) === Number(emp.id));
+            const canEdit = CAN('employees.edit_payroll');
+            if (!appState.dayZero) {
+                box.innerHTML = '<span class="text-3xs text-slate-400">Saldo inicial: primero se debe definir el Día 0 (Liquidación).</span>';
+                return;
+            }
+            if (!b) {
+                box.innerHTML = `<span class="text-3xs text-slate-500">Saldo inicial: ninguno (empieza en cero).</span>
+                    ${canEdit ? `<button onclick="openOpeningModal(${emp.id})" class="ml-1 text-3xs font-semibold text-sky-700 underline">Registrar saldo inicial</button>` : ''}`;
+                return;
+            }
+            const parts = [];
+            if (b.hed) parts.push(`Extra diurna ${b.hed > 0 ? '+' : ''}${formatHMSigned(b.hed)}`);
+            if (b.hen) parts.push(`Extra nocturna +${formatHM(b.hen)}`);
+            if (b.hon) parts.push(`Recargo nocturno +${formatHM(b.hon)}`);
+            if (b.dom) parts.push(`Dominical +${formatHM(b.dom)}`);
+            const locked = (b.lockedBy || []).length;
+            box.innerHTML = `<div class="rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-3xs text-sky-900">
+                <strong>Saldo inicial al ${fmt(b.cutoff)}:</strong> ${parts.join(' · ') || 'en cero'}
+                <span class="block text-sky-700">${escapeHtml(b.note)}${locked ? ' · <strong>Aplicado y bloqueado</strong> (cierre del ' + fmt(b.lockedBy[0].from) + ' al ' + fmt(b.lockedBy[0].to) + ')' : ' · Se aplica en el periodo que incluye el ' + fmt(nextDayISO(b.cutoff))}</span>
+                ${canEdit && !locked ? `<button onclick="openOpeningModal(${emp.id})" class="mt-0.5 font-semibold text-sky-700 underline">Editar</button>` : ''}
+            </div>`;
+        }
+        function openOpeningModal(empId) {
+            const emp = appState.employees.find(e => Number(e.id) === Number(empId));
+            if (!emp || !appState.dayZero) return;
+            const b = (appState.openingBalances || []).find(x => Number(x.employeeId) === Number(empId));
+            document.getElementById('openingEmpId').value = emp.id;
+            document.getElementById('openingSubtitle').textContent = `${emp.name} · Día 0 de la organización: ${appState.dayZero.split('-').reverse().join('/')}`;
+            const cut = document.getElementById('openingCutoff');
+            cut.min = appState.dayZero;
+            cut.value = b ? b.cutoff : appState.dayZero;
+            document.getElementById('openingHed').value = b ? b.hed : 0;
+            document.getElementById('openingHen').value = b ? b.hen : 0;
+            document.getElementById('openingHon').value = b ? b.hon : 0;
+            document.getElementById('openingDom').value = b ? b.dom : 0;
+            document.getElementById('openingNote').value = b ? b.note : '';
+            document.getElementById('openingDeleteBtn').classList.toggle('hidden', !b);
+            openModal('modalOpening');
+        }
+        async function submitOpeningBalance() {
+            const body = {
+                employeeId: Number(document.getElementById('openingEmpId').value),
+                cutoff: document.getElementById('openingCutoff').value,
+                hed: Number(document.getElementById('openingHed').value) || 0,
+                hen: Number(document.getElementById('openingHen').value) || 0,
+                hon: Number(document.getElementById('openingHon').value) || 0,
+                dom: Number(document.getElementById('openingDom').value) || 0,
+                note: document.getElementById('openingNote').value.trim(),
+            };
+            if (!body.cutoff || body.cutoff < appState.dayZero) { showAppToast('La fecha de corte debe ser igual o posterior al Día 0.'); return; }
+            if (body.hen < 0 || body.hon < 0 || body.dom < 0) { showAppToast('Solo la extra diurna puede ser negativa.'); return; }
+            if (body.note.length < 5) { showAppToast('Escribe la nota de soporte (mínimo 5 caracteres).'); return; }
+            try {
+                const r = await apiFetch('/api/payroll/opening-balance', { method: 'PUT', body: JSON.stringify(body) });
+                appState.openingBalances = r.balances || appState.openingBalances;
+                closeModal('modalOpening');
+                showAppToast('Saldo inicial guardado.');
+                renderSelectedEmployeeLedger();
+            } catch (e) { showAppToast('No se pudo guardar: ' + e.message); }
+        }
+        async function deleteOpeningBalance() {
+            const empId = Number(document.getElementById('openingEmpId').value);
+            const reason = window.prompt('¿Por qué se elimina el saldo inicial? (obligatorio, queda registrado)');
+            if (reason === null) return;
+            if (reason.trim().length < 5) { showAppToast('El motivo debe tener al menos 5 caracteres.'); return; }
+            try {
+                const r = await apiFetch(`/api/payroll/opening-balance/${empId}/delete`, { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) });
+                appState.openingBalances = r.balances || [];
+                closeModal('modalOpening');
+                showAppToast('Saldo inicial eliminado.');
+                renderSelectedEmployeeLedger();
+            } catch (e) { showAppToast('No se pudo eliminar: ' + e.message); }
+        }
+
         // =================================================================
         // CUADRO DE TURNOS: PUBLICACIÓN, COPIAR SEMANA, ROTACIONES, HISTORIAL
         // La MARCACIÓN siempre usa el turno asignado, esté publicado o no.
@@ -5370,6 +5604,20 @@
                     }), ['TOTAL', '', pdfHM(sum('carryOut')), '', '']);
                 }
             }
+            // ---- Saldo inicial (Dia 0) incluido en este cierre ----
+            const withOpen = type === 'extras'
+                ? emps.filter(e => e.openHed || e.openHen)
+                : emps.filter(e => e.openHon || e.openDom);
+            if (withOpen.length) {
+                section('Saldo inicial (Día 0) incluido en este cierre');
+                if (type === 'extras') {
+                    table([{ h: 'Colaborador', w: 70 }, { h: 'Área', w: 50 }, { h: 'Extra diurna inicial (horas)', w: 40, align: 'right' }, { h: 'Extra nocturna inicial (horas)', w: 40, align: 'right' }],
+                        withOpen.map(e => [e.name, e.department || '', pdfHM(e.openHed), pdfHM(e.openHen)]));
+                } else {
+                    table([{ h: 'Colaborador', w: 70 }, { h: 'Área', w: 50 }, { h: 'Recargo nocturno inicial (horas)', w: 40, align: 'right' }, { h: 'Dominical inicial (horas)', w: 40, align: 'right' }],
+                        withOpen.map(e => [e.name, e.department || '', pdfHM(e.openHon), pdfHM(e.openDom)]));
+                }
+            }
             // ---- Pie de página ----
             const pages = doc.getNumberOfPages();
             for (let i = 1; i <= pages; i++) {
@@ -5467,6 +5715,15 @@
             await closePayrollPeriod('recargos');
         }
 
+        // Tras cerrar o reabrir, refresca el Día 0 y los saldos iniciales (bloqueos).
+        async function refreshOpeningState() {
+            try {
+                const d = await apiFetch('/api/org/data');
+                appState.openingBalances = d.openingBalances || [];
+                appState.dayZeroLocked = !!(d.orgSettings && d.orgSettings.dayZeroLocked);
+            } catch (e) { /* se actualiza en la proxima carga */ }
+        }
+
         async function closePayrollPeriod(type) {
             const cache = appState._payrollOtCache;
             if (!cache || !CAN('employees.edit_payroll')) return;
@@ -5478,16 +5735,17 @@
                 const emps = rows.filter(r => Math.abs(r.hon) > 0.0001 || (r.domHours || 0) > 0);
                 snapshot = {
                     includeSundayHoliday: !!appState.includeSundayHoliday,
-                    employees: emps.map(r => ({ employeeId: r.emp.id, name: r.emp.name, department: r.emp.department || '', hon: r.hon, honPay: r.honPay, domHours: r.domHours || 0, domPay: r.domPay || 0 })),
+                    employees: emps.map(r => ({ employeeId: r.emp.id, name: r.emp.name, department: r.emp.department || '', hon: r.hon, honPay: r.honPay, domHours: r.domHours || 0, domPay: r.domPay || 0, openHon: r.openHon || 0, openDom: r.openDom || 0 })),
                 };
                 snapshot.totals = { pay: emps.reduce((a, r) => a + r.honPay + (r.domPay || 0), 0) };
                 summary = `RECARGOS del ${cache.startDate} al ${cache.endDate}\n${emps.length} colaborador(es) · Total ${money(snapshot.totals.pay)}`;
             } else {
-                const emps = rows.filter(r => Math.abs(r.hedDays || 0) > 0.0001 || r.carryIn || Math.abs(r.hen) > 0.0001);
+                const emps = rows.filter(r => Math.abs(r.hedDays || 0) > 0.0001 || r.carryIn || r.openHed || Math.abs(r.hen) > 0.0001);
                 snapshot = {
                     employees: emps.map(r => ({ employeeId: r.emp.id, name: r.emp.name, department: r.emp.department || '',
                         hedDays: r.hedDays || 0, carryIn: r.carryIn || 0, hed: r.hed, hedPay: r.hedPay, carryOut: r.carryOut || 0,
-                        hen: r.hen, henPayGross: r.henPayGross != null ? r.henPayGross : r.henPay, offsetHours: r.offsetHours || 0, offsetValue: r.offsetValue || 0, henPay: r.henPay })),
+                        hen: r.hen, henPayGross: r.henPayGross != null ? r.henPayGross : r.henPay, offsetHours: r.offsetHours || 0, offsetValue: r.offsetValue || 0, henPay: r.henPay,
+                        openHed: r.openHed || 0, openHen: r.openHen || 0 })),
                 };
                 snapshot.totals = { pay: emps.reduce((a, r) => a + r.hedPay + r.henPay, 0), carryOut: emps.reduce((a, r) => a + (r.carryOut || 0), 0) };
                 const neg = emps.filter(r => r.carryOut);
@@ -5505,6 +5763,7 @@
                     previousClosureId: type === 'extras' && cache.closures && cache.closures.previousExtras ? cache.closures.previousExtras.id : null,
                 }) });
                 showAppToast(type === 'recargos' ? 'Periodo de recargos cerrado.' : 'Periodo de horas extras cerrado.');
+                await refreshOpeningState();
             } catch (e) { showAppToast('No se pudo cerrar: ' + e.message); }
             renderPayrollOvertimeView();
         }
@@ -5516,6 +5775,7 @@
             try {
                 await apiFetch(`/api/payroll/closures/${id}/reopen`, { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) });
                 showAppToast('Periodo reabierto.');
+                await refreshOpeningState();
             } catch (e) { showAppToast('No se pudo reabrir: ' + e.message); }
             renderPayrollOvertimeView();
         }
@@ -6420,6 +6680,9 @@
             appState.companyLogo = data.orgSettings.logo || null;
             appState.settings.smlmv2026 = data.orgSettings.minimumWage || 1750905;
             appState.includeSundayHoliday = data.orgSettings.includeSundayHoliday === true;
+            appState.dayZero = data.orgSettings.dayZero || null;
+            appState.dayZeroLocked = !!data.orgSettings.dayZeroLocked;
+            appState.openingBalances = data.openingBalances || [];
             // Parámetros legales vigentes HOY (se actualizan solos en cada cambio de ley programado)
             const todayISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
             appState.settings.percDOM = legalSundayPctForDate(todayISO);
