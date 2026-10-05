@@ -42,6 +42,43 @@ function autoLinkByEmail(orgId) {
   return done;
 }
 
+// ---- Cuadro de turnos: publicacion ----
+// Rangos publicados de la organizacion.
+function getPublications(orgId) {
+  return db.prepare(`SELECT p.id, p.date_from AS "from", p.date_to AS "to", p.published_at AS publishedAt, p.notified, u.email AS publishedBy
+    FROM shift_publications p LEFT JOIN users u ON u.id = p.published_by
+    WHERE p.organization_id = ? ORDER BY p.date_from`).all(orgId);
+}
+function isDatePublished(pubs, date) {
+  return pubs.some(p => p.from <= date && date <= p.to);
+}
+// Texto legible de un turno (para el historial y los correos).
+const ABSENCE_LABELS = { vacaciones: 'Vacaciones', incapacidad: 'Incapacidad', sin_horario: 'Sin horario' };
+function shiftSummary(sh) {
+  if (!sh) return 'Descanso';
+  if (sh.absenceType && ABSENCE_LABELS[sh.absenceType]) return ABSENCE_LABELS[sh.absenceType];
+  if (sh.isOffDay) return 'Descanso';
+  const time = sh.isSplit && sh.splitOut && sh.splitIn
+    ? `${sh.startTime}-${sh.splitOut} / ${sh.splitIn}-${sh.endTime}`
+    : `${sh.startTime} - ${sh.endTime}`;
+  return sh.functionTag ? `${time} (${sh.functionTag})` : time;
+}
+const DAY_NAMES_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+function dayLabel(iso) {
+  const d = new Date(iso + 'T00:00:00Z');
+  return `${DAY_NAMES_ES[d.getUTCDay()]} ${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+}
+// Correo del colaborador: el de su ficha o el de su usuario vinculado.
+function employeeEmail(orgId, empId) {
+  const e = db.prepare('SELECT email FROM employees WHERE id = ? AND organization_id = ?').get(empId, orgId);
+  if (e && e.email) return e.email;
+  const u = db.prepare("SELECT email FROM users WHERE employee_id = ? AND organization_id = ? AND status != 'inactive'").get(empId, orgId);
+  return u ? u.email : null;
+}
+function escHtml(v) {
+  return String(v == null ? '' : v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
 // ¿El usuario tiene este permiso? (el Super Admin los tiene todos)
 function can(req, code) {
   return !!(req.user.isSuperAdmin || (req.user.permissions && req.user.permissions.has(code)));
@@ -74,6 +111,11 @@ function getOrgData(req, res, query) {
     employees = selfEmployeeId != null ? employees.filter(e => Number(e.id) === selfEmployeeId) : [];
     shifts = selfEmployeeId != null ? shifts.filter(sh => Number(sh.empId) === selfEmployeeId) : [];
   }
+  // Empleado: SOLO ve en "Mi horario" los dias PUBLICADOS.
+  const publications = getPublications(orgId);
+  if (scope === 'self') {
+    shifts = shifts.filter(sh => isDatePublished(publications, sh.date));
+  }
   // Salarios y datos de nomina solo para quien puede ver reportes/nomina.
   const canSeePayroll = can(req, 'reports.view');
   if (!canSeePayroll) {
@@ -87,6 +129,8 @@ function getOrgData(req, res, query) {
       : { orgName: 'Empresa', logo: null, minimumWage: 1750905, includeSundayHoliday: false },
     departments,
     shiftPresets: presetRows.map(r => JSON.parse(r.data_json)),
+    rotationPatterns: scope === 'all' ? db.prepare('SELECT data_json FROM rotation_patterns WHERE organization_id = ?').all(orgId).map(r => JSON.parse(r.data_json)) : [],
+    publications: scope === 'all' ? publications : publications.map(p => ({ from: p.from, to: p.to })),
     employees,
     shifts,
     viewer: { scope, employeeId: selfEmployeeId, canSeePayroll },
@@ -263,8 +307,28 @@ async function syncEmployeesAndShifts(req, res) {
     }
     if (payrollIgnored) ignored.push('cambios de salario, recargo nocturno o conteo de dias laborados: requiere permiso de nomina');
   }
+  let shiftChanges = [];
   if (Array.isArray(body.shifts)) {
     if (canShifts) {
+      // Cambios en dias YA PUBLICADOS: se registran y se avisa al colaborador.
+      const pubs = getPublications(orgId);
+      if (pubs.length) {
+        const keyOf = (sh) => `${Number(sh.empId)}|${sh.date}`;
+        const before = new Map();
+        for (const row of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId)) {
+          try { const sh = JSON.parse(row.data_json); if (isDatePublished(pubs, sh.date)) before.set(keyOf(sh), sh); } catch { /* fila invalida */ }
+        }
+        const after = new Map();
+        for (const sh of body.shifts) { if (sh && isDatePublished(pubs, sh.date)) after.set(keyOf(sh), sh); }
+        const keys = new Set([...before.keys(), ...after.keys()]);
+        for (const k of keys) {
+          const b = shiftSummary(before.get(k)), a = shiftSummary(after.get(k));
+          if (b !== a) {
+            const [empId, date] = k.split('|');
+            shiftChanges.push({ employeeId: Number(empId), date, before: b, after: a });
+          }
+        }
+      }
       db.prepare('DELETE FROM shifts WHERE organization_id = ?').run(orgId);
       const insert = db.prepare('INSERT INTO shifts (id, organization_id, data_json) VALUES (?, ?, ?)');
       for (const sh of body.shifts) {
@@ -275,13 +339,35 @@ async function syncEmployeesAndShifts(req, res) {
       ignored.push('cambios en turnos: requiere permiso de editar turnos');
     }
   }
+  if (shiftChanges.length) {
+    const insChange = db.prepare(`INSERT INTO shift_changes (id, organization_id, employee_id, shift_date, before_text, after_text, changed_by, notified)
+                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+    const byEmp = new Map();
+    for (const c of shiftChanges) {
+      const email = employeeEmail(orgId, c.employeeId);
+      insChange.run(uid('chg'), orgId, c.employeeId, c.date, c.before, c.after, req.user.id, email ? 1 : 0);
+      if (email) { if (!byEmp.has(email)) byEmp.set(email, []); byEmp.get(email).push(c); }
+    }
+    logAction({ organizationId: orgId, userId: req.user.id, action: 'shifts.published_changed', ip: getClientIp(req), metadata: { cambios: shiftChanges.length } });
+    // Un solo correo por colaborador con todos sus cambios (no se espera la respuesta).
+    for (const [email, list] of byEmp) {
+      list.sort((x, y) => x.date.localeCompare(y.date));
+      const lines = list.map(c => `${dayLabel(c.date)}: ${c.before} -> ${c.after}`);
+      sendMail({
+        to: email, kind: 'shift_change', link: '/app.html',
+        subject: 'Se modificó tu horario de trabajo',
+        bodyText: `Hola. Se modificó tu horario ya publicado:\n\n${lines.join('\n')}\n\nRevísalo en la suite, en "Mi horario y marcaciones".`,
+        bodyHtml: `<p>Hola. Se modificó tu horario ya publicado:</p><ul>${list.map(c => `<li><strong>${escHtml(dayLabel(c.date))}:</strong> ${escHtml(c.before)} &rarr; <strong>${escHtml(c.after)}</strong></li>`).join('')}</ul><p>Revísalo en la suite, en "Mi horario y marcaciones".</p>`,
+      }).catch(() => {});
+    }
+  }
   // Usuarios y colaboradores con el mismo correo quedan vinculados solos.
   const linked = Array.isArray(body.employees) ? autoLinkByEmail(orgId) : [];
   for (const l of linked) {
     logAction({ organizationId: orgId, userId: req.user.id, action: 'user.auto_linked', resourceType: 'user', ip: getClientIp(req), metadata: l });
   }
   logAction({ organizationId: orgId, userId: req.user.id, action: 'org_data.sync', ip: getClientIp(req), metadata: { employees: (body.employees || []).length, shifts: (body.shifts || []).length, ignored } });
-  sendJson(res, 200, { ok: true, ignored, linked });
+  sendJson(res, 200, { ok: true, ignored, linked, shiftChanges: shiftChanges.length });
 }
 
 // ---------------------------------------------------------------------------
@@ -638,7 +724,86 @@ async function reopenPayrollClosure(req, res, params) {
   sendJson(res, 200, { ok: true });
 }
 
+// ---------------------------------------------------------------------------
+// PUBLICAR CUADRO DE TURNOS
+// POST /api/shifts/publish { from, to, notify }
+// ---------------------------------------------------------------------------
+async function publishShifts(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const { from, to } = body;
+  if (!ISO_DATE.test(from || '') || !ISO_DATE.test(to || '') || from > to) return sendJson(res, 400, { error: 'Rango de fechas invalido.' });
+  const days = (Date.parse(to) - Date.parse(from)) / 86400000 + 1;
+  if (days > 62) return sendJson(res, 400, { error: 'Se pueden publicar maximo 62 dias a la vez.' });
+  const notify = body.notify !== false;
+  const id = uid('pub');
+  db.prepare('INSERT INTO shift_publications (id, organization_id, date_from, date_to, notified, published_by) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, orgId, from, to, notify ? 1 : 0, req.user.id);
+
+  // Horario de cada colaborador en el rango publicado.
+  const shifts = db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId)
+    .map(r => { try { return JSON.parse(r.data_json); } catch { return null; } })
+    .filter(sh => sh && sh.date >= from && sh.date <= to);
+  const dates = [];
+  for (let d = from; d <= to; d = addDaysISO(d, 1)) dates.push(d);
+  let sent = 0, withoutEmail = 0;
+  if (notify) {
+    const emps = db.prepare('SELECT id, name FROM employees WHERE organization_id = ?').all(orgId);
+    for (const emp of emps) {
+      const mine = new Map(shifts.filter(sh => Number(sh.empId) === Number(emp.id)).map(sh => [sh.date, sh]));
+      if (!mine.size) continue; // sin turnos en el rango: no se notifica
+      const email = employeeEmail(orgId, emp.id);
+      if (!email) { withoutEmail++; continue; }
+      const lines = dates.map(d => `${dayLabel(d)}: ${shiftSummary(mine.get(d))}`);
+      sendMail({
+        to: email, kind: 'shift_publication', link: '/app.html',
+        subject: `Tu horario del ${from.split('-').reverse().join('/')} al ${to.split('-').reverse().join('/')} ya está publicado`,
+        bodyText: `Hola ${emp.name}. Este es tu horario:\n\n${lines.join('\n')}\n\nTambién lo puedes ver en la suite, en "Mi horario y marcaciones".`,
+        bodyHtml: `<p>Hola ${escHtml(emp.name)}. Este es tu horario:</p><table cellpadding="4" style="border-collapse:collapse">${dates.map(d => `<tr><td style="border-bottom:1px solid #e2e8f0"><strong>${escHtml(dayLabel(d))}</strong></td><td style="border-bottom:1px solid #e2e8f0">${escHtml(shiftSummary(mine.get(d)))}</td></tr>`).join('')}</table><p>También lo puedes ver en la suite, en "Mi horario y marcaciones".</p>`,
+      }).catch(() => {});
+      sent++;
+    }
+  }
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'shifts.published', resourceType: 'shift_publication', resourceId: id, ip: getClientIp(req),
+    metadata: { desde: from, hasta: to, notificados: sent, sinCorreo: withoutEmail } });
+  sendJson(res, 201, { ok: true, id, notified: sent, withoutEmail, publications: getPublications(orgId) });
+}
+
+// GET /api/shifts/changes?from=&to=  (cambios en turnos ya publicados)
+function listShiftChanges(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  if (!ISO_DATE.test(query.from || '') || !ISO_DATE.test(query.to || '')) return sendJson(res, 400, { error: 'Periodo invalido.' });
+  const rows = db.prepare(`
+    SELECT c.employee_id AS employeeId, e.name AS employeeName, c.shift_date AS date, c.before_text AS before, c.after_text AS after,
+           c.changed_at AS changedAt, c.notified, u.email AS changedBy
+    FROM shift_changes c LEFT JOIN employees e ON e.id = c.employee_id LEFT JOIN users u ON u.id = c.changed_by
+    WHERE c.organization_id = ? AND c.shift_date BETWEEN ? AND ?
+    ORDER BY c.changed_at DESC LIMIT 500`).all(orgId, query.from, query.to);
+  sendJson(res, 200, { rows });
+}
+
+// PUT /api/org/rotation-patterns { patterns: [...] }
+async function replaceRotationPatterns(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const list = Array.isArray(body.patterns) ? body.patterns.slice(0, 50) : [];
+  db.prepare('DELETE FROM rotation_patterns WHERE organization_id = ?').run(orgId);
+  const ins = db.prepare('INSERT INTO rotation_patterns (id, organization_id, data_json) VALUES (?, ?, ?)');
+  for (const p of list) {
+    if (!p || !Array.isArray(p.days) || !p.days.length || p.days.length > 28) continue;
+    ins.run(String(p.id || uid('rot')), orgId, JSON.stringify({ id: String(p.id || ''), name: String(p.name || 'Rotación').slice(0, 60), days: p.days.map(d => String(d || 'descanso').slice(0, 80)) }));
+  }
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'rotation_patterns.replace', ip: getClientIp(req), metadata: { count: list.length } });
+  sendJson(res, 200, { ok: true });
+}
+
 module.exports = {
+  publishShifts, listShiftChanges, replaceRotationPatterns,
   listPayrollClosures, createPayrollClosure, reopenPayrollClosure,
   listPayrollAdjustments, savePayrollAdjustment, resetPayrollAdjustments,
   getOrgData, seedDemo, updateSettings, replaceDepartments, replaceShiftPresets, syncEmployeesAndShifts,
