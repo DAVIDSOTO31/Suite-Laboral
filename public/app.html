@@ -792,6 +792,7 @@
                                     <span class="text-3xs font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded" id="detailEmpStatus">Activo</span>
                                 </div>
                                 <p class="text-xs text-slate-500 mt-0.5" id="detailEmpRole">Puesto / Área</p>
+                                <p class="text-xs text-slate-500 mt-0.5 hidden" id="detailEmpDoc"></p>
                                 <p class="text-xs text-slate-500 mt-0.5 hidden" id="detailEmpEmail"></p>
                                 <div class="flex flex-wrap items-center gap-2 mt-2">
                                     <button type="button" data-perm="employees.edit" onclick="openEmployeeModal(appState.selectedEmpId)" class="text-xs px-2.5 py-1 rounded-lg border border-slate-300 hover:bg-slate-50 font-semibold text-slate-700 flex items-center gap-1">
@@ -954,7 +955,7 @@
                                     <span class="font-extrabold text-base text-slate-900 displayOrgNameLabel">Empresa Demo</span>
                                     <span class="text-3xs bg-sky-100 text-sky-800 font-bold px-1.5 py-0.5 rounded">COLOMBIA</span>
                                 </div>
-                                <p class="text-3xs text-slate-500">NIT: 901.458.789-1 • Régimen Común</p>
+                                <p class="text-3xs text-slate-500" id="reportOrgNit">NIT: -</p>
                                 <p class="text-3xs text-slate-500">Anexo Técnico de Liquidación de Tiempo Suplementario (CST)</p>
                             </div>
                         </div>
@@ -966,10 +967,14 @@
                     </div>
 
                     <!-- Datos del Trabajador -->
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <div class="grid grid-cols-2 sm:grid-cols-5 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
                         <div>
                             <span class="text-3xs text-slate-400 block uppercase font-semibold">Colaborador:</span>
                             <span class="font-bold text-slate-800 text-xs" id="reportEmpName">-</span>
+                        </div>
+                        <div>
+                            <span class="text-3xs text-slate-400 block uppercase font-semibold">Documento:</span>
+                            <span class="font-bold text-slate-800 text-xs" id="reportEmpDoc">-</span>
                         </div>
                         <div>
                             <span class="text-3xs text-slate-400 block uppercase font-semibold">Cargo:</span>
@@ -1783,6 +1788,19 @@
                         <input type="text" id="newEmpRole" placeholder="Ej. Cocinero, Camarero, Técnico..." class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
                     </div>
                 </div>
+                <div class="grid grid-cols-3 gap-2">
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Tipo de documento</label>
+                        <select id="newEmpDocType" class="w-full p-2 border rounded-lg bg-white">
+                            <option value="CC">CC</option><option value="CE">CE</option><option value="PPT">PPT</option><option value="PA">Pasaporte</option><option value="TI">TI</option>
+                        </select>
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block font-semibold text-slate-700 mb-1">Número de documento <span class="font-normal text-slate-400">(opcional)</span></label>
+                        <input type="text" id="newEmpDocNumber" maxlength="20" inputmode="numeric" placeholder="Ej. 1023456789" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+                </div>
+                <p class="text-3xs text-slate-400 -mt-2">Aparece en el volante de liquidación, los Excel y los PDF de cierre.</p>
                 <div>
                     <label class="block font-semibold text-slate-700 mb-1">Correo electrónico <span class="font-normal text-slate-400">(opcional)</span></label>
                     <input type="email" id="newEmpEmail" maxlength="160" placeholder="Ej. maria.lopez@gmail.com" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
@@ -2972,6 +2990,15 @@
             return `${h}h ${m.toString().padStart(2, '0')}min`;
         }
 
+        // Documento de identidad legible: "CC 1.023.456.789" (vacío si no tiene).
+        const DOC_TYPE_LABELS = { CC: 'Cédula de ciudadanía', CE: 'Cédula de extranjería', PPT: 'Permiso por Protección Temporal', PA: 'Pasaporte', TI: 'Tarjeta de identidad' };
+        function docLabel(emp) {
+            if (!emp || !emp.documentNumber) return '';
+            const t = emp.documentType || 'CC';
+            const n = ['CC', 'TI'].includes(t) ? Number(emp.documentNumber).toLocaleString('es-CO') : emp.documentNumber;
+            return `${t} ${n}`;
+        }
+
         // ¿Al colaborador le aplica recargo nocturno? (por defecto SÍ)
         function empNightSurcharge(empOrId) {
             const emp = typeof empOrId === 'object' ? empOrId : appState.employees.find(e => e.id === empOrId);
@@ -3120,6 +3147,8 @@
             document.getElementById('newEmpName').value = emp ? emp.name : '';
             document.getElementById('newEmpRole').value = emp ? (emp.role || '') : '';
             document.getElementById('newEmpEmail').value = emp ? (emp.email || '') : '';
+            document.getElementById('newEmpDocType').value = emp && emp.documentType ? emp.documentType : 'CC';
+            document.getElementById('newEmpDocNumber').value = emp ? (emp.documentNumber || '') : '';
             renderDepartmentOptions();
             const deptSel = document.getElementById('newEmpDepartment');
             if (emp && deptSel) deptSel.value = emp.department || deptSel.value;
@@ -3148,6 +3177,12 @@
                 ? (parseFloat(document.getElementById('newEmpSalary').value) || appState.settings.smlmv2026)
                 : (editing ? editing.salary : appState.settings.smlmv2026);
             const email = document.getElementById('newEmpEmail').value.trim().toLowerCase();
+            const documentType = document.getElementById('newEmpDocType').value || 'CC';
+            const documentNumber = document.getElementById('newEmpDocNumber').value.replace(/[\s.]/g, '').toUpperCase();
+            if (documentNumber) {
+                const ok = ['CC', 'TI'].includes(documentType) ? /^\d{3,12}$/.test(documentNumber) : /^[A-Z0-9-]{3,20}$/.test(documentNumber);
+                if (!ok) { showAppToast(['CC', 'TI'].includes(documentType) ? 'Para CC o TI el número de documento solo puede tener dígitos (los puntos se quitan solos).' : 'El número de documento no es válido.'); return; }
+            }
 
             if (!name || !role) {
                 showAppToast('Por favor ingrese el nombre y cargo del colaborador.');
@@ -3162,6 +3197,11 @@
                 showAppToast(`Ese correo ya está registrado para ${dup.name}.`);
                 return;
             }
+            const dupDoc = documentNumber && appState.employees.find(e => e.documentNumber === documentNumber && (e.documentType || 'CC') === documentType && (!editing || e.id !== editing.id));
+            if (dupDoc) {
+                showAppToast(`Ese documento ya está registrado para ${dupDoc.name}.`);
+                return;
+            }
             if (canPay && salary < 0) {
                 showAppToast('El salario no puede ser negativo.');
                 return;
@@ -3171,7 +3211,7 @@
 
             if (editing) {
                 const salaryChanged = Number(editing.salary) !== Number(salary);
-                Object.assign(editing, { name, role, department: dept, departmentId: deptId, salary, email });
+                Object.assign(editing, { name, role, department: dept, departmentId: deptId, salary, email, documentType, documentNumber });
                 if (salaryChanged) recomputeShiftsForEmployee(editing.id);
                 closeModal('modalAddEmp');
                 showAppToast(`Ficha de ${name} actualizada.`);
@@ -3183,7 +3223,7 @@
                     return;
                 }
                 let id = Date.now();
-                appState.employees.push({ id, name, role, department: dept, departmentId: deptId, salary, email, nightSurcharge, nightSurchargeReason: nightSurcharge ? '' : nightSurchargeReason });
+                appState.employees.push({ id, name, role, department: dept, departmentId: deptId, salary, email, documentType, documentNumber, nightSurcharge, nightSurchargeReason: nightSurcharge ? '' : nightSurchargeReason });
                 appState.selectedEmpId = id;
                 closeModal('modalAddEmp');
                 if (document.getElementById('newEmpNightSurcharge')) {
@@ -3196,6 +3236,7 @@
             document.getElementById('newEmpName').value = '';
             document.getElementById('newEmpRole').value = '';
             document.getElementById('newEmpEmail').value = '';
+            document.getElementById('newEmpDocNumber').value = '';
             renderEmployeesView();
             renderWeeklyRoster();
             updateDashboardMetrics();
@@ -3227,6 +3268,11 @@
             setSafeText('detailEmpName', emp.name);
             setSafeText('detailEmpRole', `${emp.role} • ${emp.department || 'General'}`);
             renderEmployeeOpeningBox(emp);
+            const docEl = document.getElementById('detailEmpDoc');
+            if (docEl) {
+                docEl.classList.toggle('hidden', !emp.documentNumber);
+                docEl.innerHTML = emp.documentNumber ? `<i class="fa-regular fa-id-card"></i> ${escapeHtml(docLabel(emp))}` : '';
+            }
             const emailEl = document.getElementById('detailEmpEmail');
             if (emailEl) {
                 emailEl.classList.toggle('hidden', !emp.email);
@@ -4193,6 +4239,8 @@
             let hourlyRate = emp.salary / appState.settings.monthlyHoursDivider;
 
             setSafeText('reportEmpName', emp.name);
+            setSafeText('reportEmpDoc', docLabel(emp) || 'Sin registrar');
+            setSafeText('reportOrgNit', appState.orgNit ? `NIT: ${appState.orgNit}` : 'NIT: sin registrar');
             setSafeText('reportEmpRole', `${emp.role} • ${emp.department || 'Cocina'}`);
             setSafeText('reportEmpSalary', `$${emp.salary.toLocaleString('es-CO')} COP`);
             setSafeText('reportEmpHourlyRate', `$${Math.round(hourlyRate).toLocaleString('es-CO')}/h`);
@@ -4933,10 +4981,10 @@
             const cache = appState._payrollOtCache;
             const rows = cache ? cache.rows.filter(r => Math.abs(r.hon) > 0.0001) : [];
             if (!rows.length) { showAppToast('No hay recargo nocturno en el periodo seleccionado.'); return; }
-            const header = ['Colaborador', 'Área', 'Horas recargo nocturno (decimal)', 'Horas recargo nocturno (h:mm)', 'Valor hora ordinaria (COP)', 'Valor recargo nocturno 35% (COP)'];
-            const data = rows.map(r => [r.emp.name, r.emp.department || '', Number(r.hon.toFixed(2)), hmText(r.hon), Math.round(r.hourlyRate), Math.round(r.honPay)]);
+            const header = ['Colaborador', 'Documento', 'Área', 'Horas recargo nocturno (decimal)', 'Horas recargo nocturno (h:mm)', 'Valor hora ordinaria (COP)', 'Valor recargo nocturno 35% (COP)'];
+            const data = rows.map(r => [r.emp.name, docLabel(r.emp), r.emp.department || '', Number(r.hon.toFixed(2)), hmText(r.hon), Math.round(r.hourlyRate), Math.round(r.honPay)]);
             const totH = rows.reduce((a, r) => a + r.hon, 0), totP = rows.reduce((a, r) => a + r.honPay, 0);
-            data.push(['TOTAL PERIODO', '', Number(totH.toFixed(2)), hmText(totH), '', Math.round(totP)]);
+            data.push(['TOTAL PERIODO', '', '', Number(totH.toFixed(2)), hmText(totH), '', Math.round(totP)]);
             try {
                 await downloadXLSX(`Recargo_Nocturno_${cache.startDate}_al_${cache.endDate}${cache.closures && cache.closures.recargos ? '_CERRADO' : ''}.xlsx`, header, data, 'Recargo nocturno');
                 showAppToast('Reporte de recargo nocturno exportado.');
@@ -4947,21 +4995,21 @@
             const rows = cache ? cache.rows.filter(r => Math.abs(r.hedDays || 0) > 0.0001 || r.carryIn || Math.abs(r.hed) > 0.0001 || Math.abs(r.hen) > 0.0001) : [];
             if (!rows.length) { showAppToast('No hay horas extras en el periodo seleccionado.'); return; }
             const closed = cache.closures && cache.closures.extras;
-            const header = ['Colaborador', 'Área',
+            const header = ['Colaborador', 'Documento', 'Área',
                 'Extra diurna de los días (h:mm)', 'Saldo anterior (h:mm)', 'Extra diurna a pagar (decimal)', 'Extra diurna a pagar (h:mm)',
                 appState.includeSundayHoliday ? 'Valor extra diurna (COP, incluye tarifa dominical/festiva)' : 'Valor extra diurna 125% (COP)',
                 'Saldo negativo que se traslada (h:mm)',
                 'Extra nocturna (decimal)', 'Extra nocturna (h:mm)', appState.includeSundayHoliday ? 'Valor extra nocturna (COP, incluye tarifa dominical/festiva)' : 'Valor extra nocturna 175% (COP)',
                 'Horas diurnas debidas compensadas (h:mm)', 'Descuento por deuda en diurnas (COP)', 'Extra nocturna a pagar (COP)',
                 'Total horas extras (COP)'];
-            const data = rows.map(r => [r.emp.name, r.emp.department || '',
+            const data = rows.map(r => [r.emp.name, docLabel(r.emp), r.emp.department || '',
                 hmText(r.hedDays || 0), hmText(r.carryIn || 0), Number(r.hed.toFixed(2)), hmText(r.hed),
                 Math.round(r.hedPay), hmText(r.carryOut || 0),
                 Number(r.hen.toFixed(2)), hmText(r.hen), Math.round(r.henPayGross != null ? r.henPayGross : r.henPay),
                 hmText(r.offsetHours || 0), Math.round(r.offsetValue || 0), Math.round(r.henPay),
                 Math.round(r.hedPay + r.henPay)]);
             const sum = (f) => rows.reduce((a, r) => a + (r[f] || 0), 0);
-            data.push(['TOTAL PERIODO' + (closed ? ' (CERRADO)' : ''), '',
+            data.push(['TOTAL PERIODO' + (closed ? ' (CERRADO)' : ''), '', '',
                 hmText(sum('hedDays')), hmText(sum('carryIn')), Number(sum('hed').toFixed(2)), hmText(sum('hed')),
                 Math.round(sum('hedPay')), hmText(sum('carryOut')),
                 Number(sum('hen').toFixed(2)), hmText(sum('hen')), Math.round(rows.reduce((a, r) => a + (r.henPayGross != null ? r.henPayGross : r.henPay), 0)),
@@ -5560,15 +5608,16 @@
                     ['Colaboradores:', String(emps.length)],
                 ]);
                 section('Detalle por colaborador');
+                const empDoc = (id) => docLabel(appState.employees.find(x => Number(x.id) === Number(id)));
                 const cols = [
-                    { h: 'Colaborador', w: 46 }, { h: 'Área', w: 30 },
+                    { h: 'Colaborador', w: 46 }, { h: 'Documento', w: 28 }, { h: 'Área', w: 30 },
                     { h: 'Horas recargo nocturno', w: 22, align: 'right' }, { h: 'Valor recargo nocturno', w: 24, align: 'right' },
                     ...(closure.snapshot.includeSundayHoliday ? [{ h: 'Horas dominical/festivo', w: 22, align: 'right' }, { h: 'Valor dominical/festivo', w: 24, align: 'right' }] : []),
                     { h: 'Total pagado', w: 24, align: 'right' },
                 ];
-                const rows = emps.map(e => [e.name, e.department || '', pdfHM(e.hon), pdfMoney(e.honPay),
+                const rows = emps.map(e => [e.name, empDoc(e.employeeId), e.department || '', pdfHM(e.hon), pdfMoney(e.honPay),
                     ...(closure.snapshot.includeSundayHoliday ? [pdfHM(e.domHours), pdfMoney(e.domPay)] : []), pdfMoney((e.honPay || 0) + (e.domPay || 0))]);
-                table(cols, rows, ['TOTAL', '', pdfHM(tH), pdfMoney(tP), ...(closure.snapshot.includeSundayHoliday ? [pdfHM(dH), pdfMoney(dP)] : []), pdfMoney(tP + dP)]);
+                table(cols, rows, ['TOTAL', '', '', pdfHM(tH), pdfMoney(tP), ...(closure.snapshot.includeSundayHoliday ? [pdfHM(dH), pdfMoney(dP)] : []), pdfMoney(tP + dP)]);
             } else {
                 const sum = (f) => emps.reduce((a, e) => a + (Number(e[f]) || 0), 0);
                 const debtors = emps.filter(e => (e.carryOut || 0) < 0);
@@ -5582,16 +5631,17 @@
                 ]);
                 section('Detalle por colaborador');
                 const red = (v) => (String(v).startsWith('-') ? [190, 18, 60] : null);
+                const empDocX = (id) => docLabel(appState.employees.find(x => Number(x.id) === Number(id)));
                 table([
-                    { h: 'Colaborador', w: 38 }, { h: 'Área', w: 22 },
+                    { h: 'Colaborador', w: 38 }, { h: 'Documento', w: 22 }, { h: 'Área', w: 20 },
                     { h: 'Diurna de los días', w: 17, align: 'right', color: red }, { h: 'Saldo anterior', w: 16, align: 'right', color: red },
                     { h: 'Diurna pagada', w: 15, align: 'right' }, { h: 'Valor diurna', w: 19, align: 'right' },
                     { h: 'Nocturna (horas)', w: 15, align: 'right' }, { h: 'Descuento deuda diurna', w: 19, align: 'right', color: (v) => (v && v !== '$0' ? [190, 18, 60] : null) },
                     { h: 'Valor nocturna pagado', w: 19, align: 'right' }, { h: 'Total pagado', w: 19, align: 'right' },
                     { h: 'Queda debiendo (horas)', w: 18, align: 'right', color: red },
-                ], emps.map(e => [e.name, e.department || '', pdfHM(e.hedDays), pdfHM(e.carryIn), pdfHM(e.hed), pdfMoney(e.hedPay),
+                ], emps.map(e => [e.name, empDocX(e.employeeId), e.department || '', pdfHM(e.hedDays), pdfHM(e.carryIn), pdfHM(e.hed), pdfMoney(e.hedPay),
                     pdfHM(e.hen), e.offsetValue ? '-' + pdfMoney(e.offsetValue) : '$0', pdfMoney(e.henPay), pdfMoney((e.hedPay || 0) + (e.henPay || 0)), pdfHM(e.carryOut)]),
-                ['TOTAL', '', pdfHM(sum('hedDays')), pdfHM(sum('carryIn')), pdfHM(sum('hed')), pdfMoney(sum('hedPay')),
+                ['TOTAL', '', '', pdfHM(sum('hedDays')), pdfHM(sum('carryIn')), pdfHM(sum('hed')), pdfMoney(sum('hedPay')),
                     pdfHM(sum('hen')), sum('offsetValue') ? '-' + pdfMoney(sum('offsetValue')) : '$0', pdfMoney(sum('henPay')), pdfMoney(sum('hedPay') + sum('henPay')), pdfHM(sum('carryOut'))]);
 
                 section('Tiempo adeudado al empleador que pasa al siguiente periodo');
@@ -5600,7 +5650,7 @@
                 } else {
                     const nxt = closure.next;
                     table([
-                        { h: 'Colaborador', w: 50 }, { h: 'Área', w: 34 }, { h: 'Horas que debe', w: 22, align: 'right', color: red },
+                        { h: 'Colaborador', w: 46 }, { h: 'Documento', w: 26 }, { h: 'Área', w: 28 }, { h: 'Horas que debe', w: 22, align: 'right', color: red },
                         { h: 'Se compensa a partir del', w: 30 }, { h: 'Verificación en el siguiente cierre', w: 80 },
                     ], debtors.map(e => {
                         let check;
@@ -5613,8 +5663,8 @@
                                     ? `Coincide: recibido ${pdfHM(got)} en el cierre del ${pdfDate(nxt.from)} al ${pdfDate(nxt.to)}`
                                     : `NO coincide: recibido ${pdfHM(got)} en el cierre del ${pdfDate(nxt.from)} al ${pdfDate(nxt.to)} - REVISAR`);
                         }
-                        return [e.name, e.department || '', pdfHM(e.carryOut), pdfDate(nextDayISO(closure.to)), check];
-                    }), ['TOTAL', '', pdfHM(sum('carryOut')), '', '']);
+                        return [e.name, empDocX(e.employeeId), e.department || '', pdfHM(e.carryOut), pdfDate(nextDayISO(closure.to)), check];
+                    }), ['TOTAL', '', '', pdfHM(sum('carryOut')), '', '']);
                 }
             }
             // ---- Saldo inicial (Dia 0) incluido en este cierre ----
@@ -5624,11 +5674,11 @@
             if (withOpen.length) {
                 section('Saldo inicial (Día 0) incluido en este cierre');
                 if (type === 'extras') {
-                    table([{ h: 'Colaborador', w: 70 }, { h: 'Área', w: 50 }, { h: 'Extra diurna inicial (horas)', w: 40, align: 'right' }, { h: 'Extra nocturna inicial (horas)', w: 40, align: 'right' }],
-                        withOpen.map(e => [e.name, e.department || '', pdfHM(e.openHed), pdfHM(e.openHen)]));
+                    table([{ h: 'Colaborador', w: 60 }, { h: 'Documento', w: 34 }, { h: 'Área', w: 40 }, { h: 'Extra diurna inicial (horas)', w: 36, align: 'right' }, { h: 'Extra nocturna inicial (horas)', w: 36, align: 'right' }],
+                        withOpen.map(e => [e.name, docLabel(appState.employees.find(x => Number(x.id) === Number(e.employeeId))), e.department || '', pdfHM(e.openHed), pdfHM(e.openHen)]));
                 } else {
-                    table([{ h: 'Colaborador', w: 70 }, { h: 'Área', w: 50 }, { h: 'Recargo nocturno inicial (horas)', w: 40, align: 'right' }, { h: 'Dominical inicial (horas)', w: 40, align: 'right' }],
-                        withOpen.map(e => [e.name, e.department || '', pdfHM(e.openHon), pdfHM(e.openDom)]));
+                    table([{ h: 'Colaborador', w: 60 }, { h: 'Documento', w: 34 }, { h: 'Área', w: 40 }, { h: 'Recargo nocturno inicial (horas)', w: 36, align: 'right' }, { h: 'Dominical inicial (horas)', w: 36, align: 'right' }],
+                        withOpen.map(e => [e.name, docLabel(appState.employees.find(x => Number(x.id) === Number(e.employeeId))), e.department || '', pdfHM(e.openHon), pdfHM(e.openDom)]));
                 }
             }
             // ---- Pie de página ----
@@ -5851,8 +5901,8 @@
             const cache = appState._payrollOtCache;
             if (!pend || !pend.days.length) { showAppToast('No hay días pendientes en el periodo.'); return; }
             const days = [...pend.days].sort((a, b) => a.emp.name.localeCompare(b.emp.name) || a.date.localeCompare(b.date));
-            const header = ['Colaborador', 'Área', 'Fecha', 'Turno programado', 'Situación', 'Marcaciones registradas', 'Valor estimado recargos y extras (COP)'];
-            const data = days.map(d => [d.emp.name, d.emp.department || '', d.date, d.scheduled,
+            const header = ['Colaborador', 'Documento', 'Área', 'Fecha', 'Turno programado', 'Situación', 'Marcaciones registradas', 'Valor estimado recargos y extras (COP)'];
+            const data = days.map(d => [d.emp.name, docLabel(d.emp), d.emp.department || '', d.date, d.scheduled,
                 d.type === 'sin_marcacion' ? 'Sin ninguna marcación' : 'Marcación incompleta',
                 d.marks.join(', '), Math.round(d.estPay)]);
             try {
@@ -5951,10 +6001,10 @@
             const rows = cache ? cache.rows.filter(r => (r.domPay || 0) > 0) : [];
             if (!rows.length) { showAppToast('No hay recargos dominicales o festivos en el periodo seleccionado.'); return; }
             const pct = Math.round(legalSundayPctForDate(cache.endDate) * 100);
-            const header = ['Colaborador', 'Área', 'Horas ordinarias en domingo/festivo (decimal)', 'Horas (h:mm)', 'Valor hora ordinaria (COP)', `Recargo dominical/festivo ${pct}% (COP)`];
-            const data = rows.map(r => [r.emp.name, r.emp.department || '', Number((r.domHours || 0).toFixed(2)), hmText(r.domHours || 0), Math.round(r.hourlyRate), Math.round(r.domPay)]);
+            const header = ['Colaborador', 'Documento', 'Área', 'Horas ordinarias en domingo/festivo (decimal)', 'Horas (h:mm)', 'Valor hora ordinaria (COP)', `Recargo dominical/festivo ${pct}% (COP)`];
+            const data = rows.map(r => [r.emp.name, docLabel(r.emp), r.emp.department || '', Number((r.domHours || 0).toFixed(2)), hmText(r.domHours || 0), Math.round(r.hourlyRate), Math.round(r.domPay)]);
             const totH = rows.reduce((a, r) => a + (r.domHours || 0), 0), totP = rows.reduce((a, r) => a + r.domPay, 0);
-            data.push(['TOTAL PERIODO', '', Number(totH.toFixed(2)), hmText(totH), '', Math.round(totP)]);
+            data.push(['TOTAL PERIODO', '', '', Number(totH.toFixed(2)), hmText(totH), '', Math.round(totP)]);
             try {
                 await downloadXLSX(`Dominical_Festivo_${cache.startDate}_al_${cache.endDate}.xlsx`, header, data, 'Dominical y festivo');
                 showAppToast('Reporte de dominicales y festivos exportado.');
@@ -5967,20 +6017,20 @@
                 showAppToast('No hay datos de liquidación para exportar en el periodo seleccionado.');
                 return;
             }
-            const header = ['Colaborador', 'Área',
+            const header = ['Colaborador', 'Documento', 'Área',
                 'Recargo Nocturno (horas)', 'Recargo Nocturno (COP)',
                 'Extra Diurna (horas)', 'Extra Diurna (COP)',
                 'Extra Nocturna (horas)', 'Extra Nocturna (COP)',
                 ...(appState.includeSundayHoliday ? ['Dominical/Festivo (horas)', 'Dominical/Festivo (COP)'] : []),
                 'Total a Liquidar (COP)', 'Días con marcación corregida'];
-            const dataRows = cache.rows.map(r => [r.emp.name, r.emp.department || '',
+            const dataRows = cache.rows.map(r => [r.emp.name, docLabel(r.emp), r.emp.department || '',
                 Number(r.hon.toFixed(2)), Math.round(r.honPay),
                 Number(r.hed.toFixed(2)), Math.round(r.hedPay),
                 Number(r.hen.toFixed(2)), Math.round(r.henPay),
                 ...(appState.includeSundayHoliday ? [Number((r.domHours || 0).toFixed(2)), Math.round(r.domPay || 0)] : []),
                 Math.round(r.total), r.correctedDays || 0]);
             const t = (f) => cache.rows.reduce((a, r) => a + (r[f] || 0), 0);
-            dataRows.push(['TOTAL PERIODO', '',
+            dataRows.push(['TOTAL PERIODO', '', '',
                 Number(t('hon').toFixed(2)), Math.round(t('honPay')),
                 Number(t('hed').toFixed(2)), Math.round(t('hedPay')),
                 Number(t('hen').toFixed(2)), Math.round(t('henPay')),
@@ -6694,6 +6744,7 @@
             appState.settings.smlmv2026 = data.orgSettings.minimumWage || 1750905;
             appState.includeSundayHoliday = data.orgSettings.includeSundayHoliday === true;
             appState.dayZero = data.orgSettings.dayZero || null;
+            appState.orgNit = data.orgNit || '';
             appState.dayZeroLocked = !!data.orgSettings.dayZeroLocked;
             appState.openingBalances = data.openingBalances || [];
             // Parámetros legales vigentes HOY (se actualizan solos en cada cambio de ley programado)
@@ -7281,10 +7332,10 @@
             if (!lastWorkdaysReport.length) { showAppToast('Primero consulta el periodo que quieres exportar.'); return; }
             const from = document.getElementById('attWorkdaysFrom').value;
             const to = document.getElementById('attWorkdaysTo').value;
-            const rows = lastWorkdaysReport.map(a => [a.emp.name, a.emp.department || '', a.dates.length, a.complete, a.incomplete, a.dates.join(', ')]);
+            const rows = lastWorkdaysReport.map(a => [a.emp.name, docLabel(a.emp), a.emp.department || '', a.dates.length, a.complete, a.incomplete, a.dates.join(', ')]);
             try {
                 await downloadXLSX(`Dias_laborados_${from}_al_${to}.xlsx`,
-                    ['Colaborador', 'Área', 'Días laborados', 'Jornada completa', 'Marcación incompleta', 'Fechas'], rows, 'Días laborados');
+                    ['Colaborador', 'Documento', 'Área', 'Días laborados', 'Jornada completa', 'Marcación incompleta', 'Fechas'], rows, 'Días laborados');
             } catch (e) { showAppToast(e.message); }
         }
 
