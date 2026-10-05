@@ -559,6 +559,30 @@ function seedDemoDataForOrg(organizationId) {
               ON CONFLICT(organization_id) DO NOTHING`).run(organizationId, 'Empresa Demo', 1750905);
 }
 
+// DIA 0 y SALDOS INICIALES (migracion de empresas a la suite).
+//  - org_settings.day_zero: fecha de corte de la organizacion. Se define una
+//    sola vez; queda bloqueada cuando existe algun cierre de periodo.
+//  - employee_opening_balances: un saldo inicial por colaborador (horas por
+//    concepto, con su propia fecha de corte >= Dia 0). Se aplica una sola vez,
+//    en el primer periodo que incluye el dia siguiente a su fecha de corte.
+const orgSetCols = db.prepare('PRAGMA table_info(org_settings)').all().map(c => c.name);
+if (!orgSetCols.includes('day_zero')) db.exec('ALTER TABLE org_settings ADD COLUMN day_zero TEXT NULL');
+db.exec(`
+CREATE TABLE IF NOT EXISTS employee_opening_balances (
+  organization_id TEXT NOT NULL,
+  employee_id INTEGER NOT NULL,
+  cutoff_date TEXT NOT NULL,
+  hed REAL NOT NULL DEFAULT 0,
+  hen REAL NOT NULL DEFAULT 0,
+  hon REAL NOT NULL DEFAULT 0,
+  dom REAL NOT NULL DEFAULT 0,
+  note TEXT NOT NULL,
+  updated_by TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now', '-5 hours')),
+  PRIMARY KEY (organization_id, employee_id)
+);
+`);
+
 // Marcaciones MANUALES (administrador o "Seleccion manual" del kiosco): motivo
 // obligatorio guardado en la marcacion y marca en el dia para identificarlas.
 const markCols = db.prepare('PRAGMA table_info(attendance_marks)').all().map(c => c.name);
