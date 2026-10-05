@@ -199,7 +199,14 @@ function listEmployeesToday(req, res, query) {
 // Devuelve { httpStatus, body } (nunca lanza para errores esperados de
 // negocio, solo para errores de programacion reales).
 // ---------------------------------------------------------------------------
-function performMark(orgId, employeeId, userId, method, ip) {
+// Metodos de marcacion MANUAL: exigen motivo y generan alerta.
+const MANUAL_METHODS = ['manual', 'kiosk-manual'];
+function performMark(orgId, employeeId, userId, method, ip, manualReason) {
+  const isManual = MANUAL_METHODS.includes(method);
+  const reason = isManual ? String(manualReason || '').trim().slice(0, 300) : null;
+  if (isManual && reason.length < 5) {
+    return { httpStatus: 400, body: { error: 'Escribe el motivo de la marcación manual (mínimo 5 caracteres).', state: 'motivo_requerido' } };
+  }
   const employee = db.prepare('SELECT * FROM employees WHERE id = ? AND organization_id = ?').get(employeeId, orgId);
   // Aislamiento multi-organizacion (Caso 12 del documento): si el empleado no
   // pertenece a esta organizacion, se responde como "no encontrado", igual
@@ -304,13 +311,28 @@ function performMark(orgId, employeeId, userId, method, ip) {
   }
 
   db.prepare(`
-    INSERT INTO attendance_marks (id, organization_id, employee_id, shift_date, mark_type, scheduled_time, actual_at, method, marked_by_user_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(uid('mark'), orgId, employeeId, shiftDateISO, markType, shift.startTime || null, nowIso, method, userId);
+    INSERT INTO attendance_marks (id, organization_id, employee_id, shift_date, mark_type, scheduled_time, actual_at, method, marked_by_user_id, manual_reason)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(uid('mark'), orgId, employeeId, shiftDateISO, markType, shift.startTime || null, nowIso, method, userId, reason);
 
+  if (isManual) {
+    const prevDay = db.prepare('SELECT manual_marks FROM attendance_days WHERE employee_id = ? AND shift_date = ?').get(employeeId, shiftDateISO);
+    patch.manual_marks = ((prevDay && prevDay.manual_marks) || 0) + 1;
+  }
   upsertAttendanceDay(orgId, employeeId, shiftDateISO, shift, patch);
 
-  logAction({ organizationId: orgId, userId, action: 'attendance.mark', resourceType: 'employee', resourceId: String(employeeId), ip, metadata: { markType, shiftDateISO, actualClock, method } });
+  // Alerta "Marcacion manual": visible en la pestaña Alertas, con el motivo y
+  // quien la hizo (usuario administrador o el kiosco).
+  if (isManual) {
+    const by = userId ? (db.prepare('SELECT email FROM users WHERE id = ?').get(userId) || {}).email : null;
+    insertAlert(orgId, employeeId, shiftDateISO, 'marcacion_manual', null, actualClock, null, {
+      employeeName: employee.name, markType, motivo: reason,
+      origen: method === 'kiosk-manual' ? 'Kiosco (selección manual)' : 'Administrador',
+      por: by || null,
+    });
+  }
+
+  logAction({ organizationId: orgId, userId, action: 'attendance.mark', resourceType: 'employee', resourceId: String(employeeId), ip, metadata: { markType, shiftDateISO, actualClock, method, ...(isManual ? { motivo: reason } : {}) } });
 
   return {
     httpStatus: 200,
@@ -341,7 +363,7 @@ async function registerMark(req, res) {
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
 
   const employeeId = Number(body.employeeId);
-  const result = performMark(orgId, employeeId, req.user.id, 'manual', getClientIp(req));
+  const result = performMark(orgId, employeeId, req.user.id, 'manual', getClientIp(req), body.reason);
   sendJson(res, result.httpStatus, result.body);
 }
 
@@ -423,7 +445,7 @@ function listAlerts(req, res, query) {
     FROM attendance_alerts a
     JOIN employees e ON e.id = a.employee_id
     WHERE a.organization_id = ? AND a.shift_date BETWEEN ? AND ?
-      AND a.alert_type IN ('llegada_tarde', 'exceso_almuerzo', 'salida_anticipada')
+      AND a.alert_type IN ('llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'marcacion_manual')
     ORDER BY a.created_at DESC
   `).all(orgId, from, to);
   sendJson(res, 200, { rows });
@@ -714,7 +736,7 @@ async function kioskMark(req, res) {
   const employeeId = Number(body.employeeId);
   const allowed = db.prepare('SELECT 1 FROM attendance_device_employees WHERE device_id = ? AND employee_id = ?').get(device.id, employeeId);
   if (!allowed) return sendJson(res, 403, { error: 'Este colaborador no esta autorizado para marcar en este dispositivo.' });
-  const result = performMark(device.organization_id, employeeId, null, 'kiosk-manual', getClientIp(req));
+  const result = performMark(device.organization_id, employeeId, null, 'kiosk-manual', getClientIp(req), body.reason);
   sendJson(res, result.httpStatus, result.body);
 }
 
@@ -763,7 +785,7 @@ function listPayrollAttendance(req, res, query) {
   const from = query.from || bogota.todayISOInBogota();
   const to = query.to || from;
   const rows = db.prepare(`
-    SELECT employee_id, shift_date, status, hod_min, hon_min, hed_min, hen_min, retraso_min, exceso_almuerzo_min, salida_anticipada_min, corrected
+    SELECT employee_id, shift_date, status, hod_min, hon_min, hed_min, hen_min, retraso_min, exceso_almuerzo_min, salida_anticipada_min, corrected, manual_marks
     FROM attendance_days
     WHERE organization_id = ? AND shift_date BETWEEN ? AND ? AND status = 'turno_finalizado'
   `).all(orgId, from, to);
