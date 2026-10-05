@@ -560,6 +560,44 @@ function seedDemoDataForOrg(organizationId) {
 }
 
 // ---------------------------------------------------------------------------
+// CUADRO DE TURNOS: publicacion, historial de cambios y patrones de rotacion.
+//  - shift_publications: rangos de fechas publicados (los empleados solo ven
+//    en "Mi horario" los dias publicados; la MARCACION usa siempre el turno
+//    asignado, este publicado o no).
+//  - shift_changes: cambios hechos a turnos de dias YA publicados.
+//  - rotation_patterns: patrones de rotacion guardados por la organizacion.
+// ---------------------------------------------------------------------------
+db.exec(`
+CREATE TABLE IF NOT EXISTS shift_publications (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  date_from TEXT NOT NULL,
+  date_to TEXT NOT NULL,
+  notified INTEGER NOT NULL DEFAULT 0,
+  published_by TEXT,
+  published_at TEXT NOT NULL DEFAULT (datetime('now', '-5 hours'))
+);
+CREATE INDEX IF NOT EXISTS idx_shift_pub_org ON shift_publications(organization_id, date_from, date_to);
+CREATE TABLE IF NOT EXISTS shift_changes (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  employee_id INTEGER NOT NULL,
+  shift_date TEXT NOT NULL,
+  before_text TEXT,
+  after_text TEXT,
+  changed_by TEXT,
+  notified INTEGER NOT NULL DEFAULT 0,
+  changed_at TEXT NOT NULL DEFAULT (datetime('now', '-5 hours'))
+);
+CREATE INDEX IF NOT EXISTS idx_shift_changes_org ON shift_changes(organization_id, shift_date);
+CREATE TABLE IF NOT EXISTS rotation_patterns (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  data_json TEXT NOT NULL
+);
+`);
+
+// ---------------------------------------------------------------------------
 // MIGRATION (horario Bogota): los registros que se muestran en informes,
 // liquidaciones y auditoria pasan a guardarse en hora de Colombia (UTC-5).
 // Se ajustan UNA sola vez los registros que ya existian en UTC.
