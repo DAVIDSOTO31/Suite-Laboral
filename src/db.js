@@ -559,6 +559,12 @@ function seedDemoDataForOrg(organizationId) {
               ON CONFLICT(organization_id) DO NOTHING`).run(organizationId, 'Empresa Demo', 1750905);
 }
 
+// Documento de identidad del colaborador (opcional): tipo (CC, CE, PPT, PA, TI)
+// y numero. Se usa en colillas, Excel y PDF de liquidacion.
+const empDocCols = db.prepare('PRAGMA table_info(employees)').all().map(c => c.name);
+if (!empDocCols.includes('document_type')) db.exec('ALTER TABLE employees ADD COLUMN document_type TEXT NULL');
+if (!empDocCols.includes('document_number')) db.exec('ALTER TABLE employees ADD COLUMN document_number TEXT NULL');
+
 // DIA 0 y SALDOS INICIALES (migracion de empresas a la suite).
 //  - org_settings.day_zero: fecha de corte de la organizacion. Se define una
 //    sola vez; queda bloqueada cuando existe algun cierre de periodo.
