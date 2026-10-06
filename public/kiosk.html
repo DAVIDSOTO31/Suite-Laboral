@@ -60,6 +60,16 @@
       <div id="resultBox" class="mt-4 hidden"></div>
     </div>
 
+    <div class="mt-4 text-center text-2xs text-slate-400">
+      <i class="fa-solid fa-volume-high"></i> Voz: <span id="voiceLabel">-</span>
+      · <button onclick="toggleVoicePanel()" class="underline hover:text-slate-200">Cambiar</button>
+    </div>
+    <div id="voicePanel" class="hidden mt-2 bg-slate-900/80 border border-slate-700 rounded-xl p-3 text-xs space-y-2">
+      <label class="flex items-center gap-2"><input type="checkbox" id="voiceOn" onchange="saveVoiceSettings()" class="w-4 h-4"> Confirmar la marcación con voz</label>
+      <select id="voiceSelect" onchange="saveVoiceSettings()" class="w-full px-2 py-2 rounded-lg bg-slate-800 border border-slate-600"></select>
+      <button onclick="speakConfirmation({ employeeName: 'David Soto', markType: 'entrada', isSplit: false }, true)" class="w-full py-2 rounded-lg bg-slate-700 hover:bg-slate-600 font-semibold">Probar voz</button>
+    </div>
+
     <button onclick="resetDevice()" class="w-full text-center text-2xs text-slate-500 hover:text-slate-300 mt-4">Cambiar dispositivo / token</button>
 
     <div class="flex-1"></div>
@@ -76,6 +86,78 @@ const MARK_LABELS = { entrada: 'Entrada', inicio_almuerzo: 'Inicio de almuerzo',
 const SPLIT_MARK_LABELS = { entrada: 'Inicio Etapa 1', inicio_almuerzo: 'Final Etapa 1', fin_almuerzo: 'Inicio Etapa 2', salida: 'Final Etapa 2' };
 function markLabel(markType, isSplit) { return (isSplit ? SPLIT_MARK_LABELS : MARK_LABELS)[markType]; }
 const FACE_MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
+
+// ---- Voz de confirmación (opción A: "Nombre. Entrada confirmada.") ----
+// Usa las voces del propio equipo (sin internet ni costo). Prefiere una voz
+// femenina en español; el administrador puede elegir otra en "Voz: Cambiar".
+const VOICE_RATE = 1.10;
+const VOICE_PITCH = 1.1;
+const FEMALE_VOICE_HINTS = ['paulina', 'monica', 'mónica', 'marisol', 'soledad', 'angelica', 'angélica', 'francisca', 'sabina', 'helena', 'laura', 'elvira', 'dalia', 'salome', 'salomé', 'lupe', 'penelope', 'lucia', 'lucía', 'conchita', 'female', 'mujer', 'google español', 'es-us-x-', 'es-es-x-', 'ximena', 'catalina', 'paloma', 'isabela'];
+let spanishVoices = [];
+const hasSpeech = 'speechSynthesis' in window;
+const isFemaleVoice = (v) => FEMALE_VOICE_HINTS.some(h => (v.name + ' ' + v.voiceURI).toLowerCase().includes(h));
+const regionRank = (lang) => (/es-CO/i.test(lang) ? 0 : /es-(MX|US|419)/i.test(lang) ? 1 : /es-ES/i.test(lang) ? 2 : 3);
+function loadSpanishVoices() {
+  if (!hasSpeech) return;
+  spanishVoices = speechSynthesis.getVoices().filter(v => /^es/i.test(v.lang));
+  spanishVoices.sort((a, b) => (isFemaleVoice(b) - isFemaleVoice(a)) || (regionRank(a.lang) - regionRank(b.lang)) || a.name.localeCompare(b.name));
+  renderVoicePanel();
+}
+function chosenVoice() {
+  const saved = localStorage.getItem('kioskVoiceURI');
+  return spanishVoices.find(v => v.voiceURI === saved) || spanishVoices[0] || null;
+}
+function voiceEnabled() { return hasSpeech && localStorage.getItem('kioskVoiceOn') !== '0'; }
+function renderVoicePanel() {
+  const label = document.getElementById('voiceLabel');
+  const sel = document.getElementById('voiceSelect');
+  const on = document.getElementById('voiceOn');
+  if (!label) return;
+  if (!hasSpeech) { label.textContent = 'no disponible en este navegador'; return; }
+  const v = chosenVoice();
+  label.textContent = !voiceEnabled() ? 'desactivada' : (v ? v.name : 'voz del sistema');
+  on.checked = voiceEnabled();
+  sel.innerHTML = spanishVoices.length
+    ? spanishVoices.map(x => `<option value="${escapeHtml(x.voiceURI)}" ${v && x.voiceURI === v.voiceURI ? 'selected' : ''}>${escapeHtml(x.name)} (${escapeHtml(x.lang)})${isFemaleVoice(x) ? ' · femenina' : ''}</option>`).join('')
+    : '<option value="">Este equipo no tiene voces en español instaladas</option>';
+}
+function toggleVoicePanel() { document.getElementById('voicePanel').classList.toggle('hidden'); }
+function saveVoiceSettings() {
+  localStorage.setItem('kioskVoiceOn', document.getElementById('voiceOn').checked ? '1' : '0');
+  const uri = document.getElementById('voiceSelect').value;
+  if (uri) localStorage.setItem('kioskVoiceURI', uri);
+  renderVoicePanel();
+}
+// iPhone/iPad solo permiten hablar si la voz se "activa" con un toque del
+// usuario: se llama al presionar "Iniciar marcación".
+function primeSpeech() {
+  if (!voiceEnabled()) return;
+  try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) { /* sin voz */ }
+}
+// "David Soto. Entrada confirmada." (concordancia: entrada/salida -> confirmada;
+// inicio/fin de almuerzo y etapas -> confirmado).
+function confirmationText(r) {
+  const label = markLabel(r.markType, r.isSplit) || 'Marcación';
+  const fem = /^(entrada|salida)$/i.test(label);
+  return `${r.employeeName}. ${label} ${fem ? 'confirmada' : 'confirmado'}.`;
+}
+function speakConfirmation(r, force) {
+  if (!hasSpeech || (!force && !voiceEnabled())) return;
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(confirmationText(r));
+    const v = chosenVoice();
+    if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'es-CO'; }
+    u.rate = VOICE_RATE;
+    u.pitch = VOICE_PITCH;
+    speechSynthesis.speak(u);
+  } catch (e) { /* si falla la voz, la marcación ya quedó registrada */ }
+}
+if (hasSpeech) {
+  speechSynthesis.onvoiceschanged = loadSpanishVoices;
+  setTimeout(loadSpanishVoices, 300);
+  setTimeout(loadSpanishVoices, 1500);
+}
 
 function getToken() { return localStorage.getItem('kioskDeviceToken'); }
 
@@ -192,6 +274,7 @@ async function startFacialAttempt() {
   const video = document.getElementById('video');
   btn.disabled = true;
   btn.classList.add('opacity-50');
+  primeSpeech();
   document.getElementById('resultBox').classList.add('hidden');
   try {
     statusEl.textContent = 'Cargando modelo…';
@@ -245,6 +328,7 @@ async function submitFaceMark(descriptor) {
   try {
     const r = await apiKiosk('/api/kiosk/mark-by-face', { method: 'POST', body: JSON.stringify({ descriptor }) });
     renderResult(r);
+    speakConfirmation(r);
     statusEl.textContent = 'Listo. Presiona "Iniciar marcación" para el siguiente colaborador.';
   } catch (e) {
     statusEl.textContent = e.message;
