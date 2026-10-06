@@ -29,6 +29,7 @@
         /* Permisos por rol: lo que el usuario no puede usar no se muestra.
            (El servidor igual valida cada acción; esto solo ordena la pantalla.) */
         body:not(.perm-settings-manage) [data-perm="settings.manage"] { display: none !important; }
+        body:not(.perm-audit-view) [data-perm="audit.view"] { display: none !important; }
         body:not(.perm-users-create) [data-perm="users.create"] { display: none !important; }
         body:not(.perm-employees-edit) [data-perm="employees.edit"] { display: none !important; }
         body:not(.perm-shifts-view) [data-perm="shifts.view"] { display: none !important; }
@@ -1287,14 +1288,29 @@
                     </div>
                 </div>
 
-                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm" data-perm="audit.view">
                     <h3 class="font-bold text-slate-800 text-base mb-1">Auditoría de la organización</h3>
-                    <p class="text-xs text-slate-500 mb-4">Registro de acciones administrativas (invitaciones, cambios de configuración, activaciones, sincronización de datos).</p>
+                    <p class="text-xs text-slate-500 mb-4">Qué hizo cada persona en la suite, sobre quién y cuándo (hora Colombia).</p>
+                    <div class="flex flex-wrap items-end gap-2 mb-3 text-xs">
+                        <div><label class="block font-semibold text-slate-500 mb-1">Desde</label><input type="date" id="auditFrom" class="p-2 border border-slate-300 rounded-lg"></div>
+                        <div><label class="block font-semibold text-slate-500 mb-1">Hasta</label><input type="date" id="auditTo" class="p-2 border border-slate-300 rounded-lg"></div>
+                        <div><label class="block font-semibold text-slate-500 mb-1">Persona</label><select id="auditUser" class="p-2 border border-slate-300 rounded-lg bg-white min-w-[180px]"><option value="">Todas</option></select></div>
+                        <div><label class="block font-semibold text-slate-500 mb-1">Tipo de acción</label>
+                            <select id="auditCategory" class="p-2 border border-slate-300 rounded-lg bg-white">
+                                <option value="">Todas</option><option>Colaboradores</option><option>Turnos</option><option>Asistencia</option>
+                                <option>Liquidación</option><option>Usuarios</option><option>Configuración</option><option>Sesión</option>
+                            </select>
+                        </div>
+                        <div class="flex-1 min-w-[160px]"><label class="block font-semibold text-slate-500 mb-1">Buscar</label><input type="text" id="auditSearch" placeholder="Nombre, motivo, fecha…" class="w-full p-2 border border-slate-300 rounded-lg"></div>
+                        <button onclick="loadOrgAudit()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-semibold">Consultar</button>
+                        <button onclick="exportAuditXLSX()" class="px-3 py-2 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold"><i class="fa-solid fa-file-excel text-emerald-600"></i> Excel</button>
+                    </div>
+                    <p class="text-3xs text-slate-500 mb-2" id="auditCount"></p>
                     <div class="overflow-x-auto border border-slate-200 rounded-lg">
                         <table class="w-full text-sm">
                             <thead class="bg-slate-50 text-slate-500 text-xs uppercase"><tr>
-                                <th class="text-left px-4 py-2">Fecha</th><th class="text-left px-4 py-2">Usuario</th>
-                                <th class="text-left px-4 py-2">Acción</th><th class="text-left px-4 py-2">Recurso</th>
+                                <th class="text-left px-3 py-2 whitespace-nowrap">Fecha y hora</th><th class="text-left px-3 py-2">Quién</th>
+                                <th class="text-left px-3 py-2">Tipo</th><th class="text-left px-3 py-2">Qué hizo</th>
                             </tr></thead>
                             <tbody id="orgAuditTableBody"></tbody>
                         </table>
@@ -7051,18 +7067,60 @@
             } catch (e) {
                 usersBody.innerHTML = `<tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">No tienes permiso para ver esta sección.</td></tr>`;
             }
-            try {
-                const { logs } = await apiFetch('/api/org/audit');
-                auditBody.innerHTML = logs.map(l => `
-                    <tr class="border-t border-slate-100">
-                        <td class="px-4 py-2 text-slate-500 whitespace-nowrap">${l.created_at}</td>
-                        <td class="px-4 py-2 text-slate-500">${l.user_id ? escapeHtml(l.user_id.slice(0, 12)) : '-'}</td>
-                        <td class="px-4 py-2 font-medium">${escapeHtml(l.action)}</td>
-                        <td class="px-4 py-2 text-slate-500">${escapeHtml(l.resource_type || '-')} ${l.resource_id ? '#' + escapeHtml(String(l.resource_id).slice(0, 8)) : ''}</td>
-                    </tr>`).join('') || `<tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">Sin eventos registrados.</td></tr>`;
-            } catch (e) {
-                auditBody.innerHTML = `<tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">No tienes permiso para ver esta sección.</td></tr>`;
+            if (CAN('audit.view')) loadOrgAudit(true);
+        }
+
+        // ---- Auditoría en español: qué hizo cada persona, sobre quién y cuándo ----
+        const AUDIT_CATEGORY_STYLES = {
+            'Colaboradores': 'bg-sky-100 text-sky-800', 'Turnos': 'bg-violet-100 text-violet-800', 'Asistencia': 'bg-emerald-100 text-emerald-800',
+            'Liquidación': 'bg-amber-100 text-amber-800', 'Usuarios': 'bg-rose-100 text-rose-800', 'Configuración': 'bg-slate-200 text-slate-700',
+            'Sesión': 'bg-slate-100 text-slate-500', 'Otros': 'bg-slate-100 text-slate-500',
+        };
+        let lastAuditLogs = [];
+        async function loadOrgAudit(firstLoad) {
+            const body = document.getElementById('orgAuditTableBody');
+            const fromEl = document.getElementById('auditFrom'), toEl = document.getElementById('auditTo');
+            if (firstLoad && !fromEl.value) {
+                const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+                const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() - 7);
+                fromEl.value = formatDateISO(d); toEl.value = today;
             }
+            const params = new URLSearchParams({ from: fromEl.value, to: toEl.value });
+            const u = document.getElementById('auditUser').value, c = document.getElementById('auditCategory').value, q = document.getElementById('auditSearch').value.trim();
+            if (u) params.set('userId', u);
+            if (c) params.set('category', c);
+            if (q) params.set('q', q);
+            body.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">Cargando…</td></tr>';
+            try {
+                const r = await apiFetch('/api/org/audit?' + params.toString());
+                lastAuditLogs = r.logs;
+                const userSel = document.getElementById('auditUser');
+                if (userSel.options.length <= 1) userSel.insertAdjacentHTML('beforeend', r.users.map(x => `<option value="${x.id}">${escapeHtml(x.email)}${x.role ? ' (' + escapeHtml(x.role) + ')' : ''}</option>`).join(''));
+                document.getElementById('auditCount').textContent = `${r.logs.length} registro(s) del ${r.from.split('-').reverse().join('/')} al ${r.to.split('-').reverse().join('/')}${r.truncated ? ' (se muestran los más recientes; ajusta los filtros para ver más)' : ''}.`;
+                body.innerHTML = r.logs.map((l, i) => `
+                    <tr class="border-t border-slate-100 align-top">
+                        <td class="px-3 py-2 text-slate-500 whitespace-nowrap text-xs">${escapeHtml(l.at.slice(0, 10).split('-').reverse().join('/'))}<span class="block">${escapeHtml(l.at.slice(11, 16))}</span></td>
+                        <td class="px-3 py-2 text-xs"><span class="font-semibold text-slate-700 break-all">${escapeHtml(l.user)}</span>${l.role ? `<span class="block text-slate-400">${escapeHtml(l.role)}</span>` : ''}</td>
+                        <td class="px-3 py-2"><span class="inline-block px-2 py-0.5 rounded-full text-3xs font-bold ${AUDIT_CATEGORY_STYLES[l.category] || AUDIT_CATEGORY_STYLES.Otros}">${escapeHtml(l.category)}</span>
+                            <span class="block text-3xs text-slate-500 mt-0.5">${escapeHtml(l.title)}</span></td>
+                        <td class="px-3 py-2 text-slate-700">${escapeHtml(l.text)}
+                            ${l.details.length ? (l.details.length <= 3
+                                ? `<ul class="mt-1 text-xs text-slate-500 list-disc pl-4">${l.details.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul>`
+                                : `<button onclick="document.getElementById('auditDet${i}').classList.toggle('hidden')" class="block mt-1 text-xs text-sky-700 underline">Ver detalle (${l.details.length})</button>
+                                   <ul id="auditDet${i}" class="hidden mt-1 text-xs text-slate-500 list-disc pl-4">${l.details.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul>`) : ''}
+                        </td>
+                    </tr>`).join('') || `<tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">No hay registros con estos filtros.</td></tr>`;
+            } catch (e) {
+                body.innerHTML = `<tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">${escapeHtml(e.message)}</td></tr>`;
+            }
+        }
+        async function exportAuditXLSX() {
+            if (!lastAuditLogs.length) { showAppToast('Primero consulta la auditoría.'); return; }
+            const rows = lastAuditLogs.map(l => [l.at.slice(0, 10).split('-').reverse().join('/'), l.at.slice(11, 19), l.user, l.role || '', l.category, l.title, l.text, l.details.join(' | ')]);
+            try {
+                await downloadXLSX(`Auditoria_${document.getElementById('auditFrom').value}_al_${document.getElementById('auditTo').value}.xlsx`,
+                    ['Fecha', 'Hora (Colombia)', 'Usuario', 'Rol', 'Tipo', 'Acción', 'Qué hizo', 'Detalle'], rows, 'Auditoría');
+            } catch (e) { showAppToast(e.message); }
         }
 
         function orgUserStatusBadge(s) {
