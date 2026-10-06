@@ -332,7 +332,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason) {
     });
   }
 
-  logAction({ organizationId: orgId, userId, action: 'attendance.mark', resourceType: 'employee', resourceId: String(employeeId), ip, metadata: { markType, shiftDateISO, actualClock, method, ...(isManual ? { motivo: reason } : {}) } });
+  logAction({ organizationId: orgId, userId, action: 'attendance.mark', resourceType: 'employee', resourceId: String(employeeId), ip, metadata: { colaborador: employee.name, markType, isSplit: !!shift.isSplit, shiftDateISO, actualClock, method, ...(isManual ? { motivo: reason } : {}) } });
 
   return {
     httpStatus: 200,
@@ -682,7 +682,7 @@ async function setDeviceAssignments(req, res, params) {
     const belongs = db.prepare('SELECT id FROM employees WHERE id = ? AND organization_id = ?').get(empId, orgId);
     if (belongs) insert.run(device.id, empId);
   }
-  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.device_assign', resourceType: 'attendance_device', resourceId: device.id, ip: getClientIp(req), metadata: { count: employeeIds.length } });
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.device_assign', resourceType: 'attendance_device', resourceId: device.id, ip: getClientIp(req), metadata: { deviceName: device.device_name, count: employeeIds.length } });
   sendJson(res, 200, { ok: true, assignedCount: employeeIds.length });
 }
 
