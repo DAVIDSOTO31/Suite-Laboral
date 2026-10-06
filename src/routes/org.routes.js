@@ -2,6 +2,7 @@
 const { db, uid, seedDemoDataForOrg, getOrgRoleByName } = require('../db');
 const { sendJson, readBody, getClientIp } = require('../lib/http');
 const { logAction } = require('../lib/audit');
+const { describeAudit } = require('../lib/audit-describe');
 const { randomToken, sha256Hex } = require('../lib/crypto');
 const { sendMail } = require('../lib/mailer');
 
@@ -168,7 +169,12 @@ async function updateSettings(req, res) {
     ON CONFLICT(organization_id) DO UPDATE SET org_name = excluded.org_name, logo_base64 = excluded.logo_base64, minimum_wage = excluded.minimum_wage,
       include_sunday_holiday = excluded.include_sunday_holiday, updated_at = datetime('now')
   `).run(orgId, orgName, logo, minimumWage, includeSundayHoliday);
-  logAction({ organizationId: orgId, userId: req.user.id, action: 'settings.update', ip: getClientIp(req), metadata: { orgName, dominicalesYFestivos: !!includeSundayHoliday } });
+  const cambios = [];
+  if (!current || current.org_name !== orgName) cambios.push({ campo: 'Nombre de la organización', antes: current ? current.org_name : null, despues: orgName });
+  if (current && (current.logo_base64 || null) !== (logo || null)) cambios.push({ campo: 'Logo', antes: current.logo_base64 ? 'con logo' : 'sin logo', despues: logo ? 'logo nuevo' : 'sin logo' });
+  if (current && Number(current.minimum_wage) !== Number(minimumWage)) cambios.push({ campo: 'Salario mínimo', antes: current.minimum_wage, despues: minimumWage });
+  if ((current ? current.include_sunday_holiday === 1 : false) !== !!includeSundayHoliday) cambios.push({ campo: 'Recargos dominicales y festivos', antes: current && current.include_sunday_holiday === 1 ? 'activos' : 'inactivos', despues: includeSundayHoliday ? 'activos' : 'inactivos' });
+  if (cambios.length) logAction({ organizationId: orgId, userId: req.user.id, action: 'settings.update', ip: getClientIp(req), metadata: { cambios } });
   sendJson(res, 200, { ok: true });
 }
 
@@ -178,12 +184,20 @@ async function replaceDepartments(req, res) {
   const orgId = resolveOrgId(req, body);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   const list = Array.isArray(body.departments) ? body.departments : [];
+  const beforeDepts = new Map(db.prepare('SELECT id, name FROM departments WHERE organization_id = ?').all(orgId).map(d => [String(d.id), d.name]));
   db.prepare('DELETE FROM departments WHERE organization_id = ?').run(orgId);
   const insert = db.prepare('INSERT INTO departments (id, organization_id, name, icon, position) VALUES (?, ?, ?, ?, ?)');
   list.forEach((d, idx) => {
     insert.run(String(d.id || uid('dept')), orgId, String(d.name || '').slice(0, 80), String(d.icon || 'fa-briefcase'), idx);
   });
-  logAction({ organizationId: orgId, userId: req.user.id, action: 'departments.replace', ip: getClientIp(req), metadata: { count: list.length } });
+  const afterDepts = new Map(list.map(d => [String(d.id), String(d.name || '')]));
+  const agregadas = [...afterDepts].filter(([id]) => !beforeDepts.has(id)).map(([, n]) => n);
+  const eliminadas = [...beforeDepts].filter(([id]) => !afterDepts.has(id)).map(([, n]) => n);
+  const renombradas = [...afterDepts].filter(([id, n]) => beforeDepts.has(id) && beforeDepts.get(id) !== n).map(([id, n]) => ({ antes: beforeDepts.get(id), despues: n }));
+  const orden = [...beforeDepts.keys()].filter(id => afterDepts.has(id)).join() !== [...afterDepts.keys()].filter(id => beforeDepts.has(id)).join();
+  if (agregadas.length || eliminadas.length || renombradas.length || orden) {
+    logAction({ organizationId: orgId, userId: req.user.id, action: 'departments.replace', ip: getClientIp(req), metadata: { agregadas, eliminadas, renombradas, ordenCambiado: orden } });
+  }
   sendJson(res, 200, { ok: true });
 }
 
@@ -193,10 +207,19 @@ async function replaceShiftPresets(req, res) {
   const orgId = resolveOrgId(req, body);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   const list = Array.isArray(body.shiftPresets) ? body.shiftPresets : [];
+  const presetText = (p) => `${p.name} (${p.isSplit && p.splitOut ? `${p.startTime}-${p.splitOut} / ${p.splitIn}-${p.endTime}` : `${p.startTime}-${p.endTime}`})`;
+  const beforePresets = new Map(db.prepare('SELECT id, data_json FROM shift_presets WHERE organization_id = ?').all(orgId).map(r => { try { return [String(r.id), JSON.parse(r.data_json)]; } catch { return [String(r.id), {}]; } }));
   db.prepare('DELETE FROM shift_presets WHERE organization_id = ?').run(orgId);
   const insert = db.prepare('INSERT INTO shift_presets (id, organization_id, data_json) VALUES (?, ?, ?)');
   list.forEach((p) => insert.run(String(p.id || uid('preset')), orgId, JSON.stringify(p)));
-  logAction({ organizationId: orgId, userId: req.user.id, action: 'shift_presets.replace', ip: getClientIp(req), metadata: { count: list.length } });
+  const afterPresets = new Map(list.map(p => [String(p.id), p]));
+  const creados = [...afterPresets].filter(([id]) => !beforePresets.has(id)).map(([, p]) => presetText(p));
+  const eliminados = [...beforePresets].filter(([id]) => !afterPresets.has(id)).map(([, p]) => presetText(p));
+  const editados = [...afterPresets].filter(([id, p]) => beforePresets.has(id) && presetText(beforePresets.get(id)) + (beforePresets.get(id).color || '') + (beforePresets.get(id).functionTag || '') !== presetText(p) + (p.color || '') + (p.functionTag || ''))
+    .map(([id, p]) => ({ antes: presetText(beforePresets.get(id)), despues: presetText(p) }));
+  if (creados.length || eliminados.length || editados.length) {
+    logAction({ organizationId: orgId, userId: req.user.id, action: 'shift_presets.replace', ip: getClientIp(req), metadata: { creados, editados, eliminados } });
+  }
   sendJson(res, 200, { ok: true });
 }
 
@@ -226,14 +249,17 @@ async function syncEmployeesAndShifts(req, res) {
     // Los empleados se ACTUALIZAN (no se borran y recrean) para no arrastrar en
     // cascada su historial de asistencia ni su perfil biometrico.
     const existing = new Map(
-      db.prepare('SELECT id, name, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
+      db.prepare('SELECT id, name, role, department, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
     );
     const incomingIds = new Set(body.employees.map(e => Number(e.id)));
     const toDelete = [...existing.keys()].filter(id => !incomingIds.has(id));
     if (toDelete.length) {
       if (canDelete) {
         const del = db.prepare('DELETE FROM employees WHERE organization_id = ? AND id = ?');
-        for (const id of toDelete) del.run(orgId, id);
+        for (const id of toDelete) {
+          del.run(orgId, id);
+          logAction({ organizationId: orgId, userId: req.user.id, action: 'employee.deleted', resourceType: 'employee', resourceId: String(id), ip: getClientIp(req), metadata: { colaborador: existing.get(id).name } });
+        }
       } else {
         ignored.push(`eliminar ${toDelete.length} colaborador(es): requiere permiso de eliminar colaboradores`);
       }
@@ -308,7 +334,23 @@ async function syncEmployeesAndShifts(req, res) {
         const salaryChanged = e.salary !== undefined && Number(e.salary) !== Number(salary);
         if (salaryChanged || incomingNight !== nightSurcharge) payrollIgnored = true;
       }
-      upsert.run(e.id, orgId, String(e.name || '').slice(0, 120), String(e.role || '').slice(0, 120), e.department || null, e.departmentId || null, salary, nightSurcharge, reason, email || null, countDays, docNumber ? docType : null, docNumber);
+      const newName = String(e.name || '').slice(0, 120), newRole = String(e.role || '').slice(0, 120);
+      upsert.run(e.id, orgId, newName, newRole, e.department || null, e.departmentId || null, salary, nightSurcharge, reason, email || null, countDays, docNumber ? docType : null, docNumber);
+      // Auditoria: que se creo o que cambio exactamente en la ficha.
+      if (!prev) {
+        logAction({ organizationId: orgId, userId: req.user.id, action: 'employee.created', resourceType: 'employee', resourceId: String(e.id), ip: getClientIp(req),
+          metadata: { colaborador: newName, cargo: newRole, area: e.department || null, salario: salary, documento: docNumber ? `${docType} ${docNumber}` : null, correo: email || null } });
+      } else {
+        const cambios = [];
+        const chk = (campo, a, b) => { if ((a == null ? '' : String(a)) !== (b == null ? '' : String(b))) cambios.push({ campo, antes: a == null || a === '' ? null : a, despues: b == null || b === '' ? null : b }); };
+        chk('Nombre', prev.name, newName);
+        chk('Cargo', prev.role, newRole);
+        chk('Área', prev.department, e.department || null);
+        chk('Salario', Number(prev.salary), Number(salary));
+        chk('Correo', prev.email, email || null);
+        chk('Documento', prev.document_number ? `${prev.document_type || 'CC'} ${prev.document_number}` : null, docNumber ? `${docType} ${docNumber}` : null);
+        if (cambios.length) logAction({ organizationId: orgId, userId: req.user.id, action: 'employee.updated', resourceType: 'employee', resourceId: String(e.id), ip: getClientIp(req), metadata: { colaborador: newName, cambios } });
+      }
       // Trazabilidad: activar/desactivar el conteo de dias laborados.
       const prevCount = prev ? (prev.count_worked_days === 1 ? 1 : 0) : 0;
       if (prevCount !== countDays) {
@@ -334,24 +376,30 @@ async function syncEmployeesAndShifts(req, res) {
   let shiftChanges = [];
   if (Array.isArray(body.shifts)) {
     if (canShifts) {
-      // Cambios en dias YA PUBLICADOS: se registran y se avisa al colaborador.
+      // Diferencias de turnos (todos los dias): para la auditoria, y los de
+      // dias YA PUBLICADOS ademas se registran y se avisan al colaborador.
       const pubs = getPublications(orgId);
-      if (pubs.length) {
-        const keyOf = (sh) => `${Number(sh.empId)}|${sh.date}`;
-        const before = new Map();
-        for (const row of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId)) {
-          try { const sh = JSON.parse(row.data_json); if (isDatePublished(pubs, sh.date)) before.set(keyOf(sh), sh); } catch { /* fila invalida */ }
-        }
-        const after = new Map();
-        for (const sh of body.shifts) { if (sh && isDatePublished(pubs, sh.date)) after.set(keyOf(sh), sh); }
-        const keys = new Set([...before.keys(), ...after.keys()]);
-        for (const k of keys) {
-          const b = shiftSummary(before.get(k)), a = shiftSummary(after.get(k));
-          if (b !== a) {
-            const [empId, date] = k.split('|');
-            shiftChanges.push({ employeeId: Number(empId), date, before: b, after: a });
-          }
-        }
+      const keyOf = (sh) => `${Number(sh.empId)}|${sh.date}`;
+      const beforeAll = new Map();
+      for (const row of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId)) {
+        try { const sh = JSON.parse(row.data_json); beforeAll.set(keyOf(sh), sh); } catch { /* fila invalida */ }
+      }
+      const afterAll = new Map();
+      for (const sh of body.shifts) { if (sh) afterAll.set(keyOf(sh), sh); }
+      const auditByEmp = new Map();
+      for (const k of new Set([...beforeAll.keys(), ...afterAll.keys()])) {
+        const b = shiftSummary(beforeAll.get(k)), a = shiftSummary(afterAll.get(k));
+        if (b === a) continue;
+        const [empId, date] = k.split('|');
+        if (!auditByEmp.has(empId)) auditByEmp.set(empId, []);
+        auditByEmp.get(empId).push({ fecha: date, antes: b, despues: a });
+        if (pubs.length && isDatePublished(pubs, date)) shiftChanges.push({ employeeId: Number(empId), date, before: b, after: a });
+      }
+      for (const [empId, list] of auditByEmp) {
+        list.sort((x, y) => x.fecha.localeCompare(y.fecha));
+        const emp = db.prepare('SELECT name FROM employees WHERE id = ? AND organization_id = ?').get(Number(empId), orgId);
+        logAction({ organizationId: orgId, userId: req.user.id, action: 'shifts.changed', resourceType: 'employee', resourceId: String(empId), ip: getClientIp(req),
+          metadata: { colaborador: emp ? emp.name : `Colaborador ${empId}`, total: list.length, cambios: list.slice(0, 120) } });
       }
       db.prepare('DELETE FROM shifts WHERE organization_id = ?').run(orgId);
       const insert = db.prepare('INSERT INTO shifts (id, organization_id, data_json) VALUES (?, ?, ?)');
@@ -372,7 +420,6 @@ async function syncEmployeesAndShifts(req, res) {
       insChange.run(uid('chg'), orgId, c.employeeId, c.date, c.before, c.after, req.user.id, email ? 1 : 0);
       if (email) { if (!byEmp.has(email)) byEmp.set(email, []); byEmp.get(email).push(c); }
     }
-    logAction({ organizationId: orgId, userId: req.user.id, action: 'shifts.published_changed', ip: getClientIp(req), metadata: { cambios: shiftChanges.length } });
     // Un solo correo por colaborador con todos sus cambios (no se espera la respuesta).
     for (const [email, list] of byEmp) {
       list.sort((x, y) => x.date.localeCompare(y.date));
@@ -390,7 +437,7 @@ async function syncEmployeesAndShifts(req, res) {
   for (const l of linked) {
     logAction({ organizationId: orgId, userId: req.user.id, action: 'user.auto_linked', resourceType: 'user', ip: getClientIp(req), metadata: l });
   }
-  logAction({ organizationId: orgId, userId: req.user.id, action: 'org_data.sync', ip: getClientIp(req), metadata: { employees: (body.employees || []).length, shifts: (body.shifts || []).length, ignored } });
+  if (ignored.length) logAction({ organizationId: orgId, userId: req.user.id, action: 'org_data.ignored', ip: getClientIp(req), metadata: { ignorados: ignored } });
   sendJson(res, 200, { ok: true, ignored, linked, shiftChanges: shiftChanges.length });
 }
 
@@ -482,7 +529,13 @@ async function updateOrgUser(req, res, params) {
       db.prepare('INSERT INTO user_roles (user_id, role_id, organization_id) VALUES (?, ?, ?)').run(target.id, role.id, req.user.organizationId);
     }
   }
-  logAction({ organizationId: req.user.organizationId, userId: req.user.id, action: 'user.update', resourceType: 'user', resourceId: target.id, ip: getClientIp(req), metadata: body });
+  const metaUpd = { usuario: target.email };
+  if (body.role) metaUpd.rolNuevo = body.role;
+  if (Object.prototype.hasOwnProperty.call(body, 'employeeId')) {
+    const emp = body.employeeId ? db.prepare('SELECT name FROM employees WHERE id = ? AND organization_id = ?').get(Number(body.employeeId), req.user.organizationId) : null;
+    metaUpd.colaboradorVinculado = emp ? emp.name : null;
+  }
+  logAction({ organizationId: req.user.organizationId, userId: req.user.id, action: 'user.update', resourceType: 'user', resourceId: target.id, ip: getClientIp(req), metadata: metaUpd });
   sendJson(res, 200, { ok: true });
 }
 
@@ -491,7 +544,7 @@ function toggleOrgUserStatus(req, res, params) {
   if (!target) return;
   const newStatus = target.status === 'active' ? 'inactive' : 'active';
   db.prepare(`UPDATE users SET status = ?, updated_at = datetime('now') WHERE id = ?`).run(newStatus, target.id);
-  logAction({ organizationId: req.user.organizationId, userId: req.user.id, action: newStatus === 'active' ? 'user.activate' : 'user.deactivate', resourceType: 'user', resourceId: target.id, ip: getClientIp(req) });
+  logAction({ organizationId: req.user.organizationId, userId: req.user.id, action: newStatus === 'active' ? 'user.activate' : 'user.deactivate', resourceType: 'user', resourceId: target.id, ip: getClientIp(req), metadata: { usuario: target.email } });
   sendJson(res, 200, { ok: true, status: newStatus });
 }
 
@@ -501,15 +554,40 @@ async function resetOrgUserPassword(req, res, params) {
   const token = randomToken(32);
   db.prepare(`INSERT INTO password_resets (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, datetime('now', '+1 hour'))`).run(uid('pwr'), target.id, sha256Hex(token));
   const mail = await sendMail({ to: target.email, subject: 'Restablecimiento de contrasena', kind: 'password_reset', link: `/reset-password.html?token=${token}` });
-  logAction({ organizationId: req.user.organizationId, userId: req.user.id, action: 'user.reset_password_requested', resourceType: 'user', resourceId: target.id, ip: getClientIp(req) });
+  logAction({ organizationId: req.user.organizationId, userId: req.user.id, action: 'user.reset_password_requested', resourceType: 'user', resourceId: target.id, ip: getClientIp(req), metadata: { usuario: target.email } });
   sendJson(res, 200, { ok: true, resetLink: mail.link });
 }
 
-function listOrgAudit(req, res) {
+// GET /api/org/audit?from=&to=&userId=&category=&q=
+// Cada registro se devuelve con su descripcion en español (que hizo, sobre
+// quien y con que detalle), quien lo hizo (correo y rol) y su categoria.
+function listOrgAudit(req, res, query = {}) {
   const orgId = req.user.organizationId;
   if (!orgId) return sendJson(res, 400, { error: 'Solo disponible para cuentas de organizacion.' });
-  const rows = db.prepare('SELECT * FROM audit_logs WHERE organization_id = ? ORDER BY created_at DESC LIMIT 200').all(orgId);
-  sendJson(res, 200, { logs: rows.map(r => ({ ...r, metadata: r.metadata_json ? JSON.parse(r.metadata_json) : null })) });
+  const from = ISO_DATE.test(query.from || '') ? query.from : addDaysISO(bogotaToday(), -30);
+  const to = ISO_DATE.test(query.to || '') ? query.to : bogotaToday();
+  const rows = db.prepare(`SELECT * FROM audit_logs WHERE organization_id = ? AND substr(created_at, 1, 10) BETWEEN ? AND ?
+    ${query.userId ? 'AND user_id = ?' : ''} ORDER BY created_at DESC LIMIT 3000`)
+    .all(...[orgId, from, to, ...(query.userId ? [query.userId] : [])]);
+  const users = new Map(db.prepare(`SELECT u.id, u.email, (SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id LIMIT 1) AS role
+    FROM users u WHERE u.organization_id = ?`).all(orgId).map(u => [u.id, u]));
+  const employees = new Map(db.prepare('SELECT id, name FROM employees WHERE organization_id = ?').all(orgId).map(e => [String(e.id), e.name]));
+  const ROLE_ES = { org_admin: 'Administrador', supervisor: 'Supervisor', empleado: 'Empleado' };
+  let logs = rows.map(r => {
+    const metadata = r.metadata_json ? (() => { try { return JSON.parse(r.metadata_json); } catch { return null; } })() : null;
+    const d = describeAudit({ ...r, metadata }, { users, employees });
+    const u = r.user_id ? users.get(r.user_id) : null;
+    return {
+      id: r.id, at: r.created_at, action: r.action, category: d.category, title: d.title, text: d.text, details: d.details || [],
+      user: u ? u.email : (d.actorFallback || 'Sistema'), role: u ? (ROLE_ES[u.role] || u.role || '') : '', ip: r.ip,
+    };
+  });
+  if (query.category) logs = logs.filter(l => l.category === query.category);
+  if (query.q) { const q = String(query.q).toLowerCase(); logs = logs.filter(l => (l.text + ' ' + l.details.join(' ') + ' ' + l.user).toLowerCase().includes(q)); }
+  sendJson(res, 200, {
+    from, to, logs: logs.slice(0, 1500), truncated: logs.length > 1500,
+    users: [...users.values()].map(u => ({ id: u.id, email: u.email, role: ROLE_ES[u.role] || u.role || '' })),
+  });
 }
 
 // ---------------------------------------------------------------------------
