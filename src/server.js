@@ -122,7 +122,7 @@ route('POST', '/api/org/users', [requirePermission('users.create')], (req, res) 
 route('PUT', '/api/org/users/:id', [requirePermission('users.edit')], (req, res, params) => org.updateOrgUser(req, res, params));
 route('POST', '/api/org/users/:id/toggle-status', [requirePermission('users.delete')], (req, res, params) => org.toggleOrgUserStatus(req, res, params));
 route('POST', '/api/org/users/:id/reset-password', [requirePermission('users.reset_password')], (req, res, params) => org.resetOrgUserPassword(req, res, params));
-route('GET', '/api/org/audit', [requirePermission('audit.view')], (req, res) => org.listOrgAudit(req, res));
+route('GET', '/api/org/audit', [requirePermission('audit.view')], (req, res, params, query) => org.listOrgAudit(req, res, query));
 
 // ---- Modulo de Asistencia (marcaciones, historial, alertas) ----
 route('GET', '/api/attendance/employees-today', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listEmployeesToday(req, res, query));
