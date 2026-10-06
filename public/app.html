@@ -906,7 +906,7 @@
 
                 <!-- Barra del modulo: boton de submodulos + submodulo actual -->
                 <div class="bg-white rounded-xl border border-slate-200 shadow-sm px-3 py-2.5 flex items-center gap-3">
-                    <button type="button" id="attSubnavToggle" onclick="toggleAttSubnav()" aria-expanded="true" aria-controls="attSubnav" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold">
+                    <button type="button" id="attSubnavToggle" onclick="toggleAttSubnav()" aria-expanded="false" aria-controls="attSubnav" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold">
                         <i class="fa-solid fa-bars"></i> <span>Submódulos</span>
                     </button>
                     <div class="min-w-0">
@@ -917,7 +917,7 @@
 
                 <div class="flex flex-col lg:flex-row gap-4 items-start">
                     <!-- Menu vertical de submodulos -->
-                    <aside id="attSubnav" class="att-subnav w-full lg:w-64 shrink-0">
+                    <aside id="attSubnav" class="att-subnav is-collapsed w-full lg:w-64 shrink-0">
                         <nav class="bg-white rounded-xl border border-slate-200 shadow-sm p-1.5 flex flex-col gap-0.5">
                             <button id="btnAttTabHistory" data-perm="attendance.view" onclick="attendanceSetSubTab('history')" class="att-subnav-item">
                                 <span class="att-subnav-icon"><i class="fa-solid fa-clock-rotate-left"></i></span>
@@ -927,6 +927,10 @@
                                 <span class="att-subnav-icon"><i class="fa-solid fa-triangle-exclamation"></i></span>
                                 <span class="att-subnav-text"><span class="att-subnav-title">Alertas<span class="att-badge hidden" id="attBadge-alerts"></span></span><span class="att-subnav-desc">Llegadas tarde, almuerzos largos y marcaciones manuales</span></span>
                             </button>
+                            <button id="btnAttTabWorkdays" data-perm="attendance.view" onclick="attendanceSetSubTab('workdays')" class="att-subnav-item">
+                                <span class="att-subnav-icon"><i class="fa-solid fa-calendar-check"></i></span>
+                                <span class="att-subnav-text"><span class="att-subnav-title">Días laborados<span class="att-badge hidden" id="attBadge-workdays"></span></span><span class="att-subnav-desc">Conteo de días según marcaciones</span></span>
+                            </button>
                             <button id="btnAttTabBio" data-perm="attendance.manage_biometrics" onclick="attendanceSetSubTab('bio')" class="att-subnav-item">
                                 <span class="att-subnav-icon"><i class="fa-solid fa-id-badge"></i></span>
                                 <span class="att-subnav-text"><span class="att-subnav-title">Biometría<span class="att-badge hidden" id="attBadge-bio"></span></span><span class="att-subnav-desc">Perfiles faciales de los colaboradores</span></span>
@@ -934,10 +938,6 @@
                             <button id="btnAttTabMark" data-perm="attendance.mark" onclick="attendanceSetSubTab('mark')" class="att-subnav-item">
                                 <span class="att-subnav-icon"><i class="fa-solid fa-hand-pointer"></i></span>
                                 <span class="att-subnav-text"><span class="att-subnav-title">Marcación manual<span class="att-badge hidden" id="attBadge-mark"></span></span><span class="att-subnav-desc">Respaldo de emergencia cuando el kiosco falla</span></span>
-                            </button>
-                            <button id="btnAttTabWorkdays" data-perm="attendance.view" onclick="attendanceSetSubTab('workdays')" class="att-subnav-item">
-                                <span class="att-subnav-icon"><i class="fa-solid fa-calendar-check"></i></span>
-                                <span class="att-subnav-text"><span class="att-subnav-title">Días laborados<span class="att-badge hidden" id="attBadge-workdays"></span></span><span class="att-subnav-desc">Conteo de días según marcaciones</span></span>
                             </button>
                             <button id="btnAttTabDevices" data-perm="attendance.manage_devices" onclick="attendanceSetSubTab('devices')" class="att-subnav-item">
                                 <span class="att-subnav-icon"><i class="fa-solid fa-tablet-screen-button"></i></span>
@@ -7072,9 +7072,6 @@
 
         function initAttendanceView() {
             if (!currentAttendanceSubTab || (currentAttendanceSubTab === 'mark' && !CAN('attendance.mark'))) currentAttendanceSubTab = 'history';
-            let open = !attSubnavIsMobile();
-            try { if (!attSubnavIsMobile() && localStorage.getItem('attSubnavOpen') === '0') open = false; } catch (e) {}
-            setAttSubnavOpen(open);
             attendanceSetSubTab(currentAttendanceSubTab);
             refreshAttAlertsBadge();
             const today = new Date().toISOString().slice(0, 10);
@@ -7099,12 +7096,11 @@
             document.getElementById('attSubnav').classList.toggle('is-collapsed', !open);
             document.getElementById('attSubnavToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
         }
-        // Boton "Submodulos": muestra u oculta el menu vertical. En computador se
-        // recuerda la preferencia; en celular el menu se cierra al elegir.
+        // Boton "Submodulos": muestra u oculta el menu vertical. Al elegir un
+        // submodulo el menu se oculta solo y el contenido usa todo el ancho.
         function toggleAttSubnav() {
             const open = document.getElementById('attSubnav').classList.contains('is-collapsed');
             setAttSubnavOpen(open);
-            if (!attSubnavIsMobile()) { try { localStorage.setItem('attSubnavOpen', open ? '1' : '0'); } catch (e) {} }
         }
         function attendanceSetSubTab(tab) {
             if (!ATT_SUBMODULES[tab]) tab = 'history';
@@ -7120,7 +7116,7 @@
             document.getElementById('attCurrentTitle').textContent = title;
             document.getElementById('attCurrentDesc').textContent = desc;
             document.getElementById('attCurrentIcon').className = `fa-solid ${icon} text-sky-600`;
-            if (attSubnavIsMobile()) setAttSubnavOpen(false);
+            setAttSubnavOpen(false); // al abrir un submodulo, el menu se oculta
             if (tab === 'mark') attendanceLoadEmployeesToday();
             if (tab === 'history') attendanceLoadHistory();
             if (tab === 'workdays') attendanceLoadWorkdays();
