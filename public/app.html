@@ -26,6 +26,19 @@
             -moz-osx-font-smoothing: grayscale;
             text-rendering: optimizeLegibility;
         }
+
+        /* Asistencia: menu vertical de submodulos */
+        .att-subnav-item { display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left; padding: 9px 10px; border-radius: 10px; color: #334155; transition: background .15s; }
+        .att-subnav-item:hover { background: #f1f5f9; }
+        .att-subnav-item:focus-visible { outline: 2px solid #0284c7; outline-offset: 1px; }
+        .att-subnav-item.is-active { background: #e0f2fe; color: #0c4a6e; box-shadow: inset 3px 0 0 #0284c7; }
+        .att-subnav-icon { flex: 0 0 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: #f1f5f9; color: #475569; font-size: 13px; }
+        .att-subnav-item.is-active .att-subnav-icon { background: #0284c7; color: #fff; }
+        .att-subnav-text { display: flex; flex-direction: column; min-width: 0; }
+        .att-subnav-title { font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+        .att-subnav-desc { font-size: 11px; color: #64748b; line-height: 1.25; margin-top: 1px; }
+        .att-badge { min-width: 18px; padding: 0 5px; border-radius: 999px; background: #e11d48; color: #fff; font-size: 10px; font-weight: 800; line-height: 18px; text-align: center; }
+        .att-subnav.is-collapsed { display: none; }
         /* Permisos por rol: lo que el usuario no puede usar no se muestra.
            (El servidor igual valida cada acción; esto solo ordena la pantalla.) */
         body:not(.perm-settings-manage) [data-perm="settings.manage"] { display: none !important; }
@@ -891,29 +904,53 @@
             <!-- MÓDULO: Asistencia (marcaciones, historial, alertas) -->
             <div id="view-attendance" class="app-view hidden space-y-6">
 
-                <div class="bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm inline-flex gap-1">
-                    <button id="btnAttTabMark" data-perm="attendance.mark" onclick="attendanceSetSubTab('mark')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 bg-sky-600 text-white shadow-sm">
-                        <i class="fa-solid fa-fingerprint"></i> Marcación rápida
+                <!-- Barra del modulo: boton de submodulos + submodulo actual -->
+                <div class="bg-white rounded-xl border border-slate-200 shadow-sm px-3 py-2.5 flex items-center gap-3">
+                    <button type="button" id="attSubnavToggle" onclick="toggleAttSubnav()" aria-expanded="true" aria-controls="attSubnav" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold">
+                        <i class="fa-solid fa-bars"></i> <span>Submódulos</span>
                     </button>
-                    <button id="btnAttTabHistory" onclick="attendanceSetSubTab('history')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
-                        <i class="fa-solid fa-clock-rotate-left"></i> Historial
-                    </button>
-                    <button id="btnAttTabAlerts" data-perm="attendance.view_alerts" onclick="attendanceSetSubTab('alerts')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
-                        <i class="fa-solid fa-triangle-exclamation"></i> Alertas
-                    </button>
-                    <button id="btnAttTabBio" data-perm="attendance.manage_biometrics" onclick="attendanceSetSubTab('bio')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
-                        <i class="fa-solid fa-id-badge"></i> Biometría
-                    </button>
-                    <button id="btnAttTabWorkdays" data-perm="attendance.view" onclick="attendanceSetSubTab('workdays')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
-                        <i class="fa-solid fa-calendar-check"></i> Días laborados
-                    </button>
-                    <button id="btnAttTabDevices" data-perm="attendance.manage_devices" onclick="attendanceSetSubTab('devices')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
-                        <i class="fa-solid fa-tablet-screen-button"></i> Dispositivos
-                    </button>
+                    <div class="min-w-0">
+                        <p class="font-bold text-slate-800 text-sm leading-tight flex items-center gap-2"><i id="attCurrentIcon" class="fa-solid fa-clock-rotate-left text-sky-600"></i> <span id="attCurrentTitle">Historial</span></p>
+                        <p class="text-3xs text-slate-500 truncate" id="attCurrentDesc">-</p>
+                    </div>
                 </div>
 
-                <!-- Sub-vista: Marcación rápida (respaldo de emergencia del administrador — solo manual) -->
-                <div id="attSubtab-mark">
+                <div class="flex flex-col lg:flex-row gap-4 items-start">
+                    <!-- Menu vertical de submodulos -->
+                    <aside id="attSubnav" class="att-subnav w-full lg:w-64 shrink-0">
+                        <nav class="bg-white rounded-xl border border-slate-200 shadow-sm p-1.5 flex flex-col gap-0.5">
+                            <button id="btnAttTabHistory" data-perm="attendance.view" onclick="attendanceSetSubTab('history')" class="att-subnav-item">
+                                <span class="att-subnav-icon"><i class="fa-solid fa-clock-rotate-left"></i></span>
+                                <span class="att-subnav-text"><span class="att-subnav-title">Historial<span class="att-badge hidden" id="attBadge-history"></span></span><span class="att-subnav-desc">Marcaciones por día, horas y recargos</span></span>
+                            </button>
+                            <button id="btnAttTabAlerts" data-perm="attendance.view_alerts" onclick="attendanceSetSubTab('alerts')" class="att-subnav-item">
+                                <span class="att-subnav-icon"><i class="fa-solid fa-triangle-exclamation"></i></span>
+                                <span class="att-subnav-text"><span class="att-subnav-title">Alertas<span class="att-badge hidden" id="attBadge-alerts"></span></span><span class="att-subnav-desc">Llegadas tarde, almuerzos largos y marcaciones manuales</span></span>
+                            </button>
+                            <button id="btnAttTabBio" data-perm="attendance.manage_biometrics" onclick="attendanceSetSubTab('bio')" class="att-subnav-item">
+                                <span class="att-subnav-icon"><i class="fa-solid fa-id-badge"></i></span>
+                                <span class="att-subnav-text"><span class="att-subnav-title">Biometría<span class="att-badge hidden" id="attBadge-bio"></span></span><span class="att-subnav-desc">Perfiles faciales de los colaboradores</span></span>
+                            </button>
+                            <button id="btnAttTabMark" data-perm="attendance.mark" onclick="attendanceSetSubTab('mark')" class="att-subnav-item">
+                                <span class="att-subnav-icon"><i class="fa-solid fa-hand-pointer"></i></span>
+                                <span class="att-subnav-text"><span class="att-subnav-title">Marcación manual<span class="att-badge hidden" id="attBadge-mark"></span></span><span class="att-subnav-desc">Respaldo de emergencia cuando el kiosco falla</span></span>
+                            </button>
+                            <button id="btnAttTabWorkdays" data-perm="attendance.view" onclick="attendanceSetSubTab('workdays')" class="att-subnav-item">
+                                <span class="att-subnav-icon"><i class="fa-solid fa-calendar-check"></i></span>
+                                <span class="att-subnav-text"><span class="att-subnav-title">Días laborados<span class="att-badge hidden" id="attBadge-workdays"></span></span><span class="att-subnav-desc">Conteo de días según marcaciones</span></span>
+                            </button>
+                            <button id="btnAttTabDevices" data-perm="attendance.manage_devices" onclick="attendanceSetSubTab('devices')" class="att-subnav-item">
+                                <span class="att-subnav-icon"><i class="fa-solid fa-tablet-screen-button"></i></span>
+                                <span class="att-subnav-text"><span class="att-subnav-title">Dispositivos<span class="att-badge hidden" id="attBadge-devices"></span></span><span class="att-subnav-desc">Tablets y celulares del kiosco</span></span>
+                            </button>
+                        </nav>
+                    </aside>
+
+                    <!-- Contenido del submodulo elegido -->
+                    <div id="attContent" class="flex-1 min-w-0 w-full">
+
+                <!-- Sub-vista: Marcación manual (respaldo de emergencia del administrador) -->
+                <div id="attSubtab-mark" class="hidden">
                     <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm max-w-xl">
                         <p class="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4"><i class="fa-solid fa-circle-info"></i> Esta marcación manual es un respaldo de emergencia (solo para el administrador). La marcación normal del día a día se hace desde los dispositivos registrados en <code>/kiosk.html</code>.</p>
                         <div id="attMarkManualBox">
@@ -1024,8 +1061,6 @@
                     </div>
                 </div>
 
-            </div>
-
                 <!-- Sub-vista: Días laborados (según marcaciones) -->
                 <div id="attSubtab-workdays" class="hidden">
                     <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
@@ -1116,6 +1151,8 @@
                                 <tbody id="attAlertsTableBody"></tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
                     </div>
                 </div>
 
@@ -7034,8 +7071,12 @@
         }
 
         function initAttendanceView() {
-            if (currentAttendanceSubTab === 'mark' && !CAN('attendance.mark')) currentAttendanceSubTab = 'history';
-            attendanceSetSubTab(currentAttendanceSubTab || 'mark');
+            if (!currentAttendanceSubTab || (currentAttendanceSubTab === 'mark' && !CAN('attendance.mark'))) currentAttendanceSubTab = 'history';
+            let open = !attSubnavIsMobile();
+            try { if (!attSubnavIsMobile() && localStorage.getItem('attSubnavOpen') === '0') open = false; } catch (e) {}
+            setAttSubnavOpen(open);
+            attendanceSetSubTab(currentAttendanceSubTab);
+            refreshAttAlertsBadge();
             const today = new Date().toISOString().slice(0, 10);
             if (!document.getElementById('attHistoryFrom').value) {
                 document.getElementById('attHistoryFrom').value = today;
@@ -7043,21 +7084,59 @@
             }
         }
 
-        let currentAttendanceSubTab = 'mark';
+        let currentAttendanceSubTab = 'history';
+        // Submodulos de Asistencia (orden del menu vertical).
+        const ATT_SUBMODULES = {
+            history: ['Historial', 'fa-clock-rotate-left', 'Marcaciones por día: horas trabajadas, recargos, extras y estado.'],
+            alerts: ['Alertas', 'fa-triangle-exclamation', 'Llegadas tarde, almuerzos largos, salidas anticipadas y marcaciones manuales.'],
+            bio: ['Biometría', 'fa-id-badge', 'Registro y desactivación de perfiles faciales para marcar en el kiosco.'],
+            mark: ['Marcación manual', 'fa-hand-pointer', 'Respaldo de emergencia cuando el kiosco no funciona. Pide motivo y genera alerta.'],
+            workdays: ['Días laborados', 'fa-calendar-check', 'Conteo de días con marcación de entrada para los colaboradores seleccionados.'],
+            devices: ['Dispositivos', 'fa-tablet-screen-button', 'Tablets y celulares habilitados como punto de marcación.'],
+        };
+        function attSubnavIsMobile() { return window.matchMedia('(max-width: 1023px)').matches; }
+        function setAttSubnavOpen(open) {
+            document.getElementById('attSubnav').classList.toggle('is-collapsed', !open);
+            document.getElementById('attSubnavToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+        // Boton "Submodulos": muestra u oculta el menu vertical. En computador se
+        // recuerda la preferencia; en celular el menu se cierra al elegir.
+        function toggleAttSubnav() {
+            const open = document.getElementById('attSubnav').classList.contains('is-collapsed');
+            setAttSubnavOpen(open);
+            if (!attSubnavIsMobile()) { try { localStorage.setItem('attSubnavOpen', open ? '1' : '0'); } catch (e) {} }
+        }
         function attendanceSetSubTab(tab) {
+            if (!ATT_SUBMODULES[tab]) tab = 'history';
             if (currentAttendanceSubTab === 'mark' && tab !== 'mark') attendanceStopFacialMode();
             currentAttendanceSubTab = tab;
-            ['mark', 'history', 'workdays', 'alerts', 'bio', 'devices'].forEach(t => {
+            Object.keys(ATT_SUBMODULES).forEach(t => {
                 document.getElementById(`attSubtab-${t}`).classList.toggle('hidden', t !== tab);
                 const btn = document.getElementById(`btnAttTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
-                btn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 ' + (t === tab ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900');
+                btn.classList.toggle('is-active', t === tab);
+                btn.setAttribute('aria-current', t === tab ? 'page' : 'false');
             });
+            const [title, icon, desc] = ATT_SUBMODULES[tab];
+            document.getElementById('attCurrentTitle').textContent = title;
+            document.getElementById('attCurrentDesc').textContent = desc;
+            document.getElementById('attCurrentIcon').className = `fa-solid ${icon} text-sky-600`;
+            if (attSubnavIsMobile()) setAttSubnavOpen(false);
             if (tab === 'mark') attendanceLoadEmployeesToday();
             if (tab === 'history') attendanceLoadHistory();
             if (tab === 'workdays') attendanceLoadWorkdays();
             if (tab === 'alerts') attendanceLoadAlerts();
             if (tab === 'bio') attendanceLoadBioList();
             if (tab === 'devices') attendanceLoadDevices();
+        }
+        // Contador de alertas de los últimos 7 días en el menú.
+        async function refreshAttAlertsBadge() {
+            const badge = document.getElementById('attBadge-alerts');
+            if (!badge || !CAN('attendance.view_alerts')) return;
+            try {
+                const { rows } = await apiFetch('/api/attendance/alerts');
+                badge.textContent = rows.length > 99 ? '99+' : String(rows.length);
+                badge.classList.toggle('hidden', !rows.length);
+            } catch (e) { badge.classList.add('hidden'); }
         }
 
         // -----------------------------------------------------------------
