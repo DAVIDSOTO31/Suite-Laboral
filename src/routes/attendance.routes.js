@@ -600,7 +600,9 @@ async function registerMarkByFace(req, res) {
 // ---------------------------------------------------------------------------
 
 function deviceOutputRow(d) {
-  return { id: d.id, name: d.device_name, active: !!d.active, lastUsedAt: d.last_used_at, createdAt: d.created_at };
+  // last_used_at / created_at se guardan en UTC: se muestran en hora Colombia.
+  const toBog = (v) => v ? new Date(Date.parse(String(v).replace(' ', 'T') + 'Z') - 5 * 3600000).toISOString().slice(0, 19).replace('T', ' ') : v;
+  return { id: d.id, name: d.device_name, active: !!d.active, lastUsedAt: toBog(d.last_used_at), createdAt: toBog(d.created_at), health: deviceHealth(d) };
 }
 
 // GET /api/attendance/devices
@@ -703,7 +705,7 @@ async function setDeviceAssignments(req, res, params) {
 // sesion de usuario. Se registran en server.js con { auth: false } (sin
 // cookie de sesion ni CSRF), y esta funcion hace su propia verificacion.
 // ---------------------------------------------------------------------------
-function authenticateDevice(req, res) {
+function authenticateDevice(req, res, touch = true) {
   const token = req.headers['x-device-token'];
   if (!token || typeof token !== 'string') {
     sendJson(res, 401, { error: 'Falta el token del dispositivo.' });
@@ -714,7 +716,7 @@ function authenticateDevice(req, res) {
     sendJson(res, 401, { error: 'Dispositivo no autorizado o desactivado.' });
     return null;
   }
-  db.prepare("UPDATE attendance_devices SET last_used_at = datetime('now') WHERE id = ?").run(device.id);
+  if (touch) db.prepare("UPDATE attendance_devices SET last_used_at = datetime('now') WHERE id = ?").run(device.id);
   return device;
 }
 
@@ -1138,7 +1140,7 @@ function todayBoard(req, res, query) {
   }
   const areas = [...areaMap.values()].sort((x, y) => x.name.localeCompare(y.name, 'es'));
   sendJson(res, 200, {
-    date: today, now: hhmmFromAbsMinutes(now), counters, areas, absences,
+    date: today, now: hhmmFromAbsMinutes(now), counters, areas, absences, devices: devicesWithProblems(orgId),
     tolerance: NO_SHOW_TOLERANCE_MIN, grace: OPEN_SHIFT_GRACE_MIN,
   });
 }
@@ -1682,6 +1684,147 @@ async function sendDigestTest(req, res) {
   sendJson(res, 200, { ok: true, to: u.email, delivered: !!(r && r.delivered), mode: r ? r.mode : null });
 }
 
+// ===========================================================================
+// SALUD DE LOS DISPOSITIVOS (kioscos): senal "estoy vivo", estado y avisos.
+// ===========================================================================
+const KIOSK_ONLINE_MS = 150 * 1000; // hasta 2,5 min sin senal = en linea (la senal llega cada minuto)
+const CAMERA_STATES = ['ok', 'denegada', 'sin_camara', 'error', 'desconocido'];
+
+function getDeviceAlertSettings(orgId) {
+  const r = db.prepare('SELECT device_alerts_enabled, device_offline_min FROM org_settings WHERE organization_id = ?').get(orgId) || {};
+  const min = Number(r.device_offline_min);
+  return { offlineMin: Number.isInteger(min) && min >= 3 ? min : 10 };
+}
+
+function logDeviceEvent(orgId, deviceId, type, details) {
+  db.prepare("INSERT INTO device_events (id, organization_id, device_id, event_type, details, created_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-5 hours'))")
+    .run(uid('dev_ev'), orgId, deviceId, type, details || null);
+}
+
+// Estado calculado de un dispositivo a partir de su ultima senal.
+function deviceHealth(d, nowMs = Date.now()) {
+  if (!d.hb_at_ms) return { status: 'sin_datos', label: 'Sin datos de salud', lastSeenMin: null };
+  const settings = getDeviceAlertSettings(d.organization_id);
+  const ageMs = nowMs - Number(d.hb_at_ms);
+  const lastSeenMin = Math.max(0, Math.floor(ageMs / 60000));
+  let status = 'en_linea';
+  if (ageMs > settings.offlineMin * 60000) status = 'sin_conexion';
+  else if (ageMs > KIOSK_ONLINE_MS) status = 'intermitente';
+  const warnings = [];
+  if (d.hb_battery != null && d.hb_battery < 0.2 && !d.hb_charging) warnings.push('bateria_baja');
+  if (d.hb_camera && d.hb_camera !== 'ok' && d.hb_camera !== 'desconocido') warnings.push('camara');
+  if ((d.hb_pending || 0) > 0) warnings.push('pendientes');
+  return {
+    status, lastSeenMin, lastSeenAt: new Date(Number(d.hb_at_ms) - 5 * 3600000).toISOString().slice(0, 16).replace('T', ' '),
+    battery: d.hb_battery == null ? null : Math.round(d.hb_battery * 100), charging: d.hb_charging == null ? null : !!d.hb_charging,
+    camera: d.hb_camera || 'desconocido', pending: d.hb_pending || 0, version: d.hb_version || null,
+    offlineSinceMin: d.offline_since_ms ? Math.floor((nowMs - Number(d.offline_since_ms)) / 60000) : null,
+    warnings, offlineThresholdMin: settings.offlineMin,
+  };
+}
+
+// POST /api/kiosk/heartbeat  { battery: {level, charging}, camera, pending, version }
+async function kioskHeartbeat(req, res) {
+  const device = authenticateDevice(req, res, false);
+  if (!device) return;
+  let body = {};
+  try { body = await readBody(req, 16 * 1024); } catch { /* senal sin datos */ }
+  const nowMs = Date.now();
+  const bat = body.battery && Number.isFinite(Number(body.battery.level)) ? Math.max(0, Math.min(1, Number(body.battery.level))) : null;
+  const charging = body.battery && body.battery.charging != null ? (body.battery.charging ? 1 : 0) : null;
+  const camera = CAMERA_STATES.includes(body.camera) ? body.camera : 'desconocido';
+  const pending = Number.isInteger(Number(body.pending)) ? Math.max(0, Number(body.pending)) : 0;
+  const version = String(body.version || '').slice(0, 30) || null;
+  const ua = String(req.headers['user-agent'] || '').slice(0, 200);
+
+  // Reconexion despues de estar "sin conexion".
+  if (device.offline_since_ms) {
+    const mins = Math.round((nowMs - Number(device.offline_since_ms)) / 60000);
+    logDeviceEvent(device.organization_id, device.id, 'reconectado', `Volvió a conectarse después de ${mins} min sin señal${pending ? ` · ${pending} marcación(es) pendiente(s) por enviar` : ''}.`);
+  }
+  // Camara: se registra el cambio de estado (no en cada senal).
+  if (camera !== 'desconocido' && camera !== (device.hb_camera || 'desconocido')) {
+    if (camera !== 'ok') logDeviceEvent(device.organization_id, device.id, 'camara', camera === 'denegada' ? 'El navegador no tiene permiso para usar la cámara.' : camera === 'sin_camara' ? 'No se detecta ninguna cámara en el equipo.' : 'La cámara presentó un error al iniciar.');
+    else if (device.hb_camera && device.hb_camera !== 'desconocido') logDeviceEvent(device.organization_id, device.id, 'camara_ok', 'La cámara volvió a funcionar.');
+  }
+  // Bateria baja (menos del 20 % y desconectada): un aviso por dia.
+  const today = bogota.todayISOInBogota();
+  let batteryNotified = device.battery_notified_date;
+  if (bat != null && bat < 0.2 && charging === 0 && device.battery_notified_date !== today) {
+    batteryNotified = today;
+    logDeviceEvent(device.organization_id, device.id, 'bateria_baja', `Batería al ${Math.round(bat * 100)} % y sin cargar.`);
+  }
+  db.prepare(`UPDATE attendance_devices SET hb_at_ms = ?, hb_battery = ?, hb_charging = ?, hb_camera = ?, hb_pending = ?, hb_version = ?, hb_ua = ?,
+      hb_online_since_ms = CASE WHEN offline_since_ms IS NOT NULL OR hb_online_since_ms IS NULL THEN ? ELSE hb_online_since_ms END,
+      offline_since_ms = NULL, offline_notified = 0, battery_notified_date = ? WHERE id = ?`)
+    .run(nowMs, bat, charging, camera, pending, version, ua, nowMs, batteryNotified, device.id);
+  sendJson(res, 200, { ok: true, serverTime: new Date(nowMs).toISOString() });
+}
+
+// Revisa cada minuto los kioscos que dejaron de enviar senal.
+let deviceMonitorRunning = false;
+async function runDeviceMonitor() {
+  if (deviceMonitorRunning) return;
+  deviceMonitorRunning = true;
+  try {
+    const nowMs = Date.now();
+    const devices = db.prepare('SELECT * FROM attendance_devices WHERE active = 1 AND hb_at_ms IS NOT NULL').all();
+    for (const d of devices) {
+      const settings = getDeviceAlertSettings(d.organization_id);
+      if (nowMs - Number(d.hb_at_ms) <= settings.offlineMin * 60000) continue;
+      if (!d.offline_since_ms) {
+        db.prepare('UPDATE attendance_devices SET offline_since_ms = ? WHERE id = ?').run(Number(d.hb_at_ms), d.id);
+        d.offline_since_ms = Number(d.hb_at_ms);
+        logDeviceEvent(d.organization_id, d.id, 'sin_conexion', `Dejó de enviar señal (más de ${settings.offlineMin} min sin conexión).`);
+      }
+      // (Sin avisos por correo: el estado se ve en Dispositivos y en el tablero Hoy.)
+    }
+  } catch (e) {
+    console.error('[asistencia] Monitor de dispositivos:', e.message);
+  } finally { deviceMonitorRunning = false; }
+}
+const deviceTimer = setInterval(runDeviceMonitor, 60 * 1000);
+if (deviceTimer.unref) deviceTimer.unref();
+
+// GET /api/attendance/devices/:id/events
+function listDeviceEvents(req, res, params, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const device = db.prepare('SELECT * FROM attendance_devices WHERE id = ? AND organization_id = ?').get(params.id, orgId);
+  if (!device) return sendJson(res, 404, { error: 'Dispositivo no encontrado en esta organizacion.' });
+  const rows = db.prepare('SELECT event_type, details, created_at FROM device_events WHERE device_id = ? ORDER BY created_at DESC LIMIT 60').all(device.id);
+  sendJson(res, 200, { device: deviceOutputRow(device), userAgent: device.hb_ua || null, events: rows });
+}
+
+// GET / PUT /api/attendance/device-alert-settings  { offlineMin }
+function getDeviceAlertSettingsRoute(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  sendJson(res, 200, getDeviceAlertSettings(orgId));
+}
+async function saveDeviceAlertSettings(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const min = Number(body.offlineMin);
+  if (!Number.isInteger(min) || min < 3 || min > 240) return sendJson(res, 400, { error: 'Los minutos sin señal deben estar entre 3 y 240.' });
+  if (!db.prepare('SELECT 1 FROM org_settings WHERE organization_id = ?').get(orgId)) db.prepare("INSERT INTO org_settings (organization_id, org_name) VALUES (?, 'Empresa')").run(orgId);
+  db.prepare('UPDATE org_settings SET device_offline_min = ? WHERE organization_id = ?').run(min, orgId);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.device_alert_settings', resourceType: 'organization', resourceId: orgId, ip: getClientIp(req),
+    metadata: { minutos: min } });
+  sendJson(res, 200, { ok: true, ...getDeviceAlertSettings(orgId) });
+}
+
+// Dispositivos con problemas (para el tablero "Hoy").
+function devicesWithProblems(orgId) {
+  const nowMs = Date.now();
+  return db.prepare(`SELECT d.* FROM attendance_devices d WHERE d.organization_id = ? AND d.active = 1
+      AND EXISTS (SELECT 1 FROM attendance_device_employees de WHERE de.device_id = d.id)`).all(orgId)
+    .map(d => ({ id: d.id, name: d.device_name, health: deviceHealth(d, nowMs) }))
+    .filter(d => d.health.status === 'sin_conexion' || d.health.status === 'intermitente' || d.health.warnings.length);
+}
+
 // Recalculo unico de los dias ya cerrados cada vez que cambia una regla del
 // motor de horas. Cada version se registra en app_migrations para que se
 // ejecute UNA sola vez, aunque el servicio se reinicie.
@@ -1705,4 +1848,5 @@ module.exports = {
   listPayrollAttendance,
   todayBoard, manageAlert, getAlertAttachment, novedadesSummary,
   indicators, getDigestSettingsRoute, saveDigestSettings, sendDigestTest,
+  kioskHeartbeat, listDeviceEvents, getDeviceAlertSettingsRoute, saveDeviceAlertSettings,
 };
