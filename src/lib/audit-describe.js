@@ -66,7 +66,13 @@ function describeAudit(row, ctx = {}) {
       return out('Colaboradores', 'Ficha modificada', `Modificó la ficha de ${val(m.colaborador)}: ${c.map(x => x.campo.toLowerCase()).join(', ')}.`,
         c.map(x => `${x.campo}: ${x.campo === 'Salario' ? money(x.antes) : val(x.antes)} → ${x.campo === 'Salario' ? money(x.despues) : val(x.despues)}`));
     }
-    case 'employee.deleted': return out('Colaboradores', 'Colaborador eliminado', `Eliminó la ficha del colaborador ${val(m.colaborador)}.`);
+    case 'employee.deleted': return out('Colaboradores', 'Colaborador eliminado', `Eliminó la ficha del colaborador ${val(m.colaborador)}${m.sinHistorial ? ' (no tenía marcaciones ni liquidaciones)' : ''}.`);
+    case 'employee.retired': return out('Colaboradores', 'Colaborador retirado',
+      `Retiró a ${val(m.colaborador)} con último día laborado el ${dmy(m.fecha)}${m.automatico ? ' (al quitarlo de la lista; su historial se conservó)' : ''}.`,
+      [m.motivo ? `Motivo: ${m.motivo}${m.detalle ? ` — ${m.detalle}` : ''}` : null, m.turnosQuitados ? `Se quitaron ${m.turnosQuitados} turno(s) posteriores al retiro` : null,
+        m.perfilFacialBorrado ? 'Se borró su perfil facial (dato biométrico)' : null, m.usuarioDesactivado ? `Se desactivó su usuario ${m.usuarioDesactivado}` : null].filter(Boolean));
+    case 'employee.reactivated': return out('Colaboradores', 'Colaborador reintegrado',
+      `Reactivó a ${val(m.colaborador)}${m.retiroAnterior ? ` (estaba retirado desde el ${dmy(m.retiroAnterior)})` : ''}.`);
     case 'employee.night_surcharge_changed': return out('Colaboradores', 'Recargo nocturno', `${m.aplica ? 'Activó' : 'Desactivó'} el recargo nocturno de ${val(m.employeeName)}.`, m.motivo ? [`Motivo: ${m.motivo}`] : []);
     case 'employee.count_worked_days_changed': return out('Colaboradores', 'Días laborados', `${m.contabiliza ? 'Activó' : 'Desactivó'} el conteo de días laborados de ${val(m.employeeName)}.`);
 
