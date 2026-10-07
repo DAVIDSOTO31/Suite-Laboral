@@ -466,7 +466,7 @@
                             <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-slate-400 text-xs"></i>
                         </div>
                         <button onclick="clearAllShifts()" class="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-xs font-semibold px-3 py-2 rounded-lg transition whitespace-nowrap">
-                            <i class="fa-regular fa-trash-can mr-1"></i> Limpiar Planilla
+                            <i class="fa-regular fa-trash-can mr-1"></i> Limpiar turnos futuros
                         </button>
                     </div>
 
@@ -1734,6 +1734,21 @@
                         <input type="number" id="cfgDivider" value="210" class="w-full p-2 border rounded-lg">
                     </div>
                 </div>
+            </div>
+
+            <div class="border border-slate-200 rounded-lg p-3 text-xs space-y-2 bg-slate-50">
+                <p class="font-bold text-slate-800 flex items-center gap-1.5"><i class="fa-solid fa-box-archive text-slate-500"></i> Conservación de turnos programados</p>
+                <p class="text-3xs text-slate-500">Depura automáticamente (una vez al día) los turnos de la planilla más antiguos que el plazo elegido. Solo la programación de turnos: las marcaciones, los cierres de periodo, las colillas y la auditoría se conservan siempre. Las reclamaciones laborales prescriben a los 3 años (art. 488 CST).</p>
+                <div class="flex flex-wrap items-end gap-2">
+                    <select id="cfgRetention" class="p-2 border rounded-lg bg-white">
+                        <option value="">Desactivada (conservar siempre)</option>
+                        <option value="3">Borrar turnos con más de 3 años</option>
+                        <option value="5">Borrar turnos con más de 5 años</option>
+                        <option value="10">Borrar turnos con más de 10 años</option>
+                    </select>
+                    <button type="button" onclick="saveDataRetention()" class="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg font-semibold">Aplicar</button>
+                </div>
+                <p id="cfgRetentionInfo" class="text-3xs text-slate-500"></p>
             </div>
 
             <div class="flex justify-end gap-2 border-t pt-3">
@@ -3329,6 +3344,7 @@
         }
 
         function openModal(id) {
+            if (id === 'modalSettings' && typeof renderRetentionInfo === 'function') renderRetentionInfo();
             const m = document.getElementById(id);
             if (m) {
                 m.classList.remove('hidden');
@@ -3719,7 +3735,11 @@
             }
 
             let empShifts = appState.shifts.filter(s => s.empId === emp.id && !s.isOffDay);
-            setSafeText('empShiftsCountLabel', `${empShifts.length} turno(s)`);
+            const ledgerLabel = document.getElementById('empShiftsCountLabel');
+            if (ledgerLabel) {
+                const all = shiftsLoaded('0000-01-01');
+                ledgerLabel.innerHTML = `${empShifts.length} turno(s) · ${shiftsWindowNote()}${all ? '' : ' · <button type="button" onclick="ensureAllShiftsLoaded().then(renderSelectedEmployeeLedger)" class="text-sky-700 font-semibold hover:underline">Ver todo el historial</button>'}`;
+            }
 
             let hod = 0, hon = 0, hed = 0, hen = 0;
             empShifts.forEach(s => {
@@ -3765,6 +3785,14 @@
         }
 
         function renderWeeklyRoster() {
+            const mondayCheck = appState.rosterCurrentMonday;
+            if (mondayCheck && !shiftsLoaded(formatDateISO(mondayCheck))) {
+                // Semana anterior a la ventana cargada: se trae del servidor y se vuelve a pintar.
+                const tb = document.getElementById('rosterTableBody');
+                if (tb) tb.innerHTML = '<tr><td colspan="9" class="p-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin"></i> Cargando turnos de esta semana…</td></tr>';
+                ensureShiftsLoaded(formatDateISO(mondayCheck)).then(renderWeeklyRoster).catch(e => showAppToast('No se pudieron cargar los turnos: ' + e.message));
+                return;
+            }
             scheduleDataSync();
             renderPublishBanner();
             const monday = appState.rosterCurrentMonday;
@@ -4427,12 +4455,18 @@
         }
 
         function clearAllShifts() {
-            if (appState.shifts.length === 0) {
-                showAppToast('La planilla ya está vacía.');
+            // Protección del historial: solo se limpian los turnos FUTUROS (desde
+            // mañana). Los turnos de hoy y anteriores se necesitan para liquidar,
+            // corregir marcaciones y como evidencia de la jornada programada.
+            const today = bogotaTodayISO();
+            const future = appState.shifts.filter(s => s.date > today);
+            if (future.length === 0) {
+                showAppToast('No hay turnos futuros para limpiar. Los turnos de hoy y anteriores se conservan.');
                 return;
             }
-            appState.shifts = [];
-            showAppToast('Se ha limpiado toda la planilla de turnos.');
+            if (!confirm(`¿Eliminar los ${future.length} turno(s) programados desde mañana? Los turnos de hoy y anteriores no se tocan.`)) return;
+            appState.shifts = appState.shifts.filter(s => s.date <= today);
+            showAppToast(`Se eliminaron ${future.length} turno(s) futuros. Los de hoy y anteriores se conservan.`);
             renderWeeklyRoster();
             renderMasterShiftsTable();
             renderSelectedEmployeeLedger();
@@ -4715,6 +4749,11 @@
         }
 
         function renderReportsView() {
+            // Los informes y certificados usan todo el historial del colaborador.
+            if (!shiftsLoaded('0000-01-01')) {
+                ensureAllShiftsLoaded().then(renderReportsView).catch(e => showAppToast('No se pudo cargar el historial: ' + e.message));
+                return;
+            }
             const selector = document.getElementById('reportEmpSelector');
             if (!selector) return;
             selector.innerHTML = '';
@@ -4905,6 +4944,10 @@
             const startDate = startInput.value;
             const endDate = endInput.value;
             const deptFilter = document.getElementById('payrollOtDeptFilter')?.value || '_ALL_';
+            // Periodo anterior a la ventana de turnos cargada: se traen esos turnos.
+            if (startDate && !shiftsLoaded(startDate)) {
+                try { await ensureShiftsLoaded(startDate); } catch (e) { showAppToast('No se pudieron cargar los turnos del periodo: ' + e.message); }
+            }
 
             let filteredShifts = appState.shifts.filter(s => {
                 if (s.isOffDay) return false;
@@ -5858,7 +5901,9 @@
             delete copy.id;
             return copy;
         }
-        function submitCopyWeek() {
+        async function submitCopyWeek() {
+            const prevMon = formatDateISO(addDays(appState.rosterCurrentMonday, -7));
+            if (!shiftsLoaded(prevMon)) { try { await ensureShiftsLoaded(prevMon); } catch (e) { showAppToast(e.message); return; } }
             const mode = document.querySelector('input[name="copyWeekMode"]:checked').value;
             const withAbs = document.getElementById('copyWeekAbsences').checked;
             const dept = document.getElementById('copyWeekDept').value;
@@ -6610,6 +6655,7 @@
         const CORR_SPLIT_LABELS = { entrada: 'Inicio Etapa 1', inicio_almuerzo: 'Final Etapa 1', fin_almuerzo: 'Inicio Etapa 2', salida: 'Final Etapa 2' };
         async function openAttendanceCorrection(empId, dateISO) {
             if (!CAN('attendance.mark')) return;
+            if (!shiftsLoaded(dateISO)) { try { await ensureShiftsLoaded(dateISO); } catch (e) { /* sin conexion */ } }
             const emp = appState.employees.find(e => Number(e.id) === Number(empId));
             const shift = appState.shifts.find(s => Number(s.empId) === Number(empId) && s.date === dateISO && !s.isOffDay);
             if (!emp || !shift) { showAppToast('Ese día el colaborador no tiene un turno con horario.'); return; }
@@ -7074,6 +7120,27 @@
             }
         }
 
+        function renderRetentionInfo() {
+            const r = appState.dataRetention || {};
+            const sel = document.getElementById('cfgRetention');
+            if (sel) sel.value = r.years ? String(r.years) : '';
+            const info = document.getElementById('cfgRetentionInfo');
+            if (info) info.textContent = [
+                r.years ? `Activa: se conservan los turnos desde el ${pdfDate(r.cutoff)}.` : 'Desactivada: todos los turnos se conservan.',
+                r.last ? `Última depuración: ${r.last.at} (${r.last.deleted} turno(s) eliminados).` : null,
+            ].filter(Boolean).join(' ');
+        }
+        async function saveDataRetention() {
+            const v = document.getElementById('cfgRetention').value;
+            const years = v ? Number(v) : null;
+            if (years && !confirm(`Los turnos programados con más de ${years} años se eliminarán ahora y luego automáticamente cada día. Esta acción no se puede deshacer. ¿Continuar?`)) return;
+            try {
+                const r = await apiFetch('/api/org/data-retention', { method: 'PUT', body: JSON.stringify({ years }) });
+                appState.dataRetention = { years: r.years, cutoff: r.cutoff, last: r.last };
+                renderRetentionInfo();
+                showAppToast(years ? `Depuración activada${r.deleted ? `: se eliminaron ${r.deleted} turno(s) antiguos` : ''}.` : 'Depuración desactivada: se conservarán todos los turnos.');
+            } catch (e) { showAppToast(e.message); }
+        }
         function saveSettingsForm() {
             appState.settings.dayStartHour = parseInt(document.getElementById('cfgDayStart').value.split(':')[0]) || 6;
             appState.settings.nightStartHour = parseInt(document.getElementById('cfgNightStart').value.split(':')[0]) || 19;
@@ -7193,6 +7260,7 @@
         }
 
         async function exportToCSV() {
+            try { await ensureAllShiftsLoaded(); } catch (e) { showAppToast('No se pudo cargar el historial: ' + e.message); return; }
             const activeShifts = appState.shifts.filter(s => !s.isOffDay);
             if (activeShifts.length === 0) {
                 showAppToast('No hay datos en la planilla para exportar.');
@@ -7302,7 +7370,7 @@
                 res = await fetch('/api/org/sync', {
                     method: 'POST', credentials: 'include',
                     headers: { 'Content-Type': 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
-                    body: JSON.stringify({ employees: appState.employees, shifts: appState.shifts, baseVersion: appState.dataVersion }),
+                    body: JSON.stringify({ employees: appState.employees, shifts: appState.shifts, baseVersion: appState.dataVersion, shiftsFrom: appState.shiftsLoadedFrom }),
                 });
             } catch (e) {
                 showSyncBanner('error', 'No se pudieron guardar los últimos cambios: sin conexión con el servidor.');
@@ -7329,6 +7397,33 @@
             syncChain = p.catch(() => {});
             return p;
         }
+        // ---- Ventana de turnos: el navegador tiene los turnos desde
+        // appState.shiftsLoadedFrom en adelante. Los anteriores se traen del
+        // servidor solo cuando se necesitan (semanas antiguas, liquidar un
+        // periodo anterior, informes), y quedan cargados desde esa fecha.
+        let shiftsLoadPromise = null;
+        function shiftsLoaded(fromISO) { return !appState.shiftsLoadedFrom || fromISO >= appState.shiftsLoadedFrom; }
+        async function ensureShiftsLoaded(fromISO) {
+            if (!fromISO || shiftsLoaded(fromISO)) return;
+            while (shiftsLoadPromise) { await shiftsLoadPromise; if (shiftsLoaded(fromISO)) return; }
+            const to = formatDateISO(addDays(new Date(appState.shiftsLoadedFrom + 'T00:00:00'), -1));
+            shiftsLoadPromise = (async () => {
+                const r = await apiFetch(`/api/org/shifts?from=${fromISO}&to=${to}`);
+                const have = new Set(appState.shifts.map(s => `${Number(s.empId)}|${s.date}`));
+                const older = (r.shifts || []).filter(s => !have.has(`${Number(s.empId)}|${s.date}`));
+                older.forEach(sh => { if (sh.isSplit && sh.color === 'cyan') sh.color = 'vivid_yellow'; });
+                appState.shifts = older.concat(appState.shifts);
+                appState.shiftsLoadedFrom = fromISO;
+                const ids = new Set(older.map(s => Number(s.empId)));
+                appState.employees.filter(e => !e.nightSurcharge && ids.has(Number(e.id))).forEach(e => recomputeShiftsForEmployee(e.id));
+            })();
+            try { await shiftsLoadPromise; } finally { shiftsLoadPromise = null; }
+        }
+        function ensureAllShiftsLoaded() { return ensureShiftsLoaded('0000-01-01'); }
+        function shiftsWindowNote() {
+            return appState.shiftsLoadedFrom && appState.shiftsLoadedFrom > '0001-01-01' ? `desde ${pdfDate(appState.shiftsLoadedFrom)}` : 'todo el historial';
+        }
+
         function scheduleDataSync() {
             if (!BOOTSTRAPPED) return;
             if (!CAN('shifts.edit') && !CAN('employees.edit')) return; // este rol no guarda cambios
@@ -7417,6 +7512,7 @@
         }
         async function renderMyView(loadHistory = true) {
             if (!mineMonday) mineMonday = getMondayOfDate(new Date());
+            if (!shiftsLoaded(formatDateISO(mineMonday))) { try { await ensureShiftsLoaded(formatDateISO(mineMonday)); } catch (e) { /* sin conexion */ } }
             const emp = myEmployee();
             document.getElementById('mineNotLinked').classList.toggle('hidden', !!emp);
             document.getElementById('mineEmpName').textContent = emp ? emp.name : (CURRENT_USER ? CURRENT_USER.email : '-');
@@ -7538,6 +7634,8 @@
             appState.employees = (data.employees || []).map(e => ({ ...e, email: e.email || '', linkedUser: e.linkedUser || null, countWorkedDays: e.countWorkedDays === true, nightSurcharge: e.nightSurcharge !== false, nightSurchargeReason: e.nightSurchargeReason || '' }));
             appState.shifts = data.shifts || [];
             appState.dataVersion = Number(data.dataVersion) || 0;
+            appState.shiftsLoadedFrom = data.shiftsFrom || '0000-01-01';
+            appState.dataRetention = data.dataRetention || null;
             appState.viewer = data.viewer || { scope: 'all', employeeId: null };
             appState.publications = data.publications || [];
             appState.rotationPatterns = data.rotationPatterns || [];
