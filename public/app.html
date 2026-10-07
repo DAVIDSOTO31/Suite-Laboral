@@ -4168,6 +4168,7 @@
                 // Guarda primero cualquier cambio pendiente de la planilla.
                 if (typeof flushDataSync === 'function') { try { await flushDataSync(); } catch (e) { /* sigue */ } }
                 const r = await apiFetch(`/api/employees/${id}/retire`, { method: 'POST', body: JSON.stringify({ date, reason, detail, deactivateUser: document.getElementById('retireDeactivateUser').checked }) });
+                if (r.dataVersion != null) appState.dataVersion = Number(r.dataVersion);
                 if (emp) {
                     emp.status = 'retirado'; emp.retiredAt = r.retiredAt; emp.retireReason = reason; emp.retireDetail = detail || null;
                     if (r.userDeactivated && emp.linkedUser) emp.linkedUser.status = 'inactive';
@@ -4184,7 +4185,8 @@
             const emp = appState.employees.find(e => Number(e.id) === Number(empId));
             if (!emp || !confirm(`¿Reintegrar a ${emp.name}? Volverá a la planilla y a las listas. Si debe marcar en el kiosco, asígnalo de nuevo al dispositivo y registra otra vez su rostro.`)) return;
             try {
-                await apiFetch(`/api/employees/${emp.id}/reactivate`, { method: 'POST', body: '{}' });
+                const rr = await apiFetch(`/api/employees/${emp.id}/reactivate`, { method: 'POST', body: '{}' });
+                if (rr.dataVersion != null) appState.dataVersion = Number(rr.dataVersion);
                 emp.status = 'activo'; emp.retiredAt = null; emp.retireReason = null; emp.retireDetail = null;
                 showAppToast(`${emp.name} fue reintegrado.`);
                 renderEmployeesView(); renderWeeklyRoster(); updateDashboardMetrics();
@@ -4195,7 +4197,8 @@
             const emp = appState.employees.find(e => Number(e.id) === id);
             if (!emp || !confirm(`¿Eliminar definitivamente la ficha de ${emp.name}? Solo se permite porque no tiene marcaciones ni liquidaciones. Esta acción no se puede deshacer.`)) return;
             try {
-                await apiFetch(`/api/employees/${id}/delete-permanent`, { method: 'POST', body: '{}' });
+                const rd = await apiFetch(`/api/employees/${id}/delete-permanent`, { method: 'POST', body: '{}' });
+                if (rd.dataVersion != null) appState.dataVersion = Number(rd.dataVersion);
                 appState.employees = appState.employees.filter(e => Number(e.id) !== id);
                 appState.shifts = appState.shifts.filter(s => Number(s.empId) !== id);
                 if (appState.selectedEmpId === id) appState.selectedEmpId = (activeEmployees()[0] || {}).id || null;
@@ -7282,24 +7285,95 @@
                 refreshLinkedUsers();
             }
         }
+        // ---- Guardado de colaboradores y turnos ----
+        // - Los guardados van UNO detrás de otro (nunca dos a la vez).
+        // - Cada guardado lleva la versión de los datos sobre la que se trabajó:
+        //   si otra pestaña u otro usuario guardó después, el servidor lo rechaza
+        //   en vez de sobrescribir esos cambios.
+        // - Si un guardado falla, aparece un aviso visible (no solo en la consola).
+        let syncChain = Promise.resolve();
+        let syncConflict = false;
+        let syncPendingRetry = false;
+        async function postDataSync() {
+            if (syncConflict) throw Object.assign(new Error('conflicto'), { conflict: true });
+            const csrf = getCookieValue('csrf');
+            let res;
+            try {
+                res = await fetch('/api/org/sync', {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+                    body: JSON.stringify({ employees: appState.employees, shifts: appState.shifts, baseVersion: appState.dataVersion }),
+                });
+            } catch (e) {
+                showSyncBanner('error', 'No se pudieron guardar los últimos cambios: sin conexión con el servidor.');
+                throw e;
+            }
+            if (res.status === 401) { window.location.href = '/login.html'; throw new Error('No autenticado'); }
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 409 && data.conflict) {
+                syncConflict = true;
+                showSyncBanner('conflict', data.error || 'Otro usuario guardó cambios. Recarga para ver la versión actual.');
+                throw Object.assign(new Error(data.error || 'conflicto'), { conflict: true });
+            }
+            if (!res.ok) {
+                showSyncBanner('error', `No se pudieron guardar los últimos cambios: ${data.error || 'error del servidor'}.`);
+                throw new Error(data.error || 'Error de servidor');
+            }
+            if (data.dataVersion != null) appState.dataVersion = Number(data.dataVersion);
+            syncPendingRetry = false;
+            hideSyncBanner();
+            return data;
+        }
+        function queueDataSync() {
+            const p = syncChain.then(postDataSync);
+            syncChain = p.catch(() => {});
+            return p;
+        }
         function scheduleDataSync() {
             if (!BOOTSTRAPPED) return;
             if (!CAN('shifts.edit') && !CAN('employees.edit')) return; // este rol no guarda cambios
             clearTimeout(dataSyncTimer);
             dataSyncTimer = setTimeout(() => {
-                apiFetch('/api/org/sync', {
-                    method: 'POST',
-                    body: JSON.stringify({ employees: appState.employees, shifts: appState.shifts }),
-                }).then(handleSyncResult).catch(e => console.warn('No se pudo sincronizar con el servidor:', e.message));
+                queueDataSync().then(handleSyncResult).catch(e => { syncPendingRetry = true; console.warn('No se pudo sincronizar con el servidor:', e.message); });
             }, 900);
         }
-        // Guarda YA los cambios pendientes (antes de invitar a un colaborador recién creado).
+        // Guarda YA los cambios pendientes (antes de invitar o retirar a un colaborador).
         async function flushDataSync() {
             clearTimeout(dataSyncTimer);
             if (!CAN('shifts.edit') && !CAN('employees.edit')) return;
-            const r = await apiFetch('/api/org/sync', { method: 'POST', body: JSON.stringify({ employees: appState.employees, shifts: appState.shifts }) });
+            const r = await queueDataSync();
             handleSyncResult(r);
         }
+        function showSyncBanner(kind, msg) {
+            let el = document.getElementById('syncBanner');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'syncBanner';
+                el.setAttribute('role', 'alert');
+                el.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:9999;max-width:min(680px,calc(100vw - 32px));';
+                document.body.appendChild(el);
+            }
+            const conflict = kind === 'conflict';
+            el.innerHTML = `<div class="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border text-sm ${conflict ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-rose-50 border-rose-300 text-rose-900'}">
+                <i class="fa-solid ${conflict ? 'fa-users' : 'fa-triangle-exclamation'}"></i>
+                <span class="flex-1 min-w-[200px] font-semibold">${escapeHtml(msg)}</span>
+                ${conflict
+                    ? `<button type="button" onclick="location.reload()" class="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold">Recargar</button>`
+                    : `<button type="button" onclick="retryDataSync()" class="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold">Reintentar</button>`}
+            </div>`;
+            el.style.display = 'block';
+        }
+        function hideSyncBanner() { const el = document.getElementById('syncBanner'); if (el) el.style.display = 'none'; }
+        function retryDataSync() {
+            hideSyncBanner();
+            queueDataSync().then(r => { handleSyncResult(r); showAppToast('Cambios guardados.'); }).catch(() => {});
+        }
+        // Si se cierra o recarga la página con cambios sin guardar, el navegador avisa.
+        window.addEventListener('beforeunload', (ev) => {
+            if (!syncConflict && syncPendingRetry) {
+                ev.preventDefault(); ev.returnValue = '';
+            }
+        });
         // Actualiza en pantalla qué colaboradores ya tienen usuario en la suite.
         async function refreshLinkedUsers() {
             if (!CAN('users.view')) return;
@@ -7463,6 +7537,7 @@
             renderColorPalette('presetColorPalette', 'preset-color-btn', 'selectPresetColor');
             appState.employees = (data.employees || []).map(e => ({ ...e, email: e.email || '', linkedUser: e.linkedUser || null, countWorkedDays: e.countWorkedDays === true, nightSurcharge: e.nightSurcharge !== false, nightSurchargeReason: e.nightSurchargeReason || '' }));
             appState.shifts = data.shifts || [];
+            appState.dataVersion = Number(data.dataVersion) || 0;
             appState.viewer = data.viewer || { scope: 'all', employeeId: null };
             appState.publications = data.publications || [];
             appState.rotationPatterns = data.rotationPatterns || [];
