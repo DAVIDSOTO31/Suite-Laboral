@@ -919,17 +919,25 @@
                     <!-- Menu vertical de submodulos -->
                     <aside id="attSubnav" class="att-subnav is-collapsed w-full lg:w-64 shrink-0">
                         <nav class="bg-white rounded-xl border border-slate-200 shadow-sm p-1.5 flex flex-col gap-0.5">
+                            <button id="btnAttTabToday" data-perm="attendance.view" onclick="attendanceSetSubTab('today')" class="att-subnav-item">
+                                <span class="att-subnav-icon"><i class="fa-solid fa-tower-broadcast"></i></span>
+                                <span class="att-subnav-text"><span class="att-subnav-title">Hoy<span class="att-badge hidden" id="attBadge-today"></span></span><span class="att-subnav-desc">Quién está, quién no ha llegado y quién falta por salir</span></span>
+                            </button>
                             <button id="btnAttTabHistory" data-perm="attendance.view" onclick="attendanceSetSubTab('history')" class="att-subnav-item">
                                 <span class="att-subnav-icon"><i class="fa-solid fa-clock-rotate-left"></i></span>
                                 <span class="att-subnav-text"><span class="att-subnav-title">Historial<span class="att-badge hidden" id="attBadge-history"></span></span><span class="att-subnav-desc">Marcaciones por día, horas y recargos</span></span>
                             </button>
                             <button id="btnAttTabAlerts" data-perm="attendance.view_alerts" onclick="attendanceSetSubTab('alerts')" class="att-subnav-item">
                                 <span class="att-subnav-icon"><i class="fa-solid fa-triangle-exclamation"></i></span>
-                                <span class="att-subnav-text"><span class="att-subnav-title">Alertas<span class="att-badge hidden" id="attBadge-alerts"></span></span><span class="att-subnav-desc">Llegadas tarde, almuerzos largos y marcaciones manuales</span></span>
+                                <span class="att-subnav-text"><span class="att-subnav-title">Alertas<span class="att-badge hidden" id="attBadge-alerts"></span></span><span class="att-subnav-desc">Tardanzas, inasistencias, turnos sin cerrar y su gestión</span></span>
                             </button>
                             <button id="btnAttTabWorkdays" data-perm="attendance.view" onclick="attendanceSetSubTab('workdays')" class="att-subnav-item">
                                 <span class="att-subnav-icon"><i class="fa-solid fa-calendar-check"></i></span>
                                 <span class="att-subnav-text"><span class="att-subnav-title">Días laborados<span class="att-badge hidden" id="attBadge-workdays"></span></span><span class="att-subnav-desc">Conteo de días según marcaciones</span></span>
+                            </button>
+                            <button id="btnAttTabNovedades" data-perm="attendance.view_alerts" onclick="attendanceSetSubTab('novedades')" class="att-subnav-item">
+                                <span class="att-subnav-icon"><i class="fa-solid fa-folder-open"></i></span>
+                                <span class="att-subnav-text"><span class="att-subnav-title">Novedades por colaborador<span class="att-badge hidden" id="attBadge-novedades"></span></span><span class="att-subnav-desc">Resumen del periodo: tardanzas, inasistencias y su gestión</span></span>
                             </button>
                             <button id="btnAttTabBio" data-perm="attendance.manage_biometrics" onclick="attendanceSetSubTab('bio')" class="att-subnav-item">
                                 <span class="att-subnav-icon"><i class="fa-solid fa-id-badge"></i></span>
@@ -948,6 +956,64 @@
 
                     <!-- Contenido del submodulo elegido -->
                     <div id="attContent" class="flex-1 min-w-0 w-full">
+
+                <!-- Sub-vista: Hoy (tablero en tiempo real) -->
+                <div id="attSubtab-today" class="hidden">
+                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                        <div class="flex flex-wrap items-end justify-between gap-3">
+                            <div>
+                                <h3 class="font-bold text-slate-800 text-base">Asistencia de hoy</h3>
+                                <p class="text-xs text-slate-500" id="attTodayStamp">-</p>
+                            </div>
+                            <div class="flex flex-wrap items-end gap-2">
+                                <div>
+                                    <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Área</label>
+                                    <select id="attTodayArea" onchange="renderTodayBoard()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[180px]"><option value="">Todas las áreas</option></select>
+                                </div>
+                                <button onclick="attendanceLoadToday()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+                            </div>
+                        </div>
+                        <div id="attTodayCounters" class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2"></div>
+                        <div id="attTodayAreas" class="space-y-3"></div>
+                        <div id="attTodayAbsences"></div>
+                        <p class="text-3xs text-slate-400">Se actualiza solo cada minuto. "No ha llegado" aparece 15 minutos después de la hora de entrada; "Sin marcar salida", 1 hora después de la hora de salida. Si el turno termina sin ninguna marcación, se genera la alerta <strong>No se presentó</strong>.</p>
+                    </div>
+                </div>
+
+                <!-- Sub-vista: Novedades por colaborador -->
+                <div id="attSubtab-novedades" class="hidden">
+                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                        <div class="mb-4">
+                            <h3 class="font-bold text-slate-800 text-base">Novedades por colaborador</h3>
+                            <p class="text-xs text-slate-500">Cuántas novedades tuvo cada colaborador en el periodo y cómo van gestionadas. Haz clic en un nombre para ver el detalle en Alertas.</p>
+                        </div>
+                        <div class="flex flex-wrap items-end gap-3 mb-4">
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Desde</label>
+                                <input type="date" id="attNovFrom" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Hasta</label>
+                                <input type="date" id="attNovTo" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
+                            </div>
+                            <button onclick="attendanceLoadNovedades()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
+                            <button onclick="exportNovedadesXLSX()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel</button>
+                        </div>
+                        <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                            <table class="w-full text-xs">
+                                <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
+                                    <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Área</th>
+                                    <th class="text-center px-3 py-2">Llegadas tarde</th><th class="text-center px-3 py-2">Min. de retraso</th>
+                                    <th class="text-center px-3 py-2">Exceso almuerzo</th><th class="text-center px-3 py-2">Salida antic.</th>
+                                    <th class="text-center px-3 py-2">No se presentó</th><th class="text-center px-3 py-2">Turno sin cerrar</th>
+                                    <th class="text-center px-3 py-2">Marc. manual</th><th class="text-center px-3 py-2">Total</th>
+                                    <th class="text-left px-3 py-2">Gestión</th>
+                                </tr></thead>
+                                <tbody id="attNovBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Sub-vista: Marcación manual (respaldo de emergencia del administrador) -->
                 <div id="attSubtab-mark" class="hidden">
@@ -1116,6 +1182,15 @@
                             </div>
                             <button onclick="attendanceLoadHistory()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
                         </div>
+                        <div class="flex flex-wrap items-center gap-2 mb-4 -mt-1">
+                            <span class="text-2xs font-bold text-slate-500 uppercase mr-1">Rápido:</span>
+                            <button type="button" onclick="attHistoryQuickRange('today')" class="px-2.5 py-1 rounded-full border border-slate-300 bg-white hover:bg-slate-50 text-2xs font-semibold text-slate-700">Hoy</button>
+                            <button type="button" onclick="attHistoryQuickRange('yesterday')" class="px-2.5 py-1 rounded-full border border-slate-300 bg-white hover:bg-slate-50 text-2xs font-semibold text-slate-700">Ayer</button>
+                            <button type="button" onclick="attHistoryQuickRange('week')" class="px-2.5 py-1 rounded-full border border-slate-300 bg-white hover:bg-slate-50 text-2xs font-semibold text-slate-700">Esta semana</button>
+                            <button type="button" onclick="attHistoryQuickRange('quincena')" class="px-2.5 py-1 rounded-full border border-slate-300 bg-white hover:bg-slate-50 text-2xs font-semibold text-slate-700">Quincena actual</button>
+                            <button type="button" onclick="attHistoryQuickRange('month')" class="px-2.5 py-1 rounded-full border border-slate-300 bg-white hover:bg-slate-50 text-2xs font-semibold text-slate-700">Este mes</button>
+                            <label class="ml-auto flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer"><input type="checkbox" id="attHistoryOnlyNovelty" onchange="attendanceLoadHistory()" class="rounded h-4 w-4"> Solo días con novedad</label>
+                        </div>
                         <div class="overflow-x-auto border border-slate-200 rounded-lg">
                             <table class="w-full text-xs">
                                 <thead class="bg-slate-50 text-slate-500 uppercase"><tr>
@@ -1140,13 +1215,50 @@
                 <div id="attSubtab-alerts" class="hidden">
                     <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                         <h3 class="font-bold text-slate-800 text-base mb-1">Alertas de asistencia</h3>
-                        <p class="text-xs text-slate-500 mb-4">Generadas automáticamente por el sistema. Son inmutables: no se pueden editar ni eliminar desde ningún rol.</p>
+                        <p class="text-xs text-slate-500 mb-4">Generadas automáticamente por el sistema. Son inmutables: no se pueden editar ni eliminar desde ningún rol. La <strong>gestión</strong> (justificada / injustificada, nota y soporte) se guarda aparte, sin tocar la alerta.</p>
+                        <div class="flex flex-wrap items-end gap-3 mb-4">
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Desde</label>
+                                <input type="date" id="attAlertsFrom" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Hasta</label>
+                                <input type="date" id="attAlertsTo" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Tipo</label>
+                                <select id="attAlertsType" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white">
+                                    <option value="">Todos</option>
+                                    <option value="llegada_tarde">Llegada tarde</option>
+                                    <option value="exceso_almuerzo">Exceso de almuerzo</option>
+                                    <option value="salida_anticipada">Salida anticipada</option>
+                                    <option value="inasistencia">No se presentó</option>
+                                    <option value="turno_sin_cerrar">Turno sin cerrar</option>
+                                    <option value="marcacion_manual">Marcación manual</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Gestión</label>
+                                <select id="attAlertsStatus" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white">
+                                    <option value="">Todas</option>
+                                    <option value="pendiente">Pendientes</option>
+                                    <option value="justificada">Justificadas</option>
+                                    <option value="injustificada">Injustificadas</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Colaborador</label>
+                                <select id="attAlertsEmployee" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[180px]"><option value="">Todos</option></select>
+                            </div>
+                            <button onclick="attendanceLoadAlerts()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
+                        </div>
                         <div class="overflow-x-auto border border-slate-200 rounded-lg">
                             <table class="w-full text-xs">
                                 <thead class="bg-slate-50 text-slate-500 uppercase"><tr>
                                     <th class="text-left px-3 py-2">Fecha/hora</th><th class="text-left px-3 py-2">Colaborador</th>
                                     <th class="text-left px-3 py-2">Tipo</th><th class="text-left px-3 py-2">Programado</th>
                                     <th class="text-left px-3 py-2">Real</th><th class="text-left px-3 py-2">Diferencia / Detalle</th>
+                                    <th class="text-left px-3 py-2">Gestión</th>
                                 </tr></thead>
                                 <tbody id="attAlertsTableBody"></tbody>
                             </table>
@@ -1654,6 +1766,60 @@
             <div class="flex justify-end gap-2 border-t pt-3">
                 <button onclick="closeModal('modalAttCorrection')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
                 <button onclick="submitAttendanceCorrection()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow">Guardar corrección</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Gestionar novedad de asistencia (justificar / injustificar) -->
+    <div id="modalAlertMgmt" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-4 border border-slate-200 max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-start border-b pb-3">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-clipboard-check text-sky-600"></i> Gestionar novedad</h3>
+                    <p class="text-xs text-slate-500 mt-0.5" id="mgmtSubtitle">-</p>
+                </div>
+                <button onclick="closeModal('modalAlertMgmt')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <input type="hidden" id="mgmtAlertId">
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600" id="mgmtDetail">-</div>
+            <div class="text-xs">
+                <p class="font-semibold text-slate-700 mb-1.5">Resultado <span class="text-rose-600">*</span></p>
+                <div class="grid grid-cols-3 gap-2">
+                    <label class="flex items-center gap-1.5 border rounded-lg px-2.5 py-2 cursor-pointer"><input type="radio" name="mgmtStatus" value="justificada"> <span class="font-semibold text-emerald-700">Justificada</span></label>
+                    <label class="flex items-center gap-1.5 border rounded-lg px-2.5 py-2 cursor-pointer"><input type="radio" name="mgmtStatus" value="injustificada"> <span class="font-semibold text-rose-700">Injustificada</span></label>
+                    <label class="flex items-center gap-1.5 border rounded-lg px-2.5 py-2 cursor-pointer"><input type="radio" name="mgmtStatus" value="pendiente"> <span class="font-semibold text-slate-600">Pendiente</span></label>
+                </div>
+            </div>
+            <div class="text-xs">
+                <label class="block font-semibold text-slate-700 mb-1">Categoría</label>
+                <select id="mgmtCategory" class="w-full p-2 border rounded-lg bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    <option value="">(Sin categoría)</option>
+                    <option>Cita médica</option>
+                    <option>Incapacidad</option>
+                    <option>Calamidad doméstica</option>
+                    <option>Permiso autorizado</option>
+                    <option>Licencia</option>
+                    <option>Diligencia personal</option>
+                    <option>Transporte / movilidad</option>
+                    <option>Olvidó marcar</option>
+                    <option>Falla del kiosco</option>
+                    <option>Sin justificación</option>
+                    <option>Otro</option>
+                </select>
+            </div>
+            <div class="text-xs">
+                <label class="block font-semibold text-slate-700 mb-1">Nota de la gestión <span class="text-rose-600" id="mgmtNoteReq">*</span></label>
+                <textarea id="mgmtNote" rows="3" maxlength="600" placeholder="Ej. Presentó constancia de cita médica de las 7:00 a.m." class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none"></textarea>
+            </div>
+            <div class="text-xs">
+                <label class="block font-semibold text-slate-700 mb-1">Soporte (opcional)</label>
+                <div id="mgmtCurrentFile" class="hidden mb-2"></div>
+                <input type="file" id="mgmtFile" accept="image/png,image/jpeg,image/webp,application/pdf" class="w-full text-xs">
+                <p class="text-3xs text-slate-400 mt-1">Imagen (PNG, JPG, WEBP) o PDF, máximo 3 MB. La alerta original no se modifica: la gestión queda registrada con tu usuario y la fecha.</p>
+            </div>
+            <div class="flex justify-end gap-2 border-t pt-3">
+                <button onclick="closeModal('modalAlertMgmt')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                <button id="mgmtSaveBtn" onclick="submitAlertMgmt()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow">Guardar gestión</button>
             </div>
         </div>
     </div>
@@ -7056,6 +7222,8 @@
             exceso_almuerzo: ['Exceso de almuerzo', 'bg-red-200 text-red-800'],
             salida_anticipada: ['Salida anticipada', 'bg-orange-500 text-white'],
             marcacion_manual: ['Marcación manual', 'bg-violet-600 text-white'],
+            inasistencia: ['No se presentó', 'bg-slate-800 text-white'],
+            turno_sin_cerrar: ['Turno sin cerrar', 'bg-amber-400 text-amber-950'],
         };
         function alertTypeBadge(type) {
             const [label, cls] = ALERT_TYPE_STYLES[type] || [type, 'bg-slate-100 text-slate-600'];
@@ -7074,6 +7242,7 @@
             if (!currentAttendanceSubTab || (currentAttendanceSubTab === 'mark' && !CAN('attendance.mark'))) currentAttendanceSubTab = 'history';
             attendanceSetSubTab(currentAttendanceSubTab);
             refreshAttAlertsBadge();
+            if (currentAttendanceSubTab !== 'today') refreshAttTodayBadge();
             const today = new Date().toISOString().slice(0, 10);
             if (!document.getElementById('attHistoryFrom').value) {
                 document.getElementById('attHistoryFrom').value = today;
@@ -7084,11 +7253,13 @@
         let currentAttendanceSubTab = 'history';
         // Submodulos de Asistencia (orden del menu vertical).
         const ATT_SUBMODULES = {
+            today: ['Hoy', 'fa-tower-broadcast', 'Tablero en tiempo real: presentes, tarde, en almuerzo, no ha llegado y sin marcar salida.'],
             history: ['Historial', 'fa-clock-rotate-left', 'Marcaciones por día: horas trabajadas, recargos, extras y estado.'],
-            alerts: ['Alertas', 'fa-triangle-exclamation', 'Llegadas tarde, almuerzos largos, salidas anticipadas y marcaciones manuales.'],
+            alerts: ['Alertas', 'fa-triangle-exclamation', 'Llegadas tarde, almuerzos largos, salidas anticipadas, no se presentó, turnos sin cerrar y marcaciones manuales. Cada alerta se puede gestionar.'],
             bio: ['Biometría', 'fa-id-badge', 'Registro y desactivación de perfiles faciales para marcar en el kiosco.'],
             mark: ['Marcación manual', 'fa-hand-pointer', 'Respaldo de emergencia cuando el kiosco no funciona. Pide motivo y genera alerta.'],
             workdays: ['Días laborados', 'fa-calendar-check', 'Conteo de días con marcación de entrada para los colaboradores seleccionados.'],
+            novedades: ['Novedades por colaborador', 'fa-folder-open', 'Resumen por colaborador de las novedades del periodo y su gestión (justificadas / injustificadas).'],
             devices: ['Dispositivos', 'fa-tablet-screen-button', 'Tablets y celulares habilitados como punto de marcación.'],
         };
         function attSubnavIsMobile() { return window.matchMedia('(max-width: 1023px)').matches; }
@@ -7123,15 +7294,18 @@
             if (tab === 'alerts') attendanceLoadAlerts();
             if (tab === 'bio') attendanceLoadBioList();
             if (tab === 'devices') attendanceLoadDevices();
+            if (tab === 'today') attendanceLoadToday(); else attTodayStopAuto();
+            if (tab === 'novedades') attendanceLoadNovedades();
         }
         // Contador de alertas de los últimos 7 días en el menú.
         async function refreshAttAlertsBadge() {
             const badge = document.getElementById('attBadge-alerts');
             if (!badge || !CAN('attendance.view_alerts')) return;
             try {
-                const { rows } = await apiFetch('/api/attendance/alerts');
+                const { rows } = await apiFetch('/api/attendance/alerts?status=pendiente');
                 badge.textContent = rows.length > 99 ? '99+' : String(rows.length);
                 badge.classList.toggle('hidden', !rows.length);
+                badge.title = 'Alertas pendientes de gestionar (últimos 7 días)';
             } catch (e) { badge.classList.add('hidden'); }
         }
 
@@ -7556,7 +7730,8 @@
             if (foot) foot.innerHTML = '';
             try {
                 const qs = `from=${from}&to=${to}` + (empId ? `&employeeId=${encodeURIComponent(empId)}` : '');
-                const { rows } = await apiFetch(`/api/attendance/history?${qs}`);
+                let { rows } = await apiFetch(`/api/attendance/history?${qs}`);
+                if (document.getElementById('attHistoryOnlyNovelty')?.checked) rows = rows.filter(attDayHasNovelty);
                 body.innerHTML = rows.map(r => `
                     <tr class="border-t border-slate-100">
                         <td class="px-3 py-2 font-medium">${escapeHtml(r.employee_name)}</td>
@@ -7574,7 +7749,7 @@
                         <td class="px-3 py-2">${attMinutesLabel(r.hen_min)}</td>
                         <td class="px-3 py-2">${attStatusBadge(r.status, r.is_split)}${r.corrected ? '<span class="block mt-0.5 text-3xs font-bold text-sky-700"><i class="fa-solid fa-pen"></i> Corregido</span>' : ''}${r.manual_marks ? `<span class="block mt-0.5 text-3xs font-bold text-violet-700" title="Ver motivo en la pestaña Alertas"><i class="fa-solid fa-hand-pointer"></i> Manual (${r.manual_marks})</span>` : ''}</td>
                         <td class="px-3 py-2 text-right" data-perm="attendance.mark">${r.shift_date < bogotaTodayISO() ? `<button onclick="openAttendanceCorrection(${r.employee_id}, '${r.shift_date}')" class="text-2xs font-semibold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200">Corregir</button>` : ''}</td>
-                    </tr>`).join('') || `<tr><td colspan="15" class="px-3 py-6 text-center text-slate-400">Sin marcaciones en este rango de fechas.</td></tr>`;
+                    </tr>`).join('') || `<tr><td colspan="15" class="px-3 py-6 text-center text-slate-400">${document.getElementById('attHistoryOnlyNovelty')?.checked ? 'Sin días con novedad en este rango de fechas.' : 'Sin marcaciones en este rango de fechas.'}</td></tr>`;
 
                 const closed = rows.filter(r => r.status === 'turno_finalizado');
                 if (foot && closed.length) {
@@ -7596,24 +7771,322 @@
 
         async function attendanceLoadAlerts() {
             const body = document.getElementById('attAlertsTableBody');
-            body.innerHTML = `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
+            const fromEl = document.getElementById('attAlertsFrom'), toEl = document.getElementById('attAlertsTo');
+            if (!fromEl.value || !toEl.value) {
+                const today = bogotaTodayISO();
+                fromEl.value = addDaysISOClient(today, -7);
+                toEl.value = today;
+            }
+            const empSel = document.getElementById('attAlertsEmployee');
+            const curEmp = empSel.value;
+            empSel.innerHTML = '<option value="">Todos</option>' + [...appState.employees].sort((a, b) => a.name.localeCompare(b.name))
+                .map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
+            empSel.value = curEmp;
+            const qs = new URLSearchParams({ from: fromEl.value, to: toEl.value });
+            const type = document.getElementById('attAlertsType').value; if (type) qs.set('type', type);
+            const st = document.getElementById('attAlertsStatus').value; if (st) qs.set('status', st);
+            if (empSel.value) qs.set('employeeId', empSel.value);
+            body.innerHTML = `<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
             try {
-                const { rows } = await apiFetch('/api/attendance/alerts');
+                const { rows } = await apiFetch(`/api/attendance/alerts?${qs.toString()}`);
+                lastAlertRows = rows;
                 body.innerHTML = rows.map(r => `
-                    <tr class="border-t border-slate-100">
-                        <td class="px-3 py-2 whitespace-nowrap">${r.created_at}</td>
+                    <tr class="border-t border-slate-100 align-top">
+                        <td class="px-3 py-2 whitespace-nowrap">${r.created_at}${r.shift_date ? `<span class="block text-3xs text-slate-400">Turno del ${r.shift_date.split('-').reverse().join('/')}</span>` : ''}</td>
                         <td class="px-3 py-2 font-medium">${escapeHtml(r.employee_name)}</td>
                         <td class="px-3 py-2">${alertTypeBadge(r.alert_type)}</td>
                         <td class="px-3 py-2">${r.scheduled_time || '-'}</td>
                         <td class="px-3 py-2">${r.actual_time || '-'}</td>
-                        <td class="px-3 py-2">${r.alert_type === 'marcacion_manual' ? (() => {
-                            let m = {}; try { m = JSON.parse(r.metadata_json || '{}'); } catch (e) {}
-                            return `<span class="block text-slate-700"><strong>Motivo:</strong> ${escapeHtml(m.motivo || '-')}</span><span class="block text-3xs text-slate-500">${escapeHtml(m.origen || '')}${m.por ? ' · ' + escapeHtml(m.por) : ''}${m.markType ? ' · ' + escapeHtml(ATTENDANCE_MARK_LABELS[m.markType] || m.markType) : ''}</span>`;
-                        })() : attMinutesLabel(r.diff_minutes)}</td>
-                    </tr>`).join('') || `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Sin alertas en los últimos 7 días.</td></tr>`;
+                        <td class="px-3 py-2">${alertDetailCell(r)}</td>
+                        <td class="px-3 py-2">${alertMgmtCell(r)}</td>
+                    </tr>`).join('') || `<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">Sin alertas con estos filtros.</td></tr>`;
             } catch (e) {
-                body.innerHTML = `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">No tienes permiso para ver esta sección.</td></tr>`;
+                body.innerHTML = `<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">No tienes permiso para ver esta sección.</td></tr>`;
             }
+        }
+        function alertDetailCell(r) {
+            let m = {}; try { m = JSON.parse(r.metadata_json || '{}'); } catch (e) {}
+            if (r.alert_type === 'marcacion_manual') {
+                return `<span class="block text-slate-700"><strong>Motivo:</strong> ${escapeHtml(m.motivo || '-')}</span><span class="block text-3xs text-slate-500">${escapeHtml(m.origen || '')}${m.por ? ' · ' + escapeHtml(m.por) : ''}${m.markType ? ' · ' + escapeHtml(ATTENDANCE_MARK_LABELS[m.markType] || m.markType) : ''}</span>`;
+            }
+            if (r.alert_type === 'inasistencia') return `<span class="text-slate-700">Sin ninguna marcación en el turno ${escapeHtml(m.turno || '')}</span>`;
+            if (r.alert_type === 'turno_sin_cerrar') return `<span class="text-slate-700">Marcó entrada${m.entrada ? ' a las ' + escapeHtml(m.entrada) : ''} pero no la salida (turno ${escapeHtml(m.turno || '')})</span>`;
+            return attMinutesLabel(r.diff_minutes);
+        }
+
+        // ---- Gestión de novedades: justificar / injustificar con nota y soporte ----
+        let lastAlertRows = [];
+        const MGMT_STYLES = {
+            pendiente: ['Pendiente', 'bg-slate-100 text-slate-600 border-slate-200'],
+            justificada: ['Justificada', 'bg-emerald-50 text-emerald-700 border-emerald-200'],
+            injustificada: ['Injustificada', 'bg-rose-50 text-rose-700 border-rose-200'],
+        };
+        function addDaysISOClient(iso, n) {
+            const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10);
+        }
+        function alertMgmtCell(r) {
+            const st = r.mgmt_status || 'pendiente';
+            const [label, cls] = MGMT_STYLES[st] || MGMT_STYLES.pendiente;
+            const info = st !== 'pendiente' || r.mgmt_note ? `
+                ${r.mgmt_category ? `<span class="block text-3xs font-semibold text-slate-600">${escapeHtml(r.mgmt_category)}</span>` : ''}
+                ${r.mgmt_note ? `<span class="block text-3xs text-slate-500 max-w-[220px]">${escapeHtml(r.mgmt_note)}</span>` : ''}
+                ${r.mgmt_attachment_name ? `<button type="button" onclick="openAlertAttachment('${r.id}')" class="block text-3xs font-semibold text-sky-700 hover:underline"><i class="fa-solid fa-paperclip"></i> ${escapeHtml(r.mgmt_attachment_name)}</button>` : ''}
+                ${r.mgmt_by ? `<span class="block text-3xs text-slate-400">${escapeHtml(r.mgmt_by)} · ${escapeHtml(r.mgmt_at || '')}</span>` : ''}` : '';
+            return `<div class="space-y-0.5"><span class="inline-block px-2 py-0.5 rounded-full border ${cls} text-2xs font-bold">${label}</span>${info}
+                <button type="button" onclick="openAlertMgmt('${r.id}')" class="block mt-1 text-2xs font-semibold px-2 py-0.5 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200">${st === 'pendiente' ? 'Gestionar' : 'Editar gestión'}</button></div>`;
+        }
+        function openAlertMgmt(alertId) {
+            const r = lastAlertRows.find(x => x.id === alertId);
+            if (!r) return;
+            document.getElementById('mgmtAlertId').value = r.id;
+            document.getElementById('mgmtSubtitle').textContent = `${r.employee_name} · ${String(r.shift_date || '').split('-').reverse().join('/')}`;
+            document.getElementById('mgmtDetail').innerHTML = `${alertTypeBadge(r.alert_type)}
+                <span class="block mt-1">Programado: <strong>${r.scheduled_time || '-'}</strong> · Real: <strong>${r.actual_time || '-'}</strong> · ${alertDetailCell(r)}</span>`;
+            const st = r.mgmt_status || 'pendiente';
+            document.querySelectorAll('input[name="mgmtStatus"]').forEach(i => { i.checked = i.value === (st === 'pendiente' && !r.mgmt_note ? '' : st); });
+            const cat = document.getElementById('mgmtCategory');
+            if (r.mgmt_category && ![...cat.options].some(o => o.value === r.mgmt_category)) cat.add(new Option(r.mgmt_category, r.mgmt_category));
+            cat.value = r.mgmt_category || '';
+            document.getElementById('mgmtNote').value = r.mgmt_note || '';
+            document.getElementById('mgmtFile').value = '';
+            const cur = document.getElementById('mgmtCurrentFile');
+            cur.dataset.remove = '';
+            if (r.mgmt_attachment_name) {
+                cur.classList.remove('hidden');
+                cur.innerHTML = `<span class="inline-flex items-center gap-2 px-2 py-1 rounded bg-slate-50 border border-slate-200"><i class="fa-solid fa-paperclip text-slate-500"></i>
+                    <button type="button" onclick="openAlertAttachment('${r.id}')" class="text-sky-700 font-semibold hover:underline">${escapeHtml(r.mgmt_attachment_name)}</button>
+                    <button type="button" onclick="attRemoveMgmtFile()" class="text-rose-600 hover:text-rose-700" title="Quitar soporte"><i class="fa-solid fa-trash"></i></button></span>`;
+            } else { cur.classList.add('hidden'); cur.innerHTML = ''; }
+            openModal('modalAlertMgmt');
+        }
+        function attRemoveMgmtFile() {
+            const cur = document.getElementById('mgmtCurrentFile');
+            cur.dataset.remove = '1';
+            cur.innerHTML = '<span class="text-3xs text-rose-600">El soporte se quitará al guardar.</span>';
+        }
+        function readFileAsBase64(file) {
+            return new Promise((resolve, reject) => {
+                const fr = new FileReader();
+                fr.onload = () => resolve(String(fr.result).replace(/^data:[^,]*,/, ''));
+                fr.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+                fr.readAsDataURL(file);
+            });
+        }
+        async function submitAlertMgmt() {
+            const id = document.getElementById('mgmtAlertId').value;
+            const statusEl = document.querySelector('input[name="mgmtStatus"]:checked');
+            if (!statusEl) { showAppToast('Elige si la novedad queda justificada, injustificada o pendiente.'); return; }
+            const note = document.getElementById('mgmtNote').value.trim();
+            if (statusEl.value !== 'pendiente' && note.length < 5) { showAppToast('Escribe una nota de la gestión (mínimo 5 caracteres).'); return; }
+            const payload = { status: statusEl.value, category: document.getElementById('mgmtCategory').value, note };
+            const file = document.getElementById('mgmtFile').files[0];
+            if (file) {
+                const okType = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'].includes(file.type);
+                if (!okType) { showAppToast('El soporte debe ser una imagen (PNG, JPG, WEBP) o un PDF.'); return; }
+                if (file.size > 3 * 1024 * 1024) { showAppToast('El archivo es demasiado grande (máximo 3 MB).'); return; }
+                payload.attachment = { name: file.name, type: file.type, data: await readFileAsBase64(file) };
+            } else if (document.getElementById('mgmtCurrentFile').dataset.remove === '1') {
+                payload.removeAttachment = true;
+            }
+            const btn = document.getElementById('mgmtSaveBtn');
+            btn.disabled = true;
+            try {
+                await apiFetch(`/api/attendance/alerts/${encodeURIComponent(id)}/manage`, { method: 'POST', body: JSON.stringify(payload) });
+                closeModal('modalAlertMgmt');
+                showAppToast('Gestión guardada.');
+                if (currentAttendanceSubTab === 'alerts') attendanceLoadAlerts();
+                if (currentAttendanceSubTab === 'novedades') attendanceLoadNovedades();
+                refreshAttAlertsBadge();
+            } catch (e) { showAppToast(e.message); }
+            finally { btn.disabled = false; }
+        }
+        function openAlertAttachment(alertId) {
+            // Se abre directo desde el servidor (con la sesión), en una pestaña nueva.
+            const w = window.open(`/api/attendance/alerts/${encodeURIComponent(alertId)}/attachment`, '_blank');
+            if (!w) showAppToast('Permite las ventanas emergentes para ver el soporte.');
+        }
+
+        // ---- Novedades por colaborador ----
+        let lastNovedades = [];
+        async function attendanceLoadNovedades() {
+            const fromEl = document.getElementById('attNovFrom'), toEl = document.getElementById('attNovTo');
+            if (!fromEl.value || !toEl.value) {
+                const today = bogotaTodayISO();
+                fromEl.value = today.slice(0, 8) + '01';
+                toEl.value = today;
+            }
+            const body = document.getElementById('attNovBody');
+            body.innerHTML = `<tr><td colspan="11" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
+            try {
+                const { rows } = await apiFetch(`/api/attendance/novedades?from=${fromEl.value}&to=${toEl.value}`);
+                lastNovedades = rows;
+                const n = (v, cls = '') => v ? `<span class="font-bold ${cls}">${v}</span>` : '<span class="text-slate-300">0</span>';
+                body.innerHTML = rows.map(r => `
+                    <tr class="border-t border-slate-100">
+                        <td class="px-3 py-2"><button type="button" onclick="openEmployeeAlerts(${r.employeeId})" class="font-semibold text-sky-700 hover:underline text-left">${escapeHtml(r.name)}</button></td>
+                        <td class="px-3 py-2 text-slate-500">${escapeHtml(r.department)}</td>
+                        <td class="px-3 py-2 text-center">${n(r.llegada_tarde, 'text-rose-700')}</td>
+                        <td class="px-3 py-2 text-center">${r.minutesLate ? attMinutesLabel(r.minutesLate) : '<span class="text-slate-300">-</span>'}</td>
+                        <td class="px-3 py-2 text-center">${n(r.exceso_almuerzo, 'text-rose-700')}</td>
+                        <td class="px-3 py-2 text-center">${n(r.salida_anticipada, 'text-orange-600')}</td>
+                        <td class="px-3 py-2 text-center">${n(r.inasistencia, 'text-slate-900')}</td>
+                        <td class="px-3 py-2 text-center">${n(r.turno_sin_cerrar, 'text-amber-700')}</td>
+                        <td class="px-3 py-2 text-center">${n(r.marcacion_manual, 'text-violet-700')}</td>
+                        <td class="px-3 py-2 text-center text-base font-black text-slate-800">${r.total}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">
+                            ${r.pendiente ? `<span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-3xs font-bold">${r.pendiente} pend.</span>` : ''}
+                            ${r.justificada ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-3xs font-bold">${r.justificada} just.</span>` : ''}
+                            ${r.injustificada ? `<span class="inline-block px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 text-3xs font-bold">${r.injustificada} injust.</span>` : ''}
+                        </td>
+                    </tr>`).join('') || `<tr><td colspan="11" class="px-3 py-6 text-center text-slate-400">Ningún colaborador tuvo novedades en este periodo.</td></tr>`;
+            } catch (e) {
+                body.innerHTML = `<tr><td colspan="11" class="px-3 py-6 text-center text-slate-400">${escapeHtml(e.message)}</td></tr>`;
+            }
+        }
+        function openEmployeeAlerts(employeeId) {
+            document.getElementById('attAlertsFrom').value = document.getElementById('attNovFrom').value;
+            document.getElementById('attAlertsTo').value = document.getElementById('attNovTo').value;
+            document.getElementById('attAlertsType').value = '';
+            document.getElementById('attAlertsStatus').value = '';
+            const sel = document.getElementById('attAlertsEmployee');
+            if (![...sel.options].some(o => o.value === String(employeeId))) sel.add(new Option('', String(employeeId)));
+            sel.value = String(employeeId);
+            attendanceSetSubTab('alerts');
+        }
+        async function exportNovedadesXLSX() {
+            if (!lastNovedades.length) { showAppToast('Primero consulta el periodo que quieres exportar.'); return; }
+            const from = document.getElementById('attNovFrom').value, to = document.getElementById('attNovTo').value;
+            const empById = new Map(appState.employees.map(e => [Number(e.id), e]));
+            const rows = lastNovedades.map(r => [r.name, empById.get(Number(r.employeeId)) ? docLabel(empById.get(Number(r.employeeId))) : '', r.department,
+                r.llegada_tarde, r.minutesLate, r.exceso_almuerzo, r.salida_anticipada, r.inasistencia, r.turno_sin_cerrar, r.marcacion_manual, r.total,
+                r.pendiente, r.justificada, r.injustificada]);
+            try {
+                await downloadXLSX(`Novedades_${from}_al_${to}.xlsx`,
+                    ['Colaborador', 'Documento', 'Área', 'Llegadas tarde', 'Minutos de retraso', 'Exceso de almuerzo', 'Salidas anticipadas', 'No se presentó', 'Turno sin cerrar', 'Marcaciones manuales', 'Total novedades', 'Pendientes', 'Justificadas', 'Injustificadas'],
+                    rows, 'Novedades');
+            } catch (e) { showAppToast(e.message); }
+        }
+
+        // ---- Historial: rangos rápidos y "solo días con novedad" ----
+        function attHistoryQuickRange(kind) {
+            const today = bogotaTodayISO();
+            let from = today, to = today;
+            if (kind === 'yesterday') { from = to = addDaysISOClient(today, -1); }
+            if (kind === 'week') { const dow = (new Date(today + 'T00:00:00Z').getUTCDay() + 6) % 7; from = addDaysISOClient(today, -dow); }
+            if (kind === 'quincena') { from = today.slice(0, 8) + (Number(today.slice(8)) <= 15 ? '01' : '16'); }
+            if (kind === 'month') { from = today.slice(0, 8) + '01'; }
+            document.getElementById('attHistoryFrom').value = from;
+            document.getElementById('attHistoryTo').value = to;
+            attendanceLoadHistory();
+        }
+        function attDayHasNovelty(r) {
+            return (r.retraso_min > 0) || (r.exceso_almuerzo_min > 0) || (r.salida_anticipada_min > 0) || (r.manual_marks > 0) || !!r.corrected
+                || (r.status !== 'turno_finalizado' && r.shift_date < bogotaTodayISO());
+        }
+
+        // ---- Tablero "Hoy" ----
+        const TODAY_STATUS = {
+            no_llego:       { label: 'No ha llegado',     order: 0, chip: 'bg-slate-800 text-white', dot: 'bg-slate-800' },
+            sin_cerrar:     { label: 'Sin marcar salida', order: 1, chip: 'bg-amber-400 text-amber-950', dot: 'bg-amber-400' },
+            almuerzo_largo: { label: 'Almuerzo excedido', order: 2, chip: 'bg-red-200 text-red-800', dot: 'bg-red-400' },
+            en_espera:      { label: 'En tolerancia',     order: 3, chip: 'bg-yellow-100 text-yellow-800', dot: 'bg-yellow-400' },
+            tarde:          { label: 'Llegó tarde',       order: 4, chip: 'bg-rose-100 text-rose-700', dot: 'bg-rose-500' },
+            almuerzo:       { label: 'En almuerzo',       order: 5, chip: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500' },
+            presente:       { label: 'Presente',          order: 6, chip: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500' },
+            por_iniciar:    { label: 'Por iniciar',       order: 7, chip: 'bg-sky-50 text-sky-700', dot: 'bg-sky-400' },
+            finalizado:     { label: 'Turno finalizado',  order: 8, chip: 'bg-slate-100 text-slate-500', dot: 'bg-slate-400' },
+        };
+        let lastTodayBoard = null;
+        let attTodayTimer = null;
+        async function refreshAttTodayBadge() {
+            const badge = document.getElementById('attBadge-today');
+            if (!badge || !CAN('attendance.view')) return;
+            try {
+                const b = await apiFetch('/api/attendance/today');
+                const k = b.counters.noLlego + b.counters.sinCerrar;
+                badge.textContent = String(k); badge.classList.toggle('hidden', !k); badge.title = 'No han llegado o no han marcado salida';
+            } catch (e) { badge.classList.add('hidden'); }
+        }
+        function attTodayStopAuto() { if (attTodayTimer) { clearInterval(attTodayTimer); attTodayTimer = null; } }
+        async function attendanceLoadToday() {
+            attTodayStopAuto();
+            attTodayTimer = setInterval(() => {
+                const view = document.getElementById('view-attendance');
+                if (currentAttendanceSubTab !== 'today' || !view || view.classList.contains('hidden')) { attTodayStopAuto(); return; }
+                attendanceFetchToday();
+            }, 60000);
+            await attendanceFetchToday();
+        }
+        async function attendanceFetchToday() {
+            try {
+                lastTodayBoard = await apiFetch('/api/attendance/today');
+                const sel = document.getElementById('attTodayArea');
+                const cur = sel.value;
+                const areaNames = [...new Set(lastTodayBoard.areas.map(a => a.name).concat(lastTodayBoard.absences.map(a => a.department)))].sort((a, b) => a.localeCompare(b, 'es'));
+                sel.innerHTML = '<option value="">Todas las áreas</option>' + areaNames.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+                sel.value = areaNames.includes(cur) ? cur : '';
+                renderTodayBoard();
+                const badge = document.getElementById('attBadge-today');
+                const k = lastTodayBoard.counters.noLlego + lastTodayBoard.counters.sinCerrar;
+                if (badge) { badge.textContent = String(k); badge.classList.toggle('hidden', !k); badge.title = 'No han llegado o no han marcado salida'; }
+            } catch (e) {
+                document.getElementById('attTodayAreas').innerHTML = `<p class="text-center text-slate-400 text-xs py-6">${escapeHtml(e.message)}</p>`;
+            }
+        }
+        function renderTodayBoard() {
+            const b = lastTodayBoard;
+            if (!b) return;
+            const area = document.getElementById('attTodayArea').value;
+            const areas = b.areas.filter(a => !area || a.name === area);
+            const people = areas.flatMap(a => a.people);
+            const absences = b.absences.filter(a => !area || a.department === area);
+            const cnt = (fn) => people.filter(fn).length;
+            const PRESENT = ['presente', 'tarde', 'almuerzo', 'almuerzo_largo'];
+            const c = {
+                programados: people.length, presentes: cnt(p => PRESENT.includes(p.status)), tarde: cnt(p => p.status === 'tarde'),
+                almuerzo: cnt(p => p.status === 'almuerzo' || p.status === 'almuerzo_largo'), noLlego: cnt(p => p.status === 'no_llego'),
+                porIniciar: cnt(p => p.status === 'por_iniciar' || p.status === 'en_espera'), finalizados: cnt(p => p.status === 'finalizado'),
+                sinCerrar: cnt(p => p.status === 'sin_cerrar'), ausencias: absences.length,
+            };
+            const [y, m, d] = b.date.split('-');
+            document.getElementById('attTodayStamp').textContent = `${d}/${m}/${y} · actualizado a las ${b.now} (hora Colombia)`;
+            const card = (label, value, cls, icon) => `<div class="rounded-lg border px-3 py-2 ${cls}"><p class="text-3xs font-bold uppercase opacity-80 flex items-center gap-1"><i class="fa-solid ${icon}"></i> ${label}</p><p class="text-2xl font-black leading-tight">${value}</p></div>`;
+            document.getElementById('attTodayCounters').innerHTML = [
+                card('Programados', c.programados, 'bg-white border-slate-200 text-slate-800', 'fa-users'),
+                card('Presentes', c.presentes, 'bg-emerald-50 border-emerald-200 text-emerald-800', 'fa-user-check'),
+                card('Llegaron tarde', c.tarde, 'bg-rose-50 border-rose-200 text-rose-700', 'fa-clock'),
+                card('En almuerzo', c.almuerzo, 'bg-amber-50 border-amber-200 text-amber-800', 'fa-utensils'),
+                card('No han llegado', c.noLlego, c.noLlego ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-400', 'fa-user-xmark'),
+                card('Sin marcar salida', c.sinCerrar, c.sinCerrar ? 'bg-amber-400 border-amber-400 text-amber-950' : 'bg-white border-slate-200 text-slate-400', 'fa-door-open'),
+                card('Por iniciar', c.porIniciar, 'bg-sky-50 border-sky-200 text-sky-800', 'fa-hourglass-start'),
+                card('Finalizaron', c.finalizados, 'bg-slate-50 border-slate-200 text-slate-600', 'fa-flag-checkered'),
+            ].join('');
+            document.getElementById('attTodayAreas').innerHTML = areas.length ? areas.map(a => {
+                const list = [...a.people].sort((p, q) => (TODAY_STATUS[p.status]?.order ?? 9) - (TODAY_STATUS[q.status]?.order ?? 9) || p.name.localeCompare(q.name));
+                const presentA = list.filter(p => PRESENT.includes(p.status)).length;
+                const expectedA = list.filter(p => p.expectedNow).length;
+                return `<div class="border border-slate-200 rounded-lg overflow-hidden">
+                    <div class="bg-slate-50 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+                        <p class="font-bold text-slate-700 text-sm">${escapeHtml(a.name)}</p>
+                        <p class="text-2xs text-slate-500"><strong class="text-slate-800">${presentA}</strong> presente(s) de <strong class="text-slate-800">${expectedA}</strong> que deberían estar ahora · ${list.length} programado(s) hoy</p>
+                    </div>
+                    <div class="divide-y divide-slate-100">${list.map(p => {
+                        const st = TODAY_STATUS[p.status] || { label: p.status, chip: 'bg-slate-100 text-slate-600', dot: 'bg-slate-400' };
+                        return `<div class="px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                            <span class="w-2 h-2 rounded-full ${st.dot} shrink-0"></span>
+                            <span class="font-semibold text-slate-800 min-w-[160px]">${escapeHtml(p.name)}<span class="block text-3xs font-normal text-slate-400">${escapeHtml(p.role || '')}</span></span>
+                            <span class="text-slate-500 min-w-[110px]">${escapeHtml(p.scheduled)}${p.isSplit ? ' <span class="text-3xs text-cyan-700 font-semibold">Partido</span>' : ''}${p.shiftDate !== b.date ? ' <span class="text-3xs text-indigo-700 font-semibold">Turno de ayer</span>' : ''}</span>
+                            <span class="px-2 py-0.5 rounded-full ${st.chip} text-2xs font-bold whitespace-nowrap">${st.label}</span>
+                            <span class="text-slate-500">${escapeHtml(p.label)}</span>
+                        </div>`;
+                    }).join('')}</div>
+                </div>`;
+            }).join('') : '<p class="text-center text-slate-400 text-xs py-6">No hay colaboradores con turno programado hoy' + (area ? ' en esta área' : '') + '.</p>';
+            document.getElementById('attTodayAbsences').innerHTML = absences.length ? `
+                <div class="border border-yellow-200 bg-yellow-50/50 rounded-lg px-3 py-2">
+                    <p class="text-2xs font-bold uppercase text-yellow-800 mb-1"><i class="fa-solid fa-umbrella-beach"></i> Ausencias programadas hoy (${absences.length})</p>
+                    <div class="flex flex-wrap gap-2">${absences.map(x => `<span class="px-2 py-0.5 rounded-full bg-white border border-yellow-200 text-2xs"><strong>${escapeHtml(x.name)}</strong> · ${escapeHtml(x.label)}</span>`).join('')}</div>
+                </div>` : '';
         }
 
         // -----------------------------------------------------------------
