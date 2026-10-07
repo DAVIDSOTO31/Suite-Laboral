@@ -776,6 +776,12 @@ if (!empRetCols.includes('retire_reason')) db.exec('ALTER TABLE employees ADD CO
 if (!empRetCols.includes('retire_detail')) db.exec('ALTER TABLE employees ADD COLUMN retire_detail TEXT NULL');
 if (!empRetCols.includes('retired_by')) db.exec('ALTER TABLE employees ADD COLUMN retired_by TEXT NULL');
 
+// Version de los datos de colaboradores y turnos de cada organizacion: evita
+// que una pestana con datos viejos (u otro usuario editando al tiempo)
+// sobrescriba cambios mas recientes.
+const orgSetVer = db.prepare('PRAGMA table_info(org_settings)').all().map(c => c.name);
+if (!orgSetVer.includes('data_version')) db.exec('ALTER TABLE org_settings ADD COLUMN data_version INTEGER NOT NULL DEFAULT 0');
+
 module.exports = {
   db,
   uid,
