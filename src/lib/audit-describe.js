@@ -114,6 +114,9 @@ function describeAudit(row, ctx = {}) {
         [m.estadoAnterior && m.estadoAnterior !== m.estado ? `Estado: ${m.estadoAnterior} → ${m.estado}` : null,
           m.categoria ? `Categoría: ${m.categoria}` : null, m.nota ? `Nota: ${m.nota}` : null, m.soporte ? `Soporte adjunto: ${m.soporte}` : null].filter(Boolean));
     }
+    case 'attendance.digest_settings': return out('Asistencia', 'Resumen diario por correo',
+      m.activo ? `${m.activoAntes ? 'Actualizó' : 'Activó'} el resumen diario de asistencia por correo, a las ${String(m.hora).padStart(2, '0')}:00.` : 'Desactivó el resumen diario de asistencia por correo.',
+      [m.destinatarios ? `Destinatarios: ${m.destinatarios}` : null, m.adicionales ? `Correos adicionales: ${m.adicionales}` : null].filter(Boolean));
     case 'attendance.face_enroll': return out('Asistencia', 'Perfil facial', `Registró el perfil facial de ${val(m.employeeName)} para marcar en el kiosco.`);
     case 'attendance.face_deactivate': return out('Asistencia', 'Perfil facial', `Desactivó el perfil facial de ${val(m.employeeName)}.`);
     case 'attendance.device_create': return out('Asistencia', 'Dispositivo de marcación', `Creó el dispositivo de marcación "${val(m.deviceName)}".`);
