@@ -43,6 +43,24 @@ function todayShiftLookup(orgId, now) {
   return (o, empId, date) => map.get(`${Number(empId)}|${date}`) || null;
 }
 
+// HORAS EXTRA PROGRAMADAS DENTRO DEL TURNO: si el turno dura mas que su
+// "Limite diario" (jornada ordinaria, por defecto 8 h) + el descanso, la
+// jornada ordinaria termina en entrada + limite + descanso, y lo programado
+// despues es TIEMPO EXTRA (igual que ya lo proyecta la planilla).
+// Devuelve la hora (HH:MM) en que termina la jornada ordinaria. Si el turno
+// no supera el limite (o es turno partido), es la hora de salida del turno.
+function ordinaryEndClock(shift) {
+  if (!shift || shift.isSplit || !shift.startTime || !shift.endTime) return shift ? shift.endTime : null;
+  const limit = Number(shift.limit);
+  const start = rules.timeToMinutes(shift.startTime);
+  const endAbs = rules.scheduledAbsoluteMinutes(shift.endTime, shift.startTime);
+  if (!(limit > 0) || start == null || endAbs == null) return shift.endTime;
+  const ordEnd = start + Math.round(limit * 60) + (Number(shift.breakM) || 0);
+  if (ordEnd >= endAbs) return shift.endTime;
+  const m = ordEnd % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
 function isOvernightShift(shift) {
   if (!shift || shift.isOffDay) return false;
   const start = rules.timeToMinutes(shift.startTime);
@@ -299,14 +317,18 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
   }
 
   if (markType === 'salida') {
-    const scheduledSalidaAbsMin = rules.scheduledAbsoluteMinutes(shift.endTime, shift.startTime);
+    // Con horas extra programadas, la salida anticipada se mide contra el fin
+    // de la JORNADA ORDINARIA: si sale antes de terminar las extras, solo se
+    // le pagan las que hizo, sin descuento.
+    const ordEndClock = ordinaryEndClock(shift);
+    const scheduledSalidaAbsMin = rules.scheduledAbsoluteMinutes(ordEndClock, shift.startTime);
     const clsSalida = rules.classifySalida(scheduledSalidaAbsMin, actualAbsMin);
     patch.salida_real = actualClock;
     patch.salida_anticipada_min = clsSalida.adeudadoMinutes;
     patch.status = 'turno_finalizado';
     statusLabel = clsSalida.adeudadoMinutes > 0 ? 'salida_anticipada' : 'salida_puntual';
     if (clsSalida.adeudadoMinutes > 0) {
-      insertAlert(orgId, employeeId, shiftDateISO, 'salida_anticipada', shift.endTime, actualClock, clsSalida.adeudadoMinutes, { employeeName: employee.name });
+      insertAlert(orgId, employeeId, shiftDateISO, 'salida_anticipada', ordEndClock, actualClock, clsSalida.adeudadoMinutes, { employeeName: employee.name });
       alert = { type: 'salida_anticipada', diffMinutes: clsSalida.adeudadoMinutes };
     }
 
@@ -316,7 +338,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
     const nightEnabled = employee.night_surcharge === 0 ? 0 : 1;
     const cat = computeDayHours({
       employeeId, shiftDateISO,
-      scheduledStart: shift.startTime, scheduledEnd: shift.endTime,
+      scheduledStart: shift.startTime, scheduledEnd: ordEndClock,
       salidaAbsMin: actualAbsMin,
       scheduledBreakMinutes: Number(shift.breakM) || 0,
       nightEnabled,
@@ -327,7 +349,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
     patch.hed_min = hedFinal;
     patch.hen_min = cat.hen;
     if (hedFinal > 0 || cat.hen > 0) {
-      insertAlert(orgId, employeeId, shiftDateISO, 'hora_extra', shift.endTime, actualClock, hedFinal + cat.hen, {
+      insertAlert(orgId, employeeId, shiftDateISO, 'hora_extra', ordEndClock, actualClock, hedFinal + cat.hen, {
         employeeName: employee.name, hedMin: hedFinal, henMin: cat.hen,
       });
     }
@@ -883,7 +905,8 @@ async function registerCorrection(req, res) {
 
   // Minutos absolutos desde la medianoche del dia del turno (cruza medianoche si hace falta).
   const scheduledEntradaMin = rules.timeToMinutes(shift.startTime);
-  const scheduledSalidaMin = rules.scheduledAbsoluteMinutes(shift.endTime, shift.startTime);
+  // Fin de la jornada ordinaria (con horas extra programadas, antes de la salida del turno).
+  const scheduledSalidaMin = rules.scheduledAbsoluteMinutes(ordinaryEndClock(shift), shift.startTime);
   const abs = {};
   let prev = null;
   for (const k of rules.MARK_SEQUENCE) {
