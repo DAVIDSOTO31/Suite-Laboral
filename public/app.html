@@ -1013,7 +1013,7 @@
                                     <th class="text-center px-3 py-2">Llegadas tarde</th><th class="text-center px-3 py-2">Min. de retraso</th>
                                     <th class="text-center px-3 py-2">Exceso almuerzo</th><th class="text-center px-3 py-2">Salida antic.</th>
                                     <th class="text-center px-3 py-2">No se presentó</th><th class="text-center px-3 py-2">Turno sin cerrar</th>
-                                    <th class="text-center px-3 py-2">Marc. manual</th><th class="text-center px-3 py-2">Total</th>
+                                    <th class="text-center px-3 py-2">Marc. manual</th><th class="text-center px-3 py-2">Etapa extendida</th><th class="text-center px-3 py-2">Total</th>
                                     <th class="text-left px-3 py-2">Gestión</th>
                                 </tr></thead>
                                 <tbody id="attNovBody"></tbody>
@@ -1463,6 +1463,7 @@
                                     <option value="inasistencia">No se presentó</option>
                                     <option value="turno_sin_cerrar">Turno sin cerrar</option>
                                     <option value="marcacion_manual">Marcación manual</option>
+                                    <option value="etapa_extendida">Etapa extendida (turno partido)</option>
                                 </select>
                             </div>
                             <div>
@@ -7803,6 +7804,7 @@
             marcacion_manual: ['Marcación manual', 'bg-violet-600 text-white'],
             inasistencia: ['No se presentó', 'bg-slate-800 text-white'],
             turno_sin_cerrar: ['Turno sin cerrar', 'bg-amber-400 text-amber-950'],
+            etapa_extendida: ['Etapa extendida', 'bg-cyan-600 text-white'],
         };
         function alertTypeBadge(type) {
             const [label, cls] = ALERT_TYPE_STYLES[type] || [type, 'bg-slate-100 text-slate-600'];
@@ -8392,6 +8394,7 @@
                 return `<span class="block text-slate-700"><strong>Motivo:</strong> ${escapeHtml(m.motivo || '-')}</span><span class="block text-3xs text-slate-500">${escapeHtml(m.origen || '')}${m.por ? ' · ' + escapeHtml(m.por) : ''}${m.markType ? ' · ' + escapeHtml(ATTENDANCE_MARK_LABELS[m.markType] || m.markType) : ''}</span>`;
             }
             if (r.alert_type === 'inasistencia') return `<span class="text-slate-700">Sin ninguna marcación en el turno ${escapeHtml(m.turno || '')}</span>`;
+            if (r.alert_type === 'etapa_extendida') return `<span class="text-slate-700">${escapeHtml(m.etapa || 'Etapa extendida')}: ${attMinutesLabel(r.diff_minutes)}</span><span class="block text-3xs text-slate-500">Puede convertir en extra la última parte del turno. Justifícala si estaba autorizada.</span>`;
             if (r.alert_type === 'turno_sin_cerrar') return `<span class="text-slate-700">Marcó entrada${m.entrada ? ' a las ' + escapeHtml(m.entrada) : ''} pero no la salida (turno ${escapeHtml(m.turno || '')})</span>`;
             return attMinutesLabel(r.diff_minutes);
         }
@@ -8533,7 +8536,7 @@
                 toEl.value = today;
             }
             const body = document.getElementById('attNovBody');
-            body.innerHTML = `<tr><td colspan="11" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
+            body.innerHTML = `<tr><td colspan="12" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
             try {
                 const { rows } = await apiFetch(`/api/attendance/novedades?from=${fromEl.value}&to=${toEl.value}`);
                 lastNovedades = rows;
@@ -8549,13 +8552,14 @@
                         <td class="px-3 py-2 text-center">${n(r.inasistencia, 'text-slate-900')}</td>
                         <td class="px-3 py-2 text-center">${n(r.turno_sin_cerrar, 'text-amber-700')}</td>
                         <td class="px-3 py-2 text-center">${n(r.marcacion_manual, 'text-violet-700')}</td>
+                        <td class="px-3 py-2 text-center">${n(r.etapa_extendida, 'text-cyan-700')}</td>
                         <td class="px-3 py-2 text-center text-base font-black text-slate-800">${r.total}</td>
                         <td class="px-3 py-2 whitespace-nowrap">
                             ${r.pendiente ? `<span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-3xs font-bold">${r.pendiente} pend.</span>` : ''}
                             ${r.justificada ? `<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-3xs font-bold">${r.justificada} just.</span>` : ''}
                             ${r.injustificada ? `<span class="inline-block px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 text-3xs font-bold">${r.injustificada} injust.</span>` : ''}
                         </td>
-                    </tr>`).join('') || `<tr><td colspan="11" class="px-3 py-6 text-center text-slate-400">Ningún colaborador tuvo novedades en este periodo.</td></tr>`;
+                    </tr>`).join('') || `<tr><td colspan="12" class="px-3 py-6 text-center text-slate-400">Ningún colaborador tuvo novedades en este periodo.</td></tr>`;
             } catch (e) {
                 body.innerHTML = `<tr><td colspan="11" class="px-3 py-6 text-center text-slate-400">${escapeHtml(e.message)}</td></tr>`;
             }
@@ -8575,11 +8579,11 @@
             const from = document.getElementById('attNovFrom').value, to = document.getElementById('attNovTo').value;
             const empById = new Map(appState.employees.map(e => [Number(e.id), e]));
             const rows = lastNovedades.map(r => [r.name, empById.get(Number(r.employeeId)) ? docLabel(empById.get(Number(r.employeeId))) : '', r.department,
-                r.llegada_tarde, r.minutesLate, r.exceso_almuerzo, r.salida_anticipada, r.inasistencia, r.turno_sin_cerrar, r.marcacion_manual, r.total,
+                r.llegada_tarde, r.minutesLate, r.exceso_almuerzo, r.salida_anticipada, r.inasistencia, r.turno_sin_cerrar, r.marcacion_manual, r.etapa_extendida || 0, r.total,
                 r.pendiente, r.justificada, r.injustificada]);
             try {
                 await downloadXLSX(`Novedades_${from}_al_${to}.xlsx`,
-                    ['Colaborador', 'Documento', 'Área', 'Llegadas tarde', 'Minutos de retraso', 'Exceso de almuerzo', 'Salidas anticipadas', 'No se presentó', 'Turno sin cerrar', 'Marcaciones manuales', 'Total novedades', 'Pendientes', 'Justificadas', 'Injustificadas'],
+                    ['Colaborador', 'Documento', 'Área', 'Llegadas tarde', 'Minutos de retraso', 'Exceso de almuerzo', 'Salidas anticipadas', 'No se presentó', 'Turno sin cerrar', 'Marcaciones manuales', 'Etapa extendida', 'Total novedades', 'Pendientes', 'Justificadas', 'Injustificadas'],
                     rows, 'Novedades');
             } catch (e) { showAppToast(e.message); }
         }
