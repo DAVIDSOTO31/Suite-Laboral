@@ -116,7 +116,7 @@ function describeAudit(row, ctx = {}) {
         c.map(x => `${MARK_FIELD_ES[x.marcacion] || x.marcacion}: ${x.antes || 'sin marcar'} → ${x.despues}`).concat(m.motivo ? [`Motivo: ${m.motivo}`] : []));
     }
     case 'attendance.alert_managed': {
-      const TIPO = { llegada_tarde: 'llegada tarde', exceso_almuerzo: 'exceso de almuerzo', salida_anticipada: 'salida anticipada', inasistencia: 'no se presentó', turno_sin_cerrar: 'turno sin cerrar', marcacion_manual: 'marcación manual' };
+      const TIPO = { llegada_tarde: 'llegada tarde', exceso_almuerzo: 'exceso de almuerzo', salida_anticipada: 'salida anticipada', inasistencia: 'no se presentó', turno_sin_cerrar: 'turno sin cerrar', marcacion_manual: 'marcación manual', etapa_extendida: 'etapa extendida' };
       return out('Asistencia', 'Gestión de novedad',
         `Marcó como ${String(m.estado || 'pendiente').toLowerCase()} la novedad "${TIPO[m.tipo] || m.tipo || 'novedad'}" de ${val(m.colaborador)} del ${dayName(m.fecha)}.`,
         [m.estadoAnterior && m.estadoAnterior !== m.estado ? `Estado: ${m.estadoAnterior} → ${m.estado}` : null,
