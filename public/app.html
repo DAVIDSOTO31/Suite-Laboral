@@ -977,6 +977,7 @@
                                 <button onclick="attendanceLoadToday()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-rotate"></i> Actualizar</button>
                             </div>
                         </div>
+                        <div id="attTodayDevices"></div>
                         <div id="attTodayCounters" class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2"></div>
                         <div id="attTodayAreas" class="space-y-3"></div>
                         <div id="attTodayAbsences"></div>
@@ -1221,16 +1222,42 @@
                             <button onclick="attendanceOpenCreateDeviceModal()" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold"><i class="fa-solid fa-plus"></i> Nuevo dispositivo</button>
                         </div>
                         <p class="text-xs text-slate-500 mb-4">Solo estos dispositivos (tablets/tótems) pueden registrar marcaciones a través de <code>/kiosk.html</code>. Ningún usuario puede marcar desde su propio celular o computador, salvo el administrador de la organización, como respaldo de emergencia dentro de esta misma app.</p>
+                        <div class="border border-sky-200 bg-sky-50/40 rounded-lg p-3 mb-4 flex flex-wrap items-end gap-3 text-xs">
+                            <div class="min-w-[220px] flex-1">
+                                <p class="font-bold text-slate-800 flex items-center gap-1.5"><i class="fa-solid fa-heart-pulse text-sky-600"></i> Salud de los kioscos</p>
+                                <p class="text-2xs text-slate-500">Cada kiosco envía una señal cada minuto. Si deja de enviarla, aquí y en el tablero Hoy aparece como "Sin conexión"; también se muestra la batería baja (menos del 20 % sin cargar) y los problemas de cámara. Todo queda en el Historial de cada dispositivo.</p>
+                            </div>
+                            <div>
+                                <label class="block font-semibold text-slate-700 mb-1">Minutos sin señal</label>
+                                <input type="number" id="devOfflineMin" min="3" max="240" class="w-24 p-2 border rounded-lg">
+                            </div>
+                            <button type="button" onclick="saveDeviceAlertSettings()" id="devAlertsSaveBtn" class="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold">Guardar</button>
+                        </div>
                         <div class="overflow-x-auto border border-slate-200 rounded-lg">
                             <table class="w-full text-xs">
                                 <thead class="bg-slate-50 text-slate-500 uppercase"><tr>
                                     <th class="text-left px-3 py-2">Nombre</th><th class="text-left px-3 py-2">Estado</th>
+                                    <th class="text-left px-3 py-2">Salud</th>
                                     <th class="text-left px-3 py-2">Colaboradores asignados</th><th class="text-left px-3 py-2">Último uso</th>
                                     <th class="text-left px-3 py-2">Acciones</th>
                                 </tr></thead>
                                 <tbody id="attDevicesTableBody"></tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Modal: historial de salud de un dispositivo -->
+                <div id="attDeviceEventsModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
+                    <div class="bg-white rounded-xl p-5 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+                        <div class="flex justify-between items-start mb-2">
+                            <div>
+                                <h3 class="font-bold text-slate-800">Historial del dispositivo — <span id="attDevEvName"></span></h3>
+                                <p class="text-2xs text-slate-500" id="attDevEvInfo"></p>
+                            </div>
+                            <button onclick="closeModal('attDeviceEventsModal')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+                        </div>
+                        <div id="attDevEvList" class="divide-y divide-slate-100 border border-slate-200 rounded-lg text-xs"></div>
                     </div>
                 </div>
 
@@ -8579,6 +8606,13 @@
             };
             const [y, m, d] = b.date.split('-');
             document.getElementById('attTodayStamp').textContent = `${d}/${m}/${y} · actualizado a las ${b.now} (hora Colombia)`;
+            const devs = b.devices || [];
+            document.getElementById('attTodayDevices').innerHTML = devs.length ? `<div class="border border-amber-300 bg-amber-50 rounded-lg px-3 py-2 text-xs text-amber-900 space-y-0.5">
+                ${devs.map(x => { const h = x.health; const msg = h.status === 'sin_conexion' || h.status === 'intermitente'
+                    ? `sin señal ${minutesAgoLabel(h.lastSeenMin)} — las marcaciones de ese punto podrían no estar llegando`
+                    : [h.warnings.includes('bateria_baja') ? `batería al ${h.battery} % sin cargar` : null, h.warnings.includes('camara') ? (CAMERA_LABELS[h.camera] || 'problema de cámara').toLowerCase() : null, h.pending ? `${h.pending} marcación(es) pendiente(s) por enviar` : null].filter(Boolean).join(' · ');
+                    return `<p><i class="fa-solid fa-tablet-screen-button"></i> <strong>${escapeHtml(x.name)}</strong>: ${escapeHtml(msg)}</p>`; }).join('')}
+                <p class="text-3xs text-amber-700">Revisa el detalle en Asistencia → Dispositivos.</p></div>` : '';
             const card = (label, value, cls, icon) => `<div class="rounded-lg border px-3 py-2 ${cls}"><p class="text-3xs font-bold uppercase opacity-80 flex items-center gap-1"><i class="fa-solid ${icon}"></i> ${label}</p><p class="text-2xl font-black leading-tight">${value}</p></div>`;
             document.getElementById('attTodayCounters').innerHTML = [
                 card('Programados', c.programados, 'bg-white border-slate-200 text-slate-800', 'fa-users'),
@@ -8733,26 +8767,100 @@
         // -----------------------------------------------------------------
         // Gestión de dispositivos de marcación
         // -----------------------------------------------------------------
+        const DEVICE_HEALTH = {
+            en_linea: ['En línea', 'bg-emerald-100 text-emerald-700', 'bg-emerald-500'],
+            intermitente: ['Sin señal', 'bg-amber-100 text-amber-800', 'bg-amber-400'],
+            sin_conexion: ['Sin conexión', 'bg-rose-100 text-rose-700', 'bg-rose-500'],
+            sin_datos: ['Sin datos', 'bg-slate-100 text-slate-500', 'bg-slate-400'],
+        };
+        const CAMERA_LABELS = { ok: 'Cámara OK', denegada: 'Cámara sin permiso', sin_camara: 'Sin cámara', error: 'Error de cámara', desconocido: 'Cámara: sin verificar' };
+        function minutesAgoLabel(m) {
+            if (m == null) return '';
+            if (m < 1) return 'hace menos de 1 min';
+            if (m < 60) return `hace ${m} min`;
+            const h = Math.floor(m / 60);
+            if (h < 48) return `hace ${h} h ${m % 60 ? (m % 60) + ' min' : ''}`.trim();
+            return `hace ${Math.floor(h / 24)} días`;
+        }
+        function deviceHealthCell(d) {
+            const h = d.health || { status: 'sin_datos' };
+            const [label, chip, dot] = DEVICE_HEALTH[h.status] || DEVICE_HEALTH.sin_datos;
+            if (!d.active) return '<span class="text-slate-400">—</span>';
+            if (h.status === 'sin_datos') return `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full ${chip} text-2xs font-bold"><span class="w-2 h-2 rounded-full ${dot}"></span>${label}</span><span class="block text-3xs text-slate-400 mt-0.5">Abre de nuevo /kiosk.html en la tablet para que empiece a enviar señal</span>`;
+            const parts = [];
+            parts.push(h.status === 'en_linea' ? `Última señal ${minutesAgoLabel(h.lastSeenMin)}` : `Sin señal ${minutesAgoLabel(h.lastSeenMin)} (${h.lastSeenAt})`);
+            if (h.battery != null) parts.push(`<span class="${h.warnings.includes('bateria_baja') ? 'text-rose-700 font-bold' : ''}"><i class="fa-solid ${h.charging ? 'fa-plug' : 'fa-battery-half'}"></i> ${h.battery} %${h.charging ? ' cargando' : ''}</span>`);
+            parts.push(`<span class="${h.warnings.includes('camara') ? 'text-rose-700 font-bold' : ''}">${CAMERA_LABELS[h.camera] || h.camera}</span>`);
+            if (h.pending) parts.push(`<span class="text-amber-700 font-bold">${h.pending} marcación(es) pendiente(s) por enviar</span>`);
+            return `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full ${chip} text-2xs font-bold"><span class="w-2 h-2 rounded-full ${dot}"></span>${label}</span>
+                <span class="block text-3xs text-slate-500 mt-0.5 space-x-1">${parts.join(' · ')}</span>`;
+        }
+        let attDevicesTimer = null;
         async function attendanceLoadDevices() {
             const body = document.getElementById('attDevicesTableBody');
-            body.innerHTML = `<tr><td colspan="5" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
+            if (!body.dataset.loaded) body.innerHTML = `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
+            if (!attDevicesTimer) {
+                attDevicesTimer = setInterval(() => {
+                    const view = document.getElementById('view-attendance');
+                    if (currentAttendanceSubTab !== 'devices' || !view || view.classList.contains('hidden')) { clearInterval(attDevicesTimer); attDevicesTimer = null; return; }
+                    attendanceLoadDevices();
+                }, 60000);
+                loadDeviceAlertSettings();
+            }
             try {
                 const { devices } = await apiFetch('/api/attendance/devices');
+                body.dataset.loaded = '1';
                 body.innerHTML = devices.map(d => `
-                    <tr class="border-t border-slate-100">
+                    <tr class="border-t border-slate-100 align-top">
                         <td class="px-3 py-2 font-medium">${escapeHtml(d.name)}</td>
                         <td class="px-3 py-2">${d.active ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-2xs font-semibold">Activo</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-2xs font-semibold">Desactivado</span>'}</td>
+                        <td class="px-3 py-2">${deviceHealthCell(d)}</td>
                         <td class="px-3 py-2">${d.assignedCount} colaborador(es)</td>
                         <td class="px-3 py-2 whitespace-nowrap">${d.lastUsedAt || 'Nunca'}</td>
                         <td class="px-3 py-2 flex flex-wrap gap-1.5">
                             <button onclick="attendanceOpenAssignModal('${d.id}', '${escapeHtml(d.name)}')" class="text-xs px-2 py-1 rounded bg-sky-50 text-sky-700 hover:bg-sky-100">Asignar colaboradores</button>
+                            <button onclick="attendanceOpenDeviceEvents('${d.id}')" class="text-xs px-2 py-1 rounded bg-slate-50 text-slate-700 hover:bg-slate-100">Historial</button>
                             <button onclick="attendanceRotateDevice('${d.id}')" class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100">Nuevo token</button>
                             ${d.active ? `<button onclick="attendanceDeactivateDevice('${d.id}')" class="text-xs px-2 py-1 rounded bg-rose-50 text-rose-600 hover:bg-rose-100">Desactivar</button>` : ''}
                         </td>
-                    </tr>`).join('') || `<tr><td colspan="5" class="px-3 py-6 text-center text-slate-400">Aún no hay dispositivos registrados.</td></tr>`;
+                    </tr>`).join('') || `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Aún no hay dispositivos registrados.</td></tr>`;
             } catch (e) {
-                body.innerHTML = `<tr><td colspan="5" class="px-3 py-6 text-center text-slate-400">No tienes permiso para ver esta sección.</td></tr>`;
+                body.innerHTML = `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">No tienes permiso para ver esta sección.</td></tr>`;
             }
+        }
+        const DEVICE_EVENT_LABELS = {
+            sin_conexion: ['Sin conexión', 'bg-rose-100 text-rose-700'], reconectado: ['Reconectado', 'bg-emerald-100 text-emerald-700'],
+            bateria_baja: ['Batería baja', 'bg-amber-100 text-amber-800'], camara: ['Cámara', 'bg-rose-100 text-rose-700'],
+            camara_ok: ['Cámara OK', 'bg-emerald-100 text-emerald-700'], aviso_enviado: ['Aviso por correo (anterior)', 'bg-sky-100 text-sky-700'],
+        };
+        async function attendanceOpenDeviceEvents(deviceId) {
+            try {
+                const r = await apiFetch(`/api/attendance/devices/${encodeURIComponent(deviceId)}/events`);
+                const h = r.device.health || {};
+                document.getElementById('attDevEvName').textContent = r.device.name;
+                document.getElementById('attDevEvInfo').textContent = [h.version ? `Versión del kiosco ${h.version}` : null, r.userAgent ? `Equipo: ${r.userAgent}` : null].filter(Boolean).join(' · ');
+                document.getElementById('attDevEvList').innerHTML = r.events.length ? r.events.map(ev => {
+                    const [label, cls] = DEVICE_EVENT_LABELS[ev.event_type] || [ev.event_type, 'bg-slate-100 text-slate-600'];
+                    return `<div class="px-3 py-2 flex gap-3"><span class="text-slate-400 whitespace-nowrap">${escapeHtml(ev.created_at.slice(0, 16))}</span><span><span class="px-1.5 py-0.5 rounded ${cls} text-3xs font-bold">${label}</span> <span class="text-slate-600">${escapeHtml(ev.details || '')}</span></span></div>`;
+                }).join('') : '<p class="px-3 py-6 text-center text-slate-400">Sin eventos registrados. Todo ha funcionado normal.</p>';
+                openModal('attDeviceEventsModal');
+            } catch (e) { showAppToast(e.message); }
+        }
+        async function loadDeviceAlertSettings() {
+            try {
+                const s = await apiFetch('/api/attendance/device-alert-settings');
+                document.getElementById('devOfflineMin').value = s.offlineMin;
+            } catch (e) { /* sin permiso */ }
+        }
+        async function saveDeviceAlertSettings() {
+            const btn = document.getElementById('devAlertsSaveBtn'); btn.disabled = true;
+            try {
+                const s = await apiFetch('/api/attendance/device-alert-settings', { method: 'PUT', body: JSON.stringify({
+                    offlineMin: Number(document.getElementById('devOfflineMin').value) }) });
+                showAppToast(`Guardado: un kiosco se marca "Sin conexión" después de ${s.offlineMin} min sin señal.`);
+                attendanceLoadDevices();
+            } catch (e) { showAppToast(e.message); }
+            finally { btn.disabled = false; }
         }
 
         function attendanceOpenCreateDeviceModal() {
