@@ -161,6 +161,10 @@ route('POST', '/api/attendance/devices/:id/employees', [requirePermission('atten
 route('GET', '/api/attendance/devices/:id/events', [requirePermission('attendance.manage_devices')], (req, res, params, query) => attendance.listDeviceEvents(req, res, params, query));
 route('GET', '/api/attendance/device-alert-settings', [requirePermission('attendance.manage_devices')], (req, res, params, query) => attendance.getDeviceAlertSettingsRoute(req, res, query));
 route('PUT', '/api/attendance/device-alert-settings', [requirePermission('attendance.manage_devices')], (req, res) => attendance.saveDeviceAlertSettings(req, res));
+// Marcaciones guardadas sin conexion que necesitan revision del administrador.
+route('GET', '/api/attendance/offline-marks', [requirePermission('attendance.manage_devices')], (req, res, params, query) => attendance.listOfflineMarks(req, res, query));
+route('POST', '/api/attendance/offline-marks/:id/apply', [requirePermission('attendance.mark')], (req, res, params) => attendance.applyOfflineMark(req, res, params));
+route('POST', '/api/attendance/offline-marks/:id/discard', [requirePermission('attendance.mark')], (req, res, params) => attendance.discardOfflineMark(req, res, params));
 
 // ---- Kiosco de marcacion: SIN sesion de usuario, autenticado por el token
 // propio del dispositivo (header X-Device-Token). Ver attendance.routes.js. ----
@@ -168,6 +172,7 @@ route('GET', '/api/kiosk/employees-today', [], (req, res) => attendance.kioskEmp
 route('POST', '/api/kiosk/mark', [], (req, res) => attendance.kioskMark(req, res), { auth: false });
 route('POST', '/api/kiosk/mark-by-face', [], (req, res) => attendance.kioskMarkByFace(req, res), { auth: false });
 route('POST', '/api/kiosk/heartbeat', [], (req, res) => attendance.kioskHeartbeat(req, res), { auth: false });
+route('POST', '/api/kiosk/sync', [], (req, res) => attendance.kioskSync(req, res), { auth: false });
 
 // ---------------------------------------------------------------------------
 // HTTP server: security headers, CORS, static files, API dispatch
