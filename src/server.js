@@ -117,6 +117,11 @@ route('POST', '/api/payroll/closures/:id/reopen', [requirePermission('employees.
 route('PUT', '/api/org/departments', [requirePermission('settings.manage')], (req, res) => org.replaceDepartments(req, res));
 route('PUT', '/api/org/shift-presets', [requirePermission('shifts.edit')], (req, res) => org.replaceShiftPresets(req, res));
 route('POST', '/api/org/sync', [(req, res, user) => user.isSuperAdmin || user.permissions.has('shifts.edit') || user.permissions.has('employees.edit') ? true : (sendJson(res, 403, { error: 'No tienes permiso para guardar cambios.' }), false)], (req, res) => org.syncEmployeesAndShifts(req, res));
+// Retiro de colaboradores (en vez de borrarlos): se conserva su historial.
+route('POST', '/api/employees/:id/retire', [requirePermission('employees.delete')], (req, res, params) => org.retireEmployee(req, res, params));
+route('POST', '/api/employees/:id/reactivate', [requirePermission('employees.delete')], (req, res, params) => org.reactivateEmployee(req, res, params));
+route('POST', '/api/employees/:id/delete-permanent', [requirePermission('employees.delete')], (req, res, params) => org.deleteEmployeePermanent(req, res, params));
+route('GET', '/api/employees/:id/has-history', [requirePermission('employees.delete')], (req, res, params, query) => org.employeeHistoryCheck(req, res, params, query));
 route('GET', '/api/org/users', [requirePermission('users.view')], (req, res) => org.listOrgUsers(req, res));
 route('POST', '/api/org/users', [requirePermission('users.create')], (req, res) => org.createOrgUser(req, res));
 route('PUT', '/api/org/users/:id', [requirePermission('users.edit')], (req, res, params) => org.updateOrgUser(req, res, params));
