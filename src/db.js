@@ -782,6 +782,16 @@ if (!empRetCols.includes('retired_by')) db.exec('ALTER TABLE employees ADD COLUM
 const orgSetVer = db.prepare('PRAGMA table_info(org_settings)').all().map(c => c.name);
 if (!orgSetVer.includes('data_version')) db.exec('ALTER TABLE org_settings ADD COLUMN data_version INTEGER NOT NULL DEFAULT 0');
 
+// VENTANA DE TURNOS Y DEPURACION:
+//  - Indice por fecha del turno (dentro del JSON) para leer solo un rango.
+//  - org_settings.shift_retention_years: los turnos (programacion) mas
+//    antiguos que estos anos se eliminan automaticamente. NULL = nunca.
+//  - org_settings.shift_purge_info: resumen de la ultima depuracion.
+db.exec("CREATE INDEX IF NOT EXISTS idx_shifts_org_date ON shifts(organization_id, json_extract(data_json, '$.date'))");
+const orgSetRet = db.prepare('PRAGMA table_info(org_settings)').all().map(c => c.name);
+if (!orgSetRet.includes('shift_retention_years')) db.exec('ALTER TABLE org_settings ADD COLUMN shift_retention_years INTEGER NULL');
+if (!orgSetRet.includes('shift_purge_info')) db.exec('ALTER TABLE org_settings ADD COLUMN shift_purge_info TEXT NULL');
+
 module.exports = {
   db,
   uid,
