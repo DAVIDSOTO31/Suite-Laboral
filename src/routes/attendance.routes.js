@@ -1256,6 +1256,432 @@ function novedadesSummary(req, res, query) {
   sendJson(res, 200, { from, to, rows: list });
 }
 
+// ===========================================================================
+// FASE 3: INDICADORES DE ASISTENCIA + RESUMEN DIARIO POR CORREO
+// Solo LEE datos existentes (turnos, dias de asistencia, alertas y su
+// gestion). No modifica nada de lo que ya calcula la suite.
+// ===========================================================================
+const ISO_D = /^\d{4}-\d{2}-\d{2}$/;
+function monthlyDividerForDate(dateISO) {
+  if (dateISO >= '2026-07-15') return 210;
+  if (dateISO >= '2025-07-15') return 220;
+  if (dateISO >= '2024-07-15') return 230;
+  return 240;
+}
+function daysBetween(a, b) { return Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000); }
+
+// Carga UNA vez los datos de la organizacion necesarios para los indicadores.
+function loadIndicatorData(orgId, from, to) {
+  const employees = new Map(db.prepare('SELECT id, name, department, salary FROM employees WHERE organization_id = ?').all(orgId)
+    .map(e => [e.id, { ...e, department: e.department || 'Sin área' }]));
+  const shifts = [];
+  const incapDays = [];          // { empId, date } de TODAS las fechas (para agrupar episodios)
+  const workKeys = new Set();    // empId|date con turno de trabajo (corta un episodio)
+  for (const r of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId)) {
+    try {
+      const s = JSON.parse(r.data_json);
+      if (!s || !s.date) continue;
+      if (isWorkShift(s)) {
+        workKeys.add(`${Number(s.empId)}|${s.date}`);
+        if (s.date >= from && s.date <= to) shifts.push(s);
+      } else if (s.isOffDay && s.absenceType === 'incapacidad') {
+        incapDays.push({ empId: Number(s.empId), date: s.date });
+      }
+    } catch { /* fila invalida */ }
+  }
+  const days = new Map(db.prepare(`SELECT employee_id, shift_date, status, entrada_real, salida_real, retraso_min, exceso_almuerzo_min,
+      salida_anticipada_min, hed_min, hen_min FROM attendance_days WHERE organization_id = ? AND shift_date BETWEEN ? AND ?`)
+    .all(orgId, from, to).map(d => [`${d.employee_id}|${d.shift_date}`, d]));
+  const alerts = db.prepare(`SELECT a.employee_id, a.shift_date, a.alert_type, COALESCE(m.status, 'pendiente') AS mgmt
+      FROM attendance_alerts a LEFT JOIN alert_management m ON m.alert_id = a.id
+      WHERE a.organization_id = ? AND a.shift_date BETWEEN ? AND ?
+        AND a.alert_type IN ('llegada_tarde','exceso_almuerzo','salida_anticipada','inasistencia','turno_sin_cerrar','marcacion_manual')`)
+    .all(orgId, from, to);
+  const mw = db.prepare('SELECT minimum_wage FROM org_settings WHERE organization_id = ?').get(orgId);
+  return { employees, shifts, days, alerts, dayZero: getDayZero(orgId), incapacityEpisodes: buildIncapacityEpisodes(incapDays, workKeys), minimumWage: (mw && Number(mw.minimum_wage)) || 1750905 };
+}
+
+// Agrupa los dias de incapacidad de cada colaborador en EPISODIOS (una misma
+// incapacidad): dias seguidos, permitiendo saltar dias SIN turno de trabajo
+// (descansos, domingos). Cada dia queda con su numero dentro del episodio
+// (1, 2, 3...), para saber cuales son los 2 primeros dias (a cargo del empleador).
+function buildIncapacityEpisodes(incapDays, workKeys) {
+  const byEmp = new Map();
+  for (const d of incapDays) {
+    if (!byEmp.has(d.empId)) byEmp.set(d.empId, new Set());
+    byEmp.get(d.empId).add(d.date);
+  }
+  const episodes = [];
+  for (const [empId, set] of byEmp) {
+    const dates = [...set].sort();
+    let cur = null;
+    for (const date of dates) {
+      let continues = false;
+      if (cur) {
+        continues = true;
+        for (let x = bogota.addDaysISO(cur.end, 1); x < date; x = bogota.addDaysISO(x, 1)) {
+          if (workKeys.has(`${empId}|${x}`)) { continues = false; break; }
+        }
+        if (daysBetween(cur.end, date) > 7) continues = false;
+      }
+      if (!continues) { cur = { empId, start: date, end: date, days: [] }; episodes.push(cur); }
+      cur.end = date;
+      cur.days.push({ date, n: cur.days.length + 1 });
+    }
+  }
+  return episodes;
+}
+
+function emptyBucket(name) {
+  return { name, programados: 0, asistidos: 0, ausencias: 0, ausenciasJustificadas: 0, entradas: 0, tarde: 0,
+    minutosRetraso: 0, minutosPerdidos: 0, costoPerdido: 0, extraDiurnaMin: 0, extraNocturnaMin: 0, sinCerrar: 0, manuales: 0 };
+}
+function finishBucket(b) {
+  const pct = (n, d) => d ? Math.round((n / d) * 1000) / 10 : null;
+  b.ausentismo = pct(b.ausencias, b.programados);
+  b.ausentismoInjustificado = pct(b.ausencias - b.ausenciasJustificadas, b.programados);
+  b.puntualidad = pct(b.entradas - b.tarde, b.entradas);
+  b.costoPerdido = Math.round(b.costoPerdido);
+  b.extraTotalMin = b.extraDiurnaMin + b.extraNocturnaMin;
+  return b;
+}
+
+// Calcula los indicadores de un rango usando datos ya cargados.
+function computeIndicators(data, from, to, area, now) {
+  const today = bogota.todayISOInBogota(now);
+  const total = emptyBucket('Total');
+  const byArea = new Map();
+  const bucketsFor = (emp) => {
+    const name = emp.department;
+    if (!byArea.has(name)) byArea.set(name, emptyBucket(name));
+    return [total, byArea.get(name)];
+  };
+  const justifiedAbs = new Set(data.alerts.filter(a => a.alert_type === 'inasistencia' && a.mgmt === 'justificada').map(a => `${a.employee_id}|${a.shift_date}`));
+
+  for (const s of data.shifts) {
+    if (s.date < from || s.date > to || s.date > today) continue;
+    if (data.dayZero && s.date <= data.dayZero) continue;
+    const emp = data.employees.get(Number(s.empId));
+    if (!emp || (area && emp.department !== area)) continue;
+    // Solo turnos que YA terminaron (los que estan en curso aun no se evaluan).
+    const endRel = clockToRel(s.endTime, s.startTime);
+    if (bogota.minutesSinceShiftMidnight(now, s.date) < endRel) continue;
+    const key = `${emp.id}|${s.date}`;
+    const d = data.days.get(key);
+    const bs = bucketsFor(emp);
+    const valorMinuto = (Number(emp.salary) || 0) / monthlyDividerForDate(s.date) / 60;
+    for (const b of bs) b.programados++;
+    if (!d || !d.entrada_real) {
+      for (const b of bs) { b.ausencias++; if (justifiedAbs.has(key)) b.ausenciasJustificadas++; }
+      continue;
+    }
+    const lost = (d.retraso_min || 0) + (d.exceso_almuerzo_min || 0) + (d.salida_anticipada_min || 0);
+    for (const b of bs) {
+      b.asistidos++; b.entradas++;
+      if ((d.retraso_min || 0) > 0) { b.tarde++; b.minutosRetraso += d.retraso_min; }
+      b.minutosPerdidos += lost;
+      b.costoPerdido += lost * valorMinuto;
+    }
+  }
+  // Horas extra de los dias cerrados (saldo positivo de extra diurna + extra nocturna).
+  for (const d of data.days.values()) {
+    if (d.shift_date < from || d.shift_date > to || d.status !== 'turno_finalizado') continue;
+    if (data.dayZero && d.shift_date <= data.dayZero) continue;
+    const emp = data.employees.get(d.employee_id);
+    if (!emp || (area && emp.department !== area)) continue;
+    for (const b of bucketsFor(emp)) { b.extraDiurnaMin += Math.max(0, d.hed_min || 0); b.extraNocturnaMin += Math.max(0, d.hen_min || 0); }
+  }
+  for (const a of data.alerts) {
+    if (a.shift_date < from || a.shift_date > to) continue;
+    const emp = data.employees.get(a.employee_id);
+    if (!emp || (area && emp.department !== area)) continue;
+    if (a.alert_type === 'turno_sin_cerrar') for (const b of bucketsFor(emp)) b.sinCerrar++;
+    if (a.alert_type === 'marcacion_manual') for (const b of bucketsFor(emp)) b.manuales++;
+  }
+  return {
+    total: finishBucket(total),
+    areas: [...byArea.values()].map(finishBucket).sort((a, b) => a.name.localeCompare(b.name, 'es')),
+  };
+}
+
+// Incapacidades del periodo (dias marcados como "Incapacidad" en el cuadro de
+// turnos, hasta hoy). Costo en salario = salario mensual / 30 por dia.
+// Estimado a cargo de la empresa (origen comun): los 2 primeros dias de cada
+// incapacidad, pagados al 66,67 % del salario sin bajar del salario minimo
+// diario (art. 227 CST y Decreto 2943 de 2013). Los demas dias los reconoce la EPS.
+function computeIncapacities(data, from, to, area, now) {
+  const today = bogota.todayISOInBogota(now);
+  const end = to < today ? to : today;
+  const minDaily = data.minimumWage / 30;
+  const byEmp = new Map();
+  const byArea = new Map();
+  const total = { dias: 0, episodios: 0, colaboradores: 0, costoSalario: 0, diasEmpresa: 0, valorEmpresa: 0 };
+  for (const ep of data.incapacityEpisodes) {
+    const emp = data.employees.get(ep.empId);
+    if (!emp || (area && emp.department !== area)) continue;
+    const inRange = ep.days.filter(d => d.date >= from && d.date <= end && !(data.dayZero && d.date <= data.dayZero));
+    if (!inRange.length) continue;
+    const daily = (Number(emp.salary) || 0) / 30;
+    const companyDaily = Math.max(daily * 2 / 3, minDaily);
+    if (!byEmp.has(emp.id)) byEmp.set(emp.id, { employeeId: emp.id, name: emp.name, department: emp.department, salary: Number(emp.salary) || 0,
+      dias: 0, episodios: 0, costoSalario: 0, diasEmpresa: 0, valorEmpresa: 0, ultima: null, periodos: [] });
+    const e = byEmp.get(emp.id);
+    const companyDays = inRange.filter(d => d.n <= 2).length;
+    e.dias += inRange.length; e.episodios++;
+    e.costoSalario += inRange.length * daily;
+    e.diasEmpresa += companyDays; e.valorEmpresa += companyDays * companyDaily;
+    e.periodos.push({ desde: ep.start, hasta: ep.end, dias: ep.days.length });
+    if (!e.ultima || ep.start > e.ultima) e.ultima = ep.start;
+    if (!byArea.has(emp.department)) byArea.set(emp.department, { dias: 0, costoSalario: 0 });
+    const a = byArea.get(emp.department);
+    a.dias += inRange.length; a.costoSalario += inRange.length * daily;
+  }
+  const employees = [...byEmp.values()].map(e => ({ ...e, costoSalario: Math.round(e.costoSalario), valorEmpresa: Math.round(e.valorEmpresa) }));
+  for (const e of employees) {
+    total.dias += e.dias; total.episodios += e.episodios; total.costoSalario += e.costoSalario;
+    total.diasEmpresa += e.diasEmpresa; total.valorEmpresa += e.valorEmpresa;
+  }
+  total.colaboradores = employees.length;
+  employees.sort((a, b) => b.dias - a.dias || b.episodios - a.episodios || a.name.localeCompare(b.name, 'es'));
+  return { total, employees, byArea: Object.fromEntries([...byArea].map(([k, v]) => [k, { dias: v.dias, costoSalario: Math.round(v.costoSalario) }])) };
+}
+
+// GET /api/attendance/indicators?from=&to=&area=
+function indicators(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  scanMissingMarks(orgId);
+  const now = new Date();
+  const today = bogota.todayISOInBogota(now);
+  const to = ISO_D.test(query.to || '') ? query.to : today;
+  const from = ISO_D.test(query.from || '') ? query.from : to.slice(0, 8) + '01';
+  if (from > to) return sendJson(res, 400, { error: 'La fecha inicial no puede ser mayor que la final.' });
+  if (daysBetween(from, to) > 400) return sendJson(res, 400, { error: 'El rango máximo es de 13 meses.' });
+  const area = query.area ? String(query.area) : '';
+
+  // Periodo anterior de la misma duracion, para comparar.
+  const len = daysBetween(from, to) + 1;
+  const prevTo = bogota.addDaysISO(from, -1);
+  const prevFrom = bogota.addDaysISO(from, -len);
+  // Tendencia: los ultimos 6 meses hasta el mes de "Hasta".
+  const months = [];
+  const [ty, tm] = to.split('-').map(Number);
+  for (let i = 5; i >= 0; i--) {
+    const dt = new Date(Date.UTC(ty, tm - 1 - i, 1));
+    const mFrom = dt.toISOString().slice(0, 10);
+    const mEnd = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+    months.push({ from: mFrom, to: mEnd < today ? mEnd : today, label: mFrom.slice(0, 7) });
+  }
+  const loadFrom = [prevFrom, months[0].from, from].sort()[0];
+  const data = loadIndicatorData(orgId, loadFrom, to > today ? today : to);
+
+  const current = computeIndicators(data, from, to, area, now);
+  const previous = computeIndicators(data, prevFrom, prevTo, area, now).total;
+  // Incapacidades: dias, costo y tasa (dias de incapacidad sobre dias programados + incapacidad).
+  const incap = computeIncapacities(data, from, to, area, now);
+  const incapPrev = computeIncapacities(data, prevFrom, prevTo, area, now).total;
+  const tasaInc = (dias, prog) => (dias + prog) ? Math.round((dias / (dias + prog)) * 1000) / 10 : null;
+  incap.total.tasa = tasaInc(incap.total.dias, current.total.programados);
+  incapPrev.tasa = tasaInc(incapPrev.dias, previous.programados);
+  for (const a of current.areas) {
+    const x = incap.byArea[a.name] || { dias: 0, costoSalario: 0 };
+    a.incapacidadDias = x.dias; a.incapacidadCosto = x.costoSalario;
+  }
+  current.total.incapacidadDias = incap.total.dias; current.total.incapacidadCosto = incap.total.costoSalario;
+  const trend = months.filter(m => m.from <= today).map(m => {
+    const t = computeIndicators(data, m.from, m.to, area, now).total;
+    const inc = computeIncapacities(data, m.from, m.to, area, now).total;
+    return { month: m.label, ausentismo: t.ausentismo, puntualidad: t.puntualidad, extraHoras: Math.round(t.extraTotalMin / 6) / 10, programados: t.programados,
+      incapacidadDias: inc.dias, incapacidadCosto: inc.costoSalario };
+  });
+
+  // Top 10 de colaboradores con mas novedades (primero las injustificadas).
+  const top = new Map();
+  for (const a of data.alerts) {
+    if (a.shift_date < from || a.shift_date > to) continue;
+    const emp = data.employees.get(a.employee_id);
+    if (!emp || (area && emp.department !== area)) continue;
+    if (!top.has(emp.id)) top.set(emp.id, { employeeId: emp.id, name: emp.name, department: emp.department, total: 0, injustificada: 0, justificada: 0, pendiente: 0 });
+    const t = top.get(emp.id);
+    t.total++; t[a.mgmt] = (t[a.mgmt] || 0) + 1;
+  }
+  const topList = [...top.values()].sort((a, b) => b.injustificada - a.injustificada || b.total - a.total || a.name.localeCompare(b.name, 'es')).slice(0, 10);
+  const areasAll = [...new Set([...data.employees.values()].map(e => e.department))].sort((a, b) => a.localeCompare(b, 'es'));
+
+  sendJson(res, 200, {
+    from, to, area, prevFrom, prevTo, dayZero: data.dayZero,
+    total: current.total, areas: current.areas, previous, trend, top: topList, areasAll,
+    incapacities: { total: incap.total, previous: incapPrev, employees: incap.employees },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// RESUMEN DIARIO POR CORREO
+// ---------------------------------------------------------------------------
+const { sendMail } = require('../lib/mailer');
+function escHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function dmyISO(iso) { return String(iso || '').split('-').reverse().join('/'); }
+
+function getDigestSettings(orgId) {
+  const r = db.prepare('SELECT digest_enabled, digest_hour, digest_to, digest_extra, digest_last_sent FROM org_settings WHERE organization_id = ?').get(orgId) || {};
+  return {
+    enabled: r.digest_enabled === 1,
+    hour: Number.isInteger(r.digest_hour) ? r.digest_hour : 21,
+    to: r.digest_to === 'admins_sups' ? 'admins_sups' : 'admins',
+    extra: r.digest_extra || '',
+    lastSent: r.digest_last_sent || null,
+  };
+}
+
+function digestRecipients(orgId, settings) {
+  const roles = settings.to === 'admins_sups' ? ['org_admin', 'supervisor'] : ['org_admin'];
+  const rows = db.prepare(`SELECT DISTINCT u.email FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
+      WHERE u.organization_id = ? AND u.status = 'active' AND r.name IN (${roles.map(() => '?').join(',')})`).all(orgId, ...roles);
+  const list = rows.map(r => r.email.toLowerCase());
+  for (const e of String(settings.extra || '').split(/[,;\s]+/)) {
+    const v = e.trim().toLowerCase();
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) && !list.includes(v)) list.push(v);
+  }
+  return list;
+}
+
+// Arma el resumen del dia (solo cuenta como "no se presento" / "sin cerrar"
+// los turnos que ya terminaron a la hora del envio).
+function buildDigest(orgId, dateISO, now) {
+  const orgName = (db.prepare('SELECT org_name FROM org_settings WHERE organization_id = ?').get(orgId) || {}).org_name || 'tu organización';
+  const data = loadIndicatorData(orgId, dateISO, dateISO);
+  let programados = 0, asistieron = 0, enCurso = 0, tarde = 0, minTarde = 0;
+  const noVinieron = [], sinCerrar = [];
+  for (const s of data.shifts) {
+    if (s.date !== dateISO) continue;
+    const emp = data.employees.get(Number(s.empId));
+    if (!emp) continue;
+    programados++;
+    const d = data.days.get(`${emp.id}|${dateISO}`);
+    const ended = bogota.minutesSinceShiftMidnight(now, dateISO) >= clockToRel(s.endTime, s.startTime);
+    if (d && d.entrada_real) {
+      asistieron++;
+      if ((d.retraso_min || 0) > 0) { tarde++; minTarde += d.retraso_min; }
+      if (ended && !d.salida_real && d.status !== 'turno_finalizado') sinCerrar.push(emp.name);
+    } else if (ended) noVinieron.push(emp.name);
+    else enCurso++;
+  }
+  const manuales = data.alerts.filter(a => a.alert_type === 'marcacion_manual').length;
+  const pendientes = db.prepare(`SELECT COUNT(*) AS n FROM attendance_alerts a LEFT JOIN alert_management m ON m.alert_id = a.id
+      WHERE a.organization_id = ? AND a.shift_date BETWEEN ? AND ? AND COALESCE(m.status, 'pendiente') = 'pendiente'
+        AND a.alert_type IN ('llegada_tarde','exceso_almuerzo','salida_anticipada','inasistencia','turno_sin_cerrar','marcacion_manual')`)
+    .get(orgId, bogota.addDaysISO(dateISO, -7), dateISO).n;
+  const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  const dayName = DAYS[new Date(dateISO + 'T00:00:00Z').getUTCDay()];
+  const subject = `Resumen de asistencia – ${dayName} ${dmyISO(dateISO)} – ${orgName}`;
+  const names = (arr) => arr.length ? ` (${arr.join(', ')})` : '';
+  const lines = [
+    ['Programados', String(programados)],
+    ['Asistieron', String(asistieron)],
+    ['No se presentaron', `${noVinieron.length}${names(noVinieron)}`],
+    ['Llegadas tarde', `${tarde}${tarde ? ` (total ${minTarde} min)` : ''}`],
+    ['Turnos sin cerrar', `${sinCerrar.length}${names(sinCerrar)}`],
+    ['Marcaciones manuales', String(manuales)],
+    ...(enCurso ? [['Turnos aún en curso o por iniciar', String(enCurso)]] : []),
+    ['Alertas pendientes por gestionar (últimos 7 días)', String(pendientes)],
+  ];
+  const bodyHtml = `<div style="font-family:Arial,sans-serif;color:#1e293b;max-width:560px">
+    <h2 style="margin:0 0 4px;font-size:18px">Resumen de asistencia</h2>
+    <p style="margin:0 0 14px;color:#64748b">${escHtml(orgName)} · ${dayName} ${dmyISO(dateISO)}</p>
+    <table style="border-collapse:collapse;width:100%;font-size:14px">${lines.map(([k, v]) =>
+      `<tr><td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;color:#475569">${escHtml(k)}</td><td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;font-weight:bold">${escHtml(v)}</td></tr>`).join('')}</table>
+    <p style="margin:14px 0 4px;color:#64748b;font-size:12px">Abre la suite para ver el detalle en Asistencia → Hoy y Alertas:</p></div>`;
+  const bodyText = `Resumen de asistencia - ${orgName} - ${dayName} ${dmyISO(dateISO)}\n\n` + lines.map(([k, v]) => `${k}: ${v}`).join('\n');
+  return { subject, bodyHtml, bodyText };
+}
+
+async function sendDigest(orgId, recipients, now) {
+  const dateISO = bogota.todayISOInBogota(now);
+  const msg = buildDigest(orgId, dateISO, now);
+  const results = [];
+  for (const to of recipients) {
+    results.push(await sendMail({ to, subject: msg.subject, link: '/app.html', kind: 'resumen_asistencia', bodyHtml: msg.bodyHtml, bodyText: msg.bodyText }));
+  }
+  return results;
+}
+
+// Revisa cada 5 minutos que organizaciones deben recibir su resumen hoy.
+let digestRunning = false;
+async function runDigestScheduler() {
+  if (digestRunning) return;
+  digestRunning = true;
+  try {
+    const now = new Date();
+    const today = bogota.todayISOInBogota(now);
+    const hourNow = Math.floor(bogota.minutesSinceShiftMidnight(now, today) / 60);
+    const orgs = db.prepare(`SELECT s.organization_id AS id, s.digest_hour FROM org_settings s JOIN organizations o ON o.id = s.organization_id
+        WHERE s.digest_enabled = 1 AND o.status = 'active' AND (s.digest_last_sent IS NULL OR s.digest_last_sent < ?)`).all(today);
+    for (const o of orgs) {
+      if (hourNow < (Number(o.digest_hour) || 0)) continue;
+      // Se marca como enviado ANTES de enviar, para no duplicar si hay reinicios.
+      db.prepare('UPDATE org_settings SET digest_last_sent = ? WHERE organization_id = ?').run(today, o.id);
+      const settings = getDigestSettings(o.id);
+      const rec = digestRecipients(o.id, settings);
+      if (rec.length) {
+        scanMissingMarks(o.id, true);
+        await sendDigest(o.id, rec, now);
+        console.log(`[asistencia] Resumen diario enviado (${o.id}) a ${rec.length} destinatario(s).`);
+      }
+    }
+  } catch (e) {
+    console.error('[asistencia] Resumen diario:', e.message);
+  } finally { digestRunning = false; }
+}
+const digestTimer = setInterval(runDigestScheduler, 5 * 60 * 1000);
+if (digestTimer.unref) digestTimer.unref();
+
+// GET /api/attendance/digest-settings
+function getDigestSettingsRoute(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const s = getDigestSettings(orgId);
+  sendJson(res, 200, { ...s, recipients: digestRecipients(orgId, s) });
+}
+
+// PUT /api/attendance/digest-settings  { enabled, hour, to, extra }
+async function saveDigestSettings(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const hour = Number(body.hour);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return sendJson(res, 400, { error: 'La hora de envío no es válida.' });
+  const to = body.to === 'admins_sups' ? 'admins_sups' : 'admins';
+  const extraList = String(body.extra || '').split(/[,;\s]+/).map(x => x.trim()).filter(Boolean);
+  const bad = extraList.filter(e => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+  if (bad.length) return sendJson(res, 400, { error: `Correo no válido: ${bad[0]}` });
+  if (extraList.length > 10) return sendJson(res, 400, { error: 'Máximo 10 correos adicionales.' });
+  const extra = extraList.join(', ');
+  const enabled = body.enabled ? 1 : 0;
+  const prev = getDigestSettings(orgId);
+  const exists = db.prepare('SELECT 1 FROM org_settings WHERE organization_id = ?').get(orgId);
+  if (!exists) db.prepare("INSERT INTO org_settings (organization_id, org_name) VALUES (?, 'Empresa')").run(orgId);
+  db.prepare('UPDATE org_settings SET digest_enabled = ?, digest_hour = ?, digest_to = ?, digest_extra = ? WHERE organization_id = ?')
+    .run(enabled, hour, to, extra || null, orgId);
+  logAction({
+    organizationId: orgId, userId: req.user.id, action: 'attendance.digest_settings', resourceType: 'organization', resourceId: orgId, ip: getClientIp(req),
+    metadata: { activo: !!enabled, activoAntes: prev.enabled, hora: hour, destinatarios: to === 'admins_sups' ? 'Administradores y supervisores' : 'Administradores', adicionales: extra || null },
+  });
+  const s = getDigestSettings(orgId);
+  sendJson(res, 200, { ok: true, ...s, recipients: digestRecipients(orgId, s) });
+}
+
+// POST /api/attendance/digest-test -- envia el resumen de hoy SOLO al usuario que lo pide.
+async function sendDigestTest(req, res) {
+  const orgId = resolveOrgId(req, {});
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const u = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
+  if (!u || !u.email) return sendJson(res, 400, { error: 'Tu usuario no tiene correo.' });
+  scanMissingMarks(orgId, true);
+  const [r] = await sendDigest(orgId, [u.email], new Date());
+  sendJson(res, 200, { ok: true, to: u.email, delivered: !!(r && r.delivered), mode: r ? r.mode : null });
+}
+
 // Recalculo unico de los dias ya cerrados cada vez que cambia una regla del
 // motor de horas. Cada version se registra en app_migrations para que se
 // ejecute UNA sola vez, aunque el servicio se reinicie.
@@ -1278,4 +1704,5 @@ module.exports = {
   kioskEmployeesToday, kioskMark, kioskMarkByFace,
   listPayrollAttendance,
   todayBoard, manageAlert, getAlertAttachment, novedadesSummary,
+  indicators, getDigestSettingsRoute, saveDigestSettings, sendDigestTest,
 };
