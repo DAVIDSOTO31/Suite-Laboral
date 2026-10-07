@@ -682,6 +682,21 @@ CREATE TABLE IF NOT EXISTS alert_management (
 CREATE INDEX IF NOT EXISTS idx_alert_mgmt_org ON alert_management(organization_id);
 `);
 
+// ---------------------------------------------------------------------------
+// INDICADORES DE ASISTENCIA: configuracion del resumen diario por correo.
+//  - digest_enabled: 1 = se envia el resumen diario (por defecto apagado).
+//  - digest_hour: hora de envio (0-23, hora Colombia).
+//  - digest_to: 'admins' o 'admins_sups' (a quien se envia).
+//  - digest_extra: correos adicionales separados por coma.
+//  - digest_last_sent: ultima fecha enviada (evita enviar dos veces el mismo dia).
+// ---------------------------------------------------------------------------
+const digestCols = db.prepare('PRAGMA table_info(org_settings)').all().map(c => c.name);
+if (!digestCols.includes('digest_enabled')) db.exec('ALTER TABLE org_settings ADD COLUMN digest_enabled INTEGER NOT NULL DEFAULT 0');
+if (!digestCols.includes('digest_hour')) db.exec('ALTER TABLE org_settings ADD COLUMN digest_hour INTEGER NOT NULL DEFAULT 21');
+if (!digestCols.includes('digest_to')) db.exec("ALTER TABLE org_settings ADD COLUMN digest_to TEXT NOT NULL DEFAULT 'admins'");
+if (!digestCols.includes('digest_extra')) db.exec('ALTER TABLE org_settings ADD COLUMN digest_extra TEXT NULL');
+if (!digestCols.includes('digest_last_sent')) db.exec('ALTER TABLE org_settings ADD COLUMN digest_last_sent TEXT NULL');
+
 module.exports = {
   db,
   uid,
