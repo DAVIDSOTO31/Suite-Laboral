@@ -665,11 +665,13 @@
                                 <p class="text-xs text-slate-500 mt-0.5" id="detailEmpRole">Puesto / Área</p>
                                 <p class="text-xs text-slate-500 mt-0.5 hidden" id="detailEmpDoc"></p>
                                 <p class="text-xs text-slate-500 mt-0.5 hidden" id="detailEmpEmail"></p>
+                                <p class="text-xs mt-1 hidden px-2 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700" id="detailEmpRetiredInfo"></p>
                                 <div class="flex flex-wrap items-center gap-2 mt-2">
                                     <button type="button" data-perm="employees.edit" onclick="openEmployeeModal(appState.selectedEmpId)" class="text-xs px-2.5 py-1 rounded-lg border border-slate-300 hover:bg-slate-50 font-semibold text-slate-700 flex items-center gap-1">
                                         <i class="fa-solid fa-pen text-[10px]"></i> Editar ficha
                                     </button>
                                     <span id="detailEmpUserBox" data-perm="users.create"></span>
+                                    <span id="detailEmpRetireBox" data-perm="employees.delete"></span>
                                 </div>
                                 <div id="detailEmpOpeningBox" data-perm="reports.view" class="mt-2"></div>
                                 <label class="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-purple-900 cursor-pointer bg-purple-50 border border-purple-200 rounded-lg px-2.5 py-1">
@@ -2050,6 +2052,61 @@
         </div>
     </div>
 
+    <!-- MODAL: Retirar colaborador (se conserva su historial) -->
+    <div id="modalRetireEmp" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-4 border border-slate-200 max-h-[92vh] overflow-y-auto text-xs">
+            <div class="flex justify-between items-start border-b pb-3">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-user-minus text-rose-600"></i> Retirar colaborador</h3>
+                    <p class="text-xs text-slate-500 mt-0.5" id="retireSubtitle">-</p>
+                </div>
+                <button onclick="closeModal('modalRetireEmp')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <input type="hidden" id="retireEmpId">
+            <div class="bg-sky-50 border border-sky-200 rounded-lg p-3 text-slate-700 space-y-1">
+                <p class="font-semibold text-sky-900">Qué pasa al retirarlo:</p>
+                <p>• Se <strong>conserva todo su historial</strong>: marcaciones, alertas, correcciones y liquidaciones (evidencia ante una reclamación o inspección).</p>
+                <p>• Sale de la planilla desde la semana siguiente a su retiro, del kiosco y de las listas para asignar turnos.</p>
+                <p>• Se quitan sus turnos programados <strong>después</strong> del último día laborado.</p>
+                <p>• Se <strong>borra su perfil facial</strong> (dato biométrico, Ley 1581 de 2012).</p>
+                <p>• Su último periodo se sigue liquidando normalmente.</p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Último día laborado <span class="text-rose-600">*</span></label>
+                    <input type="date" id="retireDate" class="w-full p-2 border rounded-lg">
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Motivo <span class="text-rose-600">*</span></label>
+                    <select id="retireReason" class="w-full p-2 border rounded-lg bg-white">
+                        <option value="">Elige el motivo…</option>
+                        <option>Renuncia voluntaria</option>
+                        <option>Terminación con justa causa</option>
+                        <option>Terminación sin justa causa</option>
+                        <option>Vencimiento del contrato</option>
+                        <option>Mutuo acuerdo</option>
+                        <option>Terminación en periodo de prueba</option>
+                        <option>Pensión</option>
+                        <option>Fallecimiento</option>
+                        <option>Otro</option>
+                    </select>
+                </div>
+            </div>
+            <div>
+                <label class="block font-semibold text-slate-700 mb-1">Detalle <span class="text-slate-400 font-normal">(obligatorio si el motivo es "Otro")</span></label>
+                <textarea id="retireDetail" rows="2" maxlength="300" class="w-full p-2 border rounded-lg" placeholder="Ej. Carta de renuncia del 30/09/2026"></textarea>
+            </div>
+            <label id="retireUserRow" class="hidden flex items-center gap-2 font-semibold text-slate-700 cursor-pointer"><input type="checkbox" id="retireDeactivateUser" checked class="rounded h-4 w-4"> Desactivar su usuario de la suite (<span id="retireUserEmail"></span>)</label>
+            <div class="flex flex-wrap justify-between gap-2 border-t pt-3">
+                <button type="button" id="retireDeleteBtn" onclick="deleteEmployeePermanent()" class="hidden px-3 py-2 text-rose-600 hover:bg-rose-50 rounded-lg font-semibold">Eliminar definitivamente (creado por error)</button>
+                <div class="flex gap-2 ml-auto">
+                    <button onclick="closeModal('modalRetireEmp')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold">Cancelar</button>
+                    <button id="retireSaveBtn" onclick="submitRetireEmployee()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold shadow">Retirar colaborador</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL: Invitar usuario a la suite -->
     <div id="modalInviteUser" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
         <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-200">
@@ -2639,7 +2696,7 @@
             }
 
             appState.departments.forEach((dept, idx) => {
-                const empCount = appState.employees.filter(e => e.department === dept.name || e.departmentId === dept.id).length;
+                const empCount = activeEmployees().filter(e => e.department === dept.name || e.departmentId === dept.id).length;
                 const div = document.createElement('div');
                 div.className = 'flex items-center justify-between p-2.5 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200 transition';
                 
@@ -3315,6 +3372,13 @@
             return `${h}h ${m.toString().padStart(2, '0')}min`;
         }
 
+        // ---- Colaboradores retirados: siguen en appState.employees (para liquidar
+        // su último periodo y consultar su historial), pero no aparecen en la
+        // planilla posterior a su retiro ni en las listas para asignar.
+        function empActive(e) { return !!e && e.status !== 'retirado'; }
+        function activeEmployees() { return appState.employees.filter(empActive); }
+        function empVisibleInWeek(e, mondayISO) { return empActive(e) || (e.retiredAt && e.retiredAt >= mondayISO); }
+
         // Documento de identidad legible: "CC 1.023.456.789" (vacío si no tiene).
         const DOC_TYPE_LABELS = { CC: 'Cédula de ciudadanía', CE: 'Cédula de extranjería', PPT: 'Permiso por Protección Temporal', PA: 'Pasaporte', TI: 'Tarjeta de identidad' };
         function docLabel(emp) {
@@ -3592,6 +3656,25 @@
 
             setSafeText('detailEmpName', emp.name);
             setSafeText('detailEmpRole', `${emp.role} • ${emp.department || 'General'}`);
+            const retired = !empActive(emp);
+            const statusEl = document.getElementById('detailEmpStatus');
+            if (statusEl) {
+                statusEl.textContent = retired ? 'Retirado' : 'Activo';
+                statusEl.className = `text-3xs font-bold px-2 py-0.5 rounded ${retired ? 'bg-slate-200 text-slate-700' : 'bg-emerald-100 text-emerald-800'}`;
+            }
+            const retInfo = document.getElementById('detailEmpRetiredInfo');
+            if (retInfo) {
+                retInfo.classList.toggle('hidden', !retired);
+                retInfo.innerHTML = retired ? `<i class="fa-solid fa-user-clock"></i> Último día laborado: <strong>${pdfDate(emp.retiredAt)}</strong> · ${escapeHtml(emp.retireReason || '')}${emp.retireDetail ? ' — ' + escapeHtml(emp.retireDetail) : ''}. Su historial de marcaciones y liquidaciones se conserva.` : '';
+            }
+            const retBox = document.getElementById('detailEmpRetireBox');
+            if (retBox) {
+                retBox.innerHTML = retired
+                    ? `<button type="button" onclick="reactivateEmployee(${emp.id})" class="text-xs px-2.5 py-1 rounded-lg border border-emerald-300 hover:bg-emerald-50 font-semibold text-emerald-700 flex items-center gap-1"><i class="fa-solid fa-user-check text-[10px]"></i> Reintegrar</button>`
+                    : `<button type="button" onclick="openRetireEmployee(${emp.id})" class="text-xs px-2.5 py-1 rounded-lg border border-rose-300 hover:bg-rose-50 font-semibold text-rose-700 flex items-center gap-1"><i class="fa-solid fa-user-minus text-[10px]"></i> Retirar</button>`;
+                retBox.style.display = 'inline-flex';
+                retBox.style.gap = '0.5rem';
+            }
             renderEmployeeOpeningBox(emp);
             const docEl = document.getElementById('detailEmpDoc');
             if (docEl) {
@@ -3735,8 +3818,10 @@
             const seenDepts = new Set();
 
             // STRICT SEQUENCE: Cocina -> Restaurante -> Hotel -> Mantenimiento/Jardineria -> Recepción/Admin
+            const rosterMondayISO = formatDateISO(monday);
             appState.departments.forEach(dept => {
                 const emps = appState.employees.filter(e => {
+                    if (!empVisibleInWeek(e, rosterMondayISO)) return false; // retirado antes de esta semana
                     if (e.departmentId && e.departmentId === dept.id) return true;
                     if (e.department && e.department.toLowerCase() === dept.name.toLowerCase()) return true;
                     return false;
@@ -3748,6 +3833,7 @@
 
             // Any unassigned employees
             const otherEmps = appState.employees.filter(e => {
+                if (!empVisibleInWeek(e, rosterMondayISO)) return false;
                 if (!e.department && !e.departmentId) return true;
                 const deptName = (e.department || '').toLowerCase();
                 return !seenDepts.has(deptName) && !seenDepts.has(e.departmentId);
@@ -3950,7 +4036,9 @@
             if (!listContainer || !countBadge) return;
             listContainer.innerHTML = '';
 
-            countBadge.innerText = appState.employees.length;
+            const activeList = activeEmployees();
+            const retiredList = appState.employees.filter(e => !empActive(e));
+            countBadge.innerText = activeList.length;
 
             if (appState.employees.length === 0) {
                 listContainer.innerHTML = `
@@ -3965,13 +4053,14 @@
             }
 
             if (!appState.selectedEmpId && appState.employees.length > 0) {
-                appState.selectedEmpId = appState.employees[0].id;
+                appState.selectedEmpId = (activeList[0] || appState.employees[0]).id;
             }
 
-            appState.employees.forEach(emp => {
+            const addCard = (emp) => {
                 let isSelected = emp.id === appState.selectedEmpId;
+                const retired = !empActive(emp);
                 let card = document.createElement('div');
-                card.className = `p-3 rounded-xl cursor-pointer border transition flex items-center justify-between ${isSelected ? 'bg-sky-50 border-sky-400 shadow-sm' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'}`;
+                card.className = `p-3 rounded-xl cursor-pointer border transition flex items-center justify-between ${isSelected ? 'bg-sky-50 border-sky-400 shadow-sm' : retired ? 'bg-white border-dashed border-slate-300 opacity-80 hover:opacity-100' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'}`;
                 card.onclick = () => selectEmployee(emp.id);
 
                 card.innerHTML = `
@@ -3981,13 +4070,24 @@
                         </div>
                         <div>
                             <span class="font-bold text-xs text-slate-800 block">${emp.name}</span>
-                            <span class="text-3xs text-slate-500">${emp.role} • ${emp.department || 'Cocina'}</span>
+                            <span class="text-3xs text-slate-500">${retired ? `Retirado el ${pdfDate(emp.retiredAt)}` : `${emp.role} • ${emp.department || 'Cocina'}`}</span>
                         </div>
                     </div>
-                    <span class="text-3xs font-mono font-bold text-slate-600 bg-slate-200/70 px-2 py-0.5 rounded">$${(emp.salary/1000).toFixed(0)}k</span>
+                    ${emp.salary != null ? `<span class="text-3xs font-mono font-bold text-slate-600 bg-slate-200/70 px-2 py-0.5 rounded">$${(emp.salary/1000).toFixed(0)}k</span>` : ''}
                 `;
                 listContainer.appendChild(card);
-            });
+            };
+            activeList.forEach(addCard);
+            if (!activeList.length) listContainer.insertAdjacentHTML('beforeend', '<p class="text-3xs text-slate-400 text-center py-3">No hay colaboradores activos.</p>');
+            if (retiredList.length) {
+                const toggle = document.createElement('button');
+                toggle.type = 'button';
+                toggle.className = 'w-full text-left text-2xs font-semibold text-slate-600 hover:text-slate-800 px-2 py-2 border-t border-slate-200 mt-2 flex items-center gap-1.5';
+                toggle.innerHTML = `<i class="fa-solid ${appState.showRetired ? 'fa-chevron-up' : 'fa-chevron-down'}"></i> ${appState.showRetired ? 'Ocultar' : 'Ver'} retirados (${retiredList.length})`;
+                toggle.onclick = () => { appState.showRetired = !appState.showRetired; renderEmployeesView(); };
+                listContainer.appendChild(toggle);
+                if (appState.showRetired) [...retiredList].sort((a, b) => String(b.retiredAt).localeCompare(String(a.retiredAt))).forEach(addCard);
+            }
 
             renderSelectedEmployeeLedger();
         }
@@ -4029,6 +4129,80 @@
             renderEmployeesView();
             renderWeeklyRoster();
             updateDashboardMetrics();
+        }
+
+        // ---- Retiro de colaboradores ----
+        async function openRetireEmployee(empId) {
+            const emp = appState.employees.find(e => Number(e.id) === Number(empId));
+            if (!emp) return;
+            document.getElementById('retireEmpId').value = emp.id;
+            document.getElementById('retireSubtitle').textContent = `${emp.name} · ${emp.role || ''}${emp.department ? ' · ' + emp.department : ''}`;
+            document.getElementById('retireDate').value = bogotaTodayISO();
+            document.getElementById('retireReason').value = '';
+            document.getElementById('retireDetail').value = '';
+            const u = emp.linkedUser && emp.linkedUser.status !== 'inactive' ? emp.linkedUser : null;
+            document.getElementById('retireUserRow').classList.toggle('hidden', !u);
+            document.getElementById('retireUserEmail').textContent = u ? u.email : '';
+            document.getElementById('retireDeactivateUser').checked = true;
+            const delBtn = document.getElementById('retireDeleteBtn');
+            delBtn.classList.add('hidden');
+            openModal('modalRetireEmp');
+            // Solo una ficha SIN historial (creada por error) puede eliminarse por completo.
+            try {
+                const r = await apiFetch(`/api/employees/${emp.id}/has-history`);
+                delBtn.classList.toggle('hidden', !!r.hasHistory);
+            } catch (e) { /* sin permiso */ }
+        }
+        async function submitRetireEmployee() {
+            const id = Number(document.getElementById('retireEmpId').value);
+            const emp = appState.employees.find(e => Number(e.id) === id);
+            const date = document.getElementById('retireDate').value;
+            const reason = document.getElementById('retireReason').value;
+            const detail = document.getElementById('retireDetail').value.trim();
+            if (!date) { showAppToast('Indica el último día laborado.'); return; }
+            if (!reason) { showAppToast('Elige el motivo del retiro.'); return; }
+            if (reason === 'Otro' && detail.length < 5) { showAppToast('Describe el motivo del retiro.'); return; }
+            if (!confirm(`¿Retirar a ${emp ? emp.name : 'este colaborador'} con último día laborado el ${pdfDate(date)}?`)) return;
+            const btn = document.getElementById('retireSaveBtn'); btn.disabled = true;
+            try {
+                // Guarda primero cualquier cambio pendiente de la planilla.
+                if (typeof flushDataSync === 'function') { try { await flushDataSync(); } catch (e) { /* sigue */ } }
+                const r = await apiFetch(`/api/employees/${id}/retire`, { method: 'POST', body: JSON.stringify({ date, reason, detail, deactivateUser: document.getElementById('retireDeactivateUser').checked }) });
+                if (emp) {
+                    emp.status = 'retirado'; emp.retiredAt = r.retiredAt; emp.retireReason = reason; emp.retireDetail = detail || null;
+                    if (r.userDeactivated && emp.linkedUser) emp.linkedUser.status = 'inactive';
+                }
+                // Quita localmente los turnos posteriores al retiro (el servidor ya los quitó).
+                appState.shifts = appState.shifts.filter(s => !(Number(s.empId) === id && s.date > r.retiredAt));
+                closeModal('modalRetireEmp');
+                showAppToast(`${emp ? emp.name : 'Colaborador'} quedó retirado. Su historial se conserva${r.shiftsRemoved ? `; se quitaron ${r.shiftsRemoved} turno(s) posteriores` : ''}.`);
+                renderEmployeesView(); renderWeeklyRoster(); updateDashboardMetrics();
+            } catch (e) { showAppToast(e.message); }
+            finally { btn.disabled = false; }
+        }
+        async function reactivateEmployee(empId) {
+            const emp = appState.employees.find(e => Number(e.id) === Number(empId));
+            if (!emp || !confirm(`¿Reintegrar a ${emp.name}? Volverá a la planilla y a las listas. Si debe marcar en el kiosco, asígnalo de nuevo al dispositivo y registra otra vez su rostro.`)) return;
+            try {
+                await apiFetch(`/api/employees/${emp.id}/reactivate`, { method: 'POST', body: '{}' });
+                emp.status = 'activo'; emp.retiredAt = null; emp.retireReason = null; emp.retireDetail = null;
+                showAppToast(`${emp.name} fue reintegrado.`);
+                renderEmployeesView(); renderWeeklyRoster(); updateDashboardMetrics();
+            } catch (e) { showAppToast(e.message); }
+        }
+        async function deleteEmployeePermanent() {
+            const id = Number(document.getElementById('retireEmpId').value);
+            const emp = appState.employees.find(e => Number(e.id) === id);
+            if (!emp || !confirm(`¿Eliminar definitivamente la ficha de ${emp.name}? Solo se permite porque no tiene marcaciones ni liquidaciones. Esta acción no se puede deshacer.`)) return;
+            try {
+                await apiFetch(`/api/employees/${id}/delete-permanent`, { method: 'POST', body: '{}' });
+                appState.employees = appState.employees.filter(e => Number(e.id) !== id);
+                appState.shifts = appState.shifts.filter(s => Number(s.empId) !== id);
+                if (appState.selectedEmpId === id) appState.selectedEmpId = (activeEmployees()[0] || {}).id || null;
+                closeModal('modalRetireEmp');
+                showAppToast(`Ficha de ${emp.name} eliminada.`);
+                renderEmployeesView(); renderWeeklyRoster(); updateDashboardMetrics();
+            } catch (e) { showAppToast(e.message); }
         }
 
         function selectEmployee(id) {
@@ -4135,7 +4309,7 @@
                 return;
             }
 
-            appState.employees.forEach(e => {
+            activeEmployees().forEach(e => {
                 let opt = document.createElement('option');
                 opt.value = e.id;
                 opt.innerText = `${e.name} (${e.role} - ${e.department || 'Cocina'})`;
@@ -5686,7 +5860,7 @@
             const withAbs = document.getElementById('copyWeekAbsences').checked;
             const dept = document.getElementById('copyWeekDept').value;
             const mon = appState.rosterCurrentMonday, prev = addDays(mon, -7);
-            const emps = appState.employees.filter(e => dept === '_ALL_' || e.department === dept);
+            const emps = activeEmployees().filter(e => dept === '_ALL_' || e.department === dept);
             let copied = 0, skipped = 0;
             for (const emp of emps) {
                 for (let i = 0; i < 7; i++) {
@@ -5738,7 +5912,7 @@
         }
         function renderRotationEmployees() {
             const dept = document.getElementById('rotDept').value;
-            const emps = appState.employees.filter(e => dept === '_ALL_' || e.department === dept).sort((a, b) => a.name.localeCompare(b.name));
+            const emps = activeEmployees().filter(e => dept === '_ALL_' || e.department === dept).sort((a, b) => a.name.localeCompare(b.name));
             document.getElementById('rotEmployees').innerHTML = emps.map(e => `<label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" value="${e.id}" class="w-3.5 h-3.5"> ${escapeHtml(e.name)}</label>`).join('') || '<span class="text-slate-400">Sin colaboradores en esta área.</span>';
         }
         function openRotationModal() {
@@ -6577,7 +6751,7 @@
                 }
             });
 
-            let activeCount = appState.employees.length;
+            let activeCount = activeEmployees().length;
             let avgHours = activeCount > 0 ? (totalHoursWorked / activeCount) : 0;
             let surchargeRatio = totalPayrollCost > 0 ? ((totalSurcharges / totalPayrollCost) * 100) : 0;
 
@@ -6915,8 +7089,14 @@
         }
 
         function seedDemoData() {
-            if (appState.employees.length > 0 || appState.shifts.length > 0) {
-                const ok = confirm('Esto reemplazará los colaboradores, turnos y áreas actuales de tu organización por datos de ejemplo. ¿Deseas continuar?');
+            // Protección del historial: los datos de ejemplo solo se cargan en una
+            // organización vacía (antes reemplazaban y borraban a los colaboradores reales).
+            if (appState.employees.length > 0) {
+                showAppToast('Los datos de ejemplo solo se pueden cargar en una organización sin colaboradores. Tus colaboradores y su historial se conservan.');
+                return;
+            }
+            if (appState.shifts.length > 0) {
+                const ok = confirm('Esto reemplazará los turnos y áreas actuales por datos de ejemplo. ¿Deseas continuar?');
                 if (!ok) return;
             }
             // EXACT ORDER REQUIRED:
@@ -7290,7 +7470,7 @@
             appState.shifts.forEach(sh => { if (sh.isSplit && sh.color === 'cyan') sh.color = 'vivid_yellow'; });
             appState.employees.filter(e => !e.nightSurcharge).forEach(e => recomputeShiftsForEmployee(e.id));
             if (appState.employees.length) {
-                appState.selectedEmpId = appState.employees[0].id;
+                appState.selectedEmpId = (activeEmployees()[0] || appState.employees[0]).id;
             }
 
             initCorporateBrand();
@@ -7330,7 +7510,7 @@
                 const isMe = (u) => CURRENT_USER && u.id === CURRENT_USER.id;
                 const canEditUsers = CAN('users.edit');
                 const empOptions = (selectedId) => '<option value="">— Sin vincular —</option>' +
-                    [...appState.employees].sort((a, b) => a.name.localeCompare(b.name))
+                    [...appState.employees].filter(e => empActive(e) || Number(e.id) === Number(selectedId)).sort((a, b) => a.name.localeCompare(b.name))
                         .map(e => `<option value="${e.id}" ${Number(selectedId) === Number(e.id) ? 'selected' : ''}>${escapeHtml(e.name)}</option>`).join('');
                 const roleSelect = (u) => {
                     const current = (u.roles || [])[0] || 'empleado';
@@ -8927,7 +9107,7 @@
             document.getElementById('offResolveInfo').textContent = `${r.kind === 'face' ? 'Reconocimiento facial' : 'Selección manual'} en "${r.device_name}" a las ${r.captured_local}. ${mode === 'apply' ? 'Se registrará con esa hora real; el sistema detecta qué marcación le corresponde.' : 'No se registrará ninguna marcación.'}`;
             document.getElementById('offResolveEmpBox').classList.toggle('hidden', mode !== 'apply');
             const sel = document.getElementById('offResolveEmp');
-            sel.innerHTML = '<option value="">Elige el colaborador…</option>' + [...appState.employees].sort((a, b) => a.name.localeCompare(b.name)).map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
+            sel.innerHTML = '<option value="">Elige el colaborador…</option>' + activeEmployees().sort((a, b) => a.name.localeCompare(b.name)).map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
             sel.value = r.employee_id ? String(r.employee_id) : '';
             document.getElementById('offResolveReason').value = '';
             document.getElementById('offResolveBtn').textContent = mode === 'apply' ? 'Registrar' : 'Descartar';
@@ -9084,7 +9264,7 @@
             document.getElementById('inviteRole').value = 'empleado';
             const sel = document.getElementById('inviteEmployee');
             sel.innerHTML = '<option value="">— Automático por correo / sin vincular —</option>' +
-                [...appState.employees].filter(e => !e.linkedUser).sort((a, b) => a.name.localeCompare(b.name))
+                activeEmployees().filter(e => !e.linkedUser).sort((a, b) => a.name.localeCompare(b.name))
                     .map(e => `<option value="${e.id}">${escapeHtml(e.name)}${e.email ? ' (' + escapeHtml(e.email) + ')' : ''}</option>`).join('');
             document.getElementById('inviteMatchHint').textContent = '';
             openModal('modalInviteUser');
@@ -9092,7 +9272,7 @@
         // Al escribir el correo, sugiere el colaborador que tiene ese mismo correo.
         function onInviteEmailInput() {
             const email = document.getElementById('inviteEmail').value.trim().toLowerCase();
-            const match = appState.employees.find(e => e.email && e.email.toLowerCase() === email && !e.linkedUser);
+            const match = activeEmployees().find(e => e.email && e.email.toLowerCase() === email && !e.linkedUser);
             document.getElementById('inviteEmployee').value = match ? match.id : '';
             document.getElementById('inviteMatchHint').textContent = match ? `Se vinculará automáticamente con ${match.name}.` : '';
         }
