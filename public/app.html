@@ -939,6 +939,10 @@
                                 <span class="att-subnav-icon"><i class="fa-solid fa-folder-open"></i></span>
                                 <span class="att-subnav-text"><span class="att-subnav-title">Novedades por colaborador<span class="att-badge hidden" id="attBadge-novedades"></span></span><span class="att-subnav-desc">Resumen del periodo: tardanzas, inasistencias y su gestión</span></span>
                             </button>
+                            <button id="btnAttTabIndicators" data-perm="attendance.view_alerts" onclick="attendanceSetSubTab('indicators')" class="att-subnav-item">
+                                <span class="att-subnav-icon"><i class="fa-solid fa-chart-line"></i></span>
+                                <span class="att-subnav-text"><span class="att-subnav-title">Indicadores<span class="att-badge hidden" id="attBadge-indicators"></span></span><span class="att-subnav-desc">Ausentismo, puntualidad, costo del tiempo perdido y horas extra</span></span>
+                            </button>
                             <button id="btnAttTabBio" data-perm="attendance.manage_biometrics" onclick="attendanceSetSubTab('bio')" class="att-subnav-item">
                                 <span class="att-subnav-icon"><i class="fa-solid fa-id-badge"></i></span>
                                 <span class="att-subnav-text"><span class="att-subnav-title">Biometría<span class="att-badge hidden" id="attBadge-bio"></span></span><span class="att-subnav-desc">Perfiles faciales de los colaboradores</span></span>
@@ -1011,6 +1015,162 @@
                                 </tr></thead>
                                 <tbody id="attNovBody"></tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sub-vista: Indicadores (gerencia) -->
+                <div id="attSubtab-indicators" class="hidden">
+                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-5">
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-base">Indicadores de asistencia</h3>
+                            <p class="text-xs text-slate-500">Se calculan con los turnos programados que <strong>ya terminaron</strong> y sus marcaciones. Vacaciones, incapacidades y descansos no cuentan como ausencia. Cada cifra se compara con el periodo anterior de la misma duración.</p>
+                        </div>
+                        <div class="flex flex-wrap items-end gap-3">
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Periodo</label>
+                                <select id="indPreset" onchange="indApplyPreset()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white">
+                                    <option value="month">Este mes</option>
+                                    <option value="prevMonth">Mes anterior</option>
+                                    <option value="quincena">Quincena actual</option>
+                                    <option value="custom">Rango libre</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Desde</label>
+                                <input type="date" id="indFrom" onchange="document.getElementById('indPreset').value='custom'" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Hasta</label>
+                                <input type="date" id="indTo" onchange="document.getElementById('indPreset').value='custom'" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Área</label>
+                                <select id="indArea" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[160px]"><option value="">Todas las áreas</option></select>
+                            </div>
+                            <button onclick="attendanceLoadIndicators()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
+                            <button onclick="exportIndicatorsXLSX()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel</button>
+                            <button onclick="exportIndicatorsPdf()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-pdf text-rose-600"></i> Exportar PDF</button>
+                        </div>
+                        <p id="indPeriodNote" class="text-2xs text-slate-500 -mt-2">-</p>
+                        <div id="indCards" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
+
+                        <div>
+                            <h4 class="font-bold text-slate-700 text-sm mb-2">Por área</h4>
+                            <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                                <table class="w-full text-xs">
+                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
+                                        <th class="text-left px-3 py-2">Área</th>
+                                        <th class="text-center px-3 py-2">Turnos evaluados</th>
+                                        <th class="text-center px-3 py-2">Ausencias</th>
+                                        <th class="text-center px-3 py-2">Ausentismo</th>
+                                        <th class="text-center px-3 py-2">Puntualidad</th>
+                                        <th class="text-center px-3 py-2">Tiempo perdido</th>
+                                        <th class="text-right px-3 py-2">Costo perdido</th>
+                                        <th class="text-center px-3 py-2">Horas extra</th>
+                                        <th class="text-center px-3 py-2">Incapacidad</th>
+                                        <th class="text-center px-3 py-2">Sin cerrar</th>
+                                        <th class="text-center px-3 py-2">Manuales</th>
+                                    </tr></thead>
+                                    <tbody id="indAreaBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="border border-orange-200 rounded-lg p-4 space-y-3">
+                            <div>
+                                <h4 class="font-bold text-slate-800 text-sm flex items-center gap-2"><i class="fa-solid fa-briefcase-medical text-orange-600"></i> Incapacidades</h4>
+                                <p class="text-2xs text-slate-500">Días marcados como <strong>Incapacidad</strong> en el cuadro de turnos (hasta hoy). Días seguidos —aunque haya descansos en medio— cuentan como una sola incapacidad. Costo en salario = salario mensual ÷ 30 por cada día.</p>
+                            </div>
+                            <div id="indIncCards" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3"></div>
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <h5 class="font-bold text-slate-700 text-xs uppercase">Por colaborador</h5>
+                                <div class="flex items-center gap-1 text-2xs">
+                                    <span class="text-slate-500 mr-1">Ordenar por:</span>
+                                    <button type="button" id="indIncSortDias" onclick="indIncSort('dias')" class="px-2 py-1 rounded-full border border-slate-300 bg-slate-800 text-white font-semibold">Más días</button>
+                                    <button type="button" id="indIncSortEpisodios" onclick="indIncSort('episodios')" class="px-2 py-1 rounded-full border border-slate-300 bg-white text-slate-700 font-semibold">Más recurrentes</button>
+                                    <button type="button" id="indIncSortCosto" onclick="indIncSort('costo')" class="px-2 py-1 rounded-full border border-slate-300 bg-white text-slate-700 font-semibold">Mayor costo</button>
+                                </div>
+                            </div>
+                            <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                                <table class="w-full text-xs">
+                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
+                                        <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Área</th>
+                                        <th class="text-center px-3 py-2">N.º incapacidades</th><th class="text-center px-3 py-2">Días</th>
+                                        <th class="text-right px-3 py-2">Salario</th><th class="text-right px-3 py-2">Costo en salario</th>
+                                        <th class="text-right px-3 py-2">A cargo empresa (est.)</th><th class="text-left px-3 py-2">Periodos</th>
+                                    </tr></thead>
+                                    <tbody id="indIncBody"></tbody>
+                                    <tfoot id="indIncFoot" class="bg-slate-50 font-semibold"></tfoot>
+                                </table>
+                            </div>
+                            <p class="text-3xs text-slate-400">"A cargo empresa (est.)": estimado para incapacidad de origen común: los 2 primeros días de cada incapacidad los paga el empleador al 66,67 % del salario, sin bajar del salario mínimo diario (art. 227 CST y Decreto 2943 de 2013); desde el día 3 los reconoce la EPS. No aplica a incapacidades de origen laboral (las paga la ARL).</p>
+                        </div>
+
+                        <div>
+                            <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+                                <h4 class="font-bold text-slate-700 text-sm">Tendencia de los últimos 6 meses</h4>
+                                <button type="button" onclick="document.getElementById('indTrendTableBox').classList.toggle('hidden')" class="text-2xs font-semibold text-sky-700 hover:underline">Ver / ocultar tabla</button>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Ausentismo (%)</p><div class="relative h-44"><canvas id="indChartAus"></canvas></div></div>
+                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Puntualidad (%)</p><div class="relative h-44"><canvas id="indChartPun"></canvas></div></div>
+                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Horas extra</p><div class="relative h-44"><canvas id="indChartExt"></canvas></div></div>
+                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Días de incapacidad</p><div class="relative h-44"><canvas id="indChartInc"></canvas></div></div>
+                            </div>
+                            <div id="indTrendTableBox" class="hidden mt-3 overflow-x-auto border border-slate-200 rounded-lg">
+                                <table class="w-full text-xs">
+                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr><th class="text-left px-3 py-2">Mes</th><th class="text-center px-3 py-2">Turnos evaluados</th><th class="text-center px-3 py-2">Ausentismo</th><th class="text-center px-3 py-2">Puntualidad</th><th class="text-center px-3 py-2">Horas extra</th><th class="text-center px-3 py-2">Días de incapacidad</th><th class="text-right px-3 py-2">Costo incapacidad</th></tr></thead>
+                                    <tbody id="indTrendBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h4 class="font-bold text-slate-700 text-sm mb-1">Top 10 de colaboradores con más novedades</h4>
+                            <p class="text-2xs text-slate-500 mb-2">Ordenado primero por novedades injustificadas. Haz clic en un nombre para ver sus alertas.</p>
+                            <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                                <table class="w-full text-xs">
+                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
+                                        <th class="text-left px-3 py-2">#</th><th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Área</th>
+                                        <th class="text-center px-3 py-2">Total</th><th class="text-center px-3 py-2">Injustificadas</th>
+                                        <th class="text-center px-3 py-2">Pendientes</th><th class="text-center px-3 py-2">Justificadas</th>
+                                    </tr></thead>
+                                    <tbody id="indTopBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div data-perm="settings.manage" class="border border-sky-200 bg-sky-50/40 rounded-lg p-4 space-y-3">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                    <h4 class="font-bold text-slate-800 text-sm flex items-center gap-2"><i class="fa-solid fa-envelope text-sky-600"></i> Resumen diario por correo</h4>
+                                    <p class="text-2xs text-slate-500">Cada día, a la hora elegida, llega un correo con: programados, asistieron, no se presentaron, llegadas tarde, turnos sin cerrar, marcaciones manuales y alertas pendientes.</p>
+                                </div>
+                                <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer"><input type="checkbox" id="digEnabled" class="rounded h-4 w-4"> Activado</label>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                                <div>
+                                    <label class="block font-semibold text-slate-700 mb-1">Hora de envío (Colombia)</label>
+                                    <select id="digHour" class="w-full p-2 border rounded-lg bg-white"></select>
+                                </div>
+                                <div>
+                                    <label class="block font-semibold text-slate-700 mb-1">Enviar a</label>
+                                    <select id="digTo" class="w-full p-2 border rounded-lg bg-white">
+                                        <option value="admins">Administradores</option>
+                                        <option value="admins_sups">Administradores y supervisores</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block font-semibold text-slate-700 mb-1">Correos adicionales (opcional)</label>
+                                    <input type="text" id="digExtra" placeholder="gerencia@empresa.com, jefe@empresa.com" class="w-full p-2 border rounded-lg">
+                                </div>
+                            </div>
+                            <p id="digRecipients" class="text-2xs text-slate-500">-</p>
+                            <div class="flex flex-wrap gap-2">
+                                <button type="button" onclick="saveDigestSettings()" id="digSaveBtn" class="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold">Guardar</button>
+                                <button type="button" onclick="sendDigestTest()" id="digTestBtn" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold">Enviar prueba a mi correo</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -7259,6 +7419,7 @@
             bio: ['Biometría', 'fa-id-badge', 'Registro y desactivación de perfiles faciales para marcar en el kiosco.'],
             mark: ['Marcación manual', 'fa-hand-pointer', 'Respaldo de emergencia cuando el kiosco no funciona. Pide motivo y genera alerta.'],
             workdays: ['Días laborados', 'fa-calendar-check', 'Conteo de días con marcación de entrada para los colaboradores seleccionados.'],
+            indicators: ['Indicadores', 'fa-chart-line', 'Ausentismo, puntualidad, costo del tiempo perdido, horas extra por área y tendencia de 6 meses.'],
             novedades: ['Novedades por colaborador', 'fa-folder-open', 'Resumen por colaborador de las novedades del periodo y su gestión (justificadas / injustificadas).'],
             devices: ['Dispositivos', 'fa-tablet-screen-button', 'Tablets y celulares habilitados como punto de marcación.'],
         };
@@ -7296,6 +7457,7 @@
             if (tab === 'devices') attendanceLoadDevices();
             if (tab === 'today') attendanceLoadToday(); else attTodayStopAuto();
             if (tab === 'novedades') attendanceLoadNovedades();
+            if (tab === 'indicators') attendanceLoadIndicators(true);
         }
         // Contador de alertas de los últimos 7 días en el menú.
         async function refreshAttAlertsBadge() {
@@ -8000,6 +8162,338 @@
                     ['Colaborador', 'Documento', 'Área', 'Llegadas tarde', 'Minutos de retraso', 'Exceso de almuerzo', 'Salidas anticipadas', 'No se presentó', 'Turno sin cerrar', 'Marcaciones manuales', 'Total novedades', 'Pendientes', 'Justificadas', 'Injustificadas'],
                     rows, 'Novedades');
             } catch (e) { showAppToast(e.message); }
+        }
+
+        // ---- Indicadores de asistencia (gerencia) ----
+        let lastIndicators = null;
+        const indCharts = {};
+        const fmtPct = (v) => v == null ? '—' : `${Number(v).toLocaleString('es-CO', { maximumFractionDigits: 1 })} %`;
+        const fmtMins = (m) => formatHM((Number(m) || 0) / 60);
+        function indApplyPreset() {
+            const preset = document.getElementById('indPreset').value;
+            const today = bogotaTodayISO();
+            let from = today.slice(0, 8) + '01', to = today;
+            if (preset === 'prevMonth') {
+                const d = new Date(today.slice(0, 8) + '01T00:00:00Z'); d.setUTCDate(0);
+                to = d.toISOString().slice(0, 10); from = to.slice(0, 8) + '01';
+            }
+            if (preset === 'quincena') from = today.slice(0, 8) + (Number(today.slice(8)) <= 15 ? '01' : '16');
+            if (preset === 'custom') return;
+            document.getElementById('indFrom').value = from;
+            document.getElementById('indTo').value = to;
+        }
+        async function attendanceLoadIndicators(initial) {
+            const fromEl = document.getElementById('indFrom'), toEl = document.getElementById('indTo');
+            if (!fromEl.value || !toEl.value) indApplyPreset();
+            const area = document.getElementById('indArea').value;
+            document.getElementById('indCards').innerHTML = '<p class="text-xs text-slate-400 py-4">Calculando…</p>';
+            try {
+                const qs = new URLSearchParams({ from: fromEl.value, to: toEl.value });
+                if (area) qs.set('area', area);
+                const d = await apiFetch(`/api/attendance/indicators?${qs.toString()}`);
+                lastIndicators = d;
+                const sel = document.getElementById('indArea');
+                sel.innerHTML = '<option value="">Todas las áreas</option>' + d.areasAll.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
+                sel.value = area;
+                renderIndicators(d);
+            } catch (e) {
+                document.getElementById('indCards').innerHTML = `<p class="text-xs text-slate-400 py-4">${escapeHtml(e.message)}</p>`;
+            }
+            if (initial && CAN('settings.manage')) loadDigestSettings();
+        }
+        // Flecha de comparación: "mejor" en verde, "peor" en rojo, con texto (no solo color).
+        function indDelta(cur, prev, betterWhen, fmt, unitLabel) {
+            if (cur == null || prev == null) return '<span class="text-slate-400">Sin datos del periodo anterior para comparar</span>';
+            const diff = Math.round((cur - prev) * 10) / 10;
+            if (diff === 0) return `<span class="text-slate-500">= Igual que el periodo anterior (${fmt(prev)})</span>`;
+            const up = diff > 0;
+            const good = betterWhen === 'none' ? null : (betterWhen === 'up' ? up : !up);
+            const cls = good == null ? 'text-slate-600' : good ? 'text-emerald-700' : 'text-rose-700';
+            const word = good == null ? '' : good ? ' · mejoró' : ' · empeoró';
+            const amount = unitLabel === ' min' ? fmtMins(Math.abs(diff)) : unitLabel === '$' ? pdfMoney(Math.abs(diff)) : `${Math.abs(diff).toLocaleString('es-CO', { maximumFractionDigits: 1 })}${unitLabel}`;
+            return `<span class="${cls} font-semibold">${up ? '▲' : '▼'} ${amount}${word}</span> <span class="text-slate-400">vs. ${fmt(prev)}</span>`;
+        }
+        function renderIndicators(d) {
+            const t = d.total, p = d.previous;
+            document.getElementById('indPeriodNote').innerHTML = `Periodo: <strong>${pdfDate(d.from)} – ${pdfDate(d.to)}</strong>${d.area ? ` · Área: <strong>${escapeHtml(d.area)}</strong>` : ''} · Comparado con: ${pdfDate(d.prevFrom)} – ${pdfDate(d.prevTo)}${d.dayZero ? ` · No incluye días hasta el Día 0 (${pdfDate(d.dayZero)})` : ''}`;
+            const card = (title, icon, value, sub, delta) => `
+                <div class="border border-slate-200 rounded-lg p-3 bg-white">
+                    <p class="text-2xs font-bold text-slate-500 uppercase flex items-center gap-1.5"><i class="fa-solid ${icon} text-slate-400"></i> ${title}</p>
+                    <p class="text-3xl font-black text-slate-800 leading-tight mt-1">${value}</p>
+                    <p class="text-2xs text-slate-500">${sub}</p>
+                    <p class="text-2xs mt-1.5">${delta}</p>
+                </div>`;
+            const minsFmt = (m) => fmtMins(m);
+            const hFmt = (m) => fmtMins(m);
+            document.getElementById('indCards').innerHTML = [
+                card('Tasa de ausentismo', 'fa-user-xmark', fmtPct(t.ausentismo),
+                    `${t.ausencias} ausencia(s) de ${t.programados} turno(s) · injustificado: ${fmtPct(t.ausentismoInjustificado)}`,
+                    indDelta(t.ausentismo, p.ausentismo, 'down', fmtPct, ' pts')),
+                card('Índice de puntualidad', 'fa-clock', fmtPct(t.puntualidad),
+                    `${t.entradas - t.tarde} de ${t.entradas} entrada(s) a tiempo · ${t.tarde} tarde (${minsFmt(t.minutosRetraso)})`,
+                    indDelta(t.puntualidad, p.puntualidad, 'up', fmtPct, ' pts')),
+                card('Tiempo perdido', 'fa-hourglass-half', minsFmt(t.minutosPerdidos),
+                    `≈ <strong>${pdfMoney(t.costoPerdido)}</strong> · retrasos, exceso de almuerzo y salidas anticipadas`,
+                    indDelta(t.minutosPerdidos, p.minutosPerdidos, 'down', minsFmt, ' min')),
+                card('Horas extra', 'fa-business-time', hFmt(t.extraTotalMin),
+                    `Diurnas ${hFmt(t.extraDiurnaMin)} · Nocturnas ${hFmt(t.extraNocturnaMin)}`,
+                    indDelta(t.extraTotalMin, p.extraTotalMin, 'none', hFmt, ' min')),
+                card('Turnos sin cerrar', 'fa-door-open', String(t.sinCerrar),
+                    'Marcaron entrada pero no la salida',
+                    indDelta(t.sinCerrar, p.sinCerrar, 'down', (v) => String(v), '')),
+                card('Marcaciones manuales', 'fa-hand-pointer', String(t.manuales),
+                    'Hechas a mano (suite o kiosco), no por rostro',
+                    indDelta(t.manuales, p.manuales, 'down', (v) => String(v), '')),
+            ].join('');
+
+            const areaRow = (a, total) => `
+                <tr class="border-t ${total ? 'border-t-2 border-slate-200 bg-slate-50 font-semibold' : 'border-slate-100'}">
+                    <td class="px-3 py-2 ${total ? 'uppercase text-2xs text-slate-500' : 'font-semibold'}">${escapeHtml(total ? 'Total' : a.name)}</td>
+                    <td class="px-3 py-2 text-center">${a.programados}</td>
+                    <td class="px-3 py-2 text-center">${a.ausencias}${a.ausenciasJustificadas ? ` <span class="text-3xs text-emerald-700">(${a.ausenciasJustificadas} just.)</span>` : ''}</td>
+                    <td class="px-3 py-2 text-center">${fmtPct(a.ausentismo)}</td>
+                    <td class="px-3 py-2 text-center">${fmtPct(a.puntualidad)}</td>
+                    <td class="px-3 py-2 text-center">${fmtMins(a.minutosPerdidos)}</td>
+                    <td class="px-3 py-2 text-right">${pdfMoney(a.costoPerdido)}</td>
+                    <td class="px-3 py-2 text-center">${fmtMins(a.extraTotalMin)}</td>
+                    <td class="px-3 py-2 text-center">${a.incapacidadDias ? `${a.incapacidadDias} d <span class="block text-3xs text-slate-500">${pdfMoney(a.incapacidadCosto)}</span>` : '<span class="text-slate-300">0</span>'}</td>
+                    <td class="px-3 py-2 text-center">${a.sinCerrar}</td>
+                    <td class="px-3 py-2 text-center">${a.manuales}</td>
+                </tr>`;
+            document.getElementById('indAreaBody').innerHTML = d.areas.length
+                ? d.areas.map(a => areaRow(a, false)).join('') + (d.areas.length > 1 ? areaRow(t, true) : '')
+                : '<tr><td colspan="11" class="px-3 py-6 text-center text-slate-400">No hay turnos terminados en este periodo.</td></tr>';
+
+            const monthLabel = (m) => { const [y, mm] = m.split('-'); return `${MONTHS_ES[Number(mm) - 1].slice(0, 3)} ${y.slice(2)}`; };
+            document.getElementById('indTrendBody').innerHTML = d.trend.map(m => `<tr class="border-t border-slate-100"><td class="px-3 py-1.5">${monthLabel(m.month)}</td><td class="px-3 py-1.5 text-center">${m.programados}</td><td class="px-3 py-1.5 text-center">${fmtPct(m.ausentismo)}</td><td class="px-3 py-1.5 text-center">${fmtPct(m.puntualidad)}</td><td class="px-3 py-1.5 text-center">${formatHM(m.extraHoras)}</td><td class="px-3 py-1.5 text-center">${m.incapacidadDias}</td><td class="px-3 py-1.5 text-right">${pdfMoney(m.incapacidadCosto)}</td></tr>`).join('');
+            const labels = d.trend.map(m => monthLabel(m.month));
+            indDrawChart('indChartAus', 'line', labels, d.trend.map(m => m.ausentismo), (v) => fmtPct(v));
+            indDrawChart('indChartPun', 'line', labels, d.trend.map(m => m.puntualidad), (v) => fmtPct(v));
+            indDrawChart('indChartExt', 'bar', labels, d.trend.map(m => m.extraHoras), (v) => formatHM(v));
+            indDrawChart('indChartInc', 'bar', labels, d.trend.map(m => m.incapacidadDias), (v) => `${v} día(s)`);
+            renderIncapacities(d);
+
+            document.getElementById('indTopBody').innerHTML = d.top.length ? d.top.map((r, i) => `
+                <tr class="border-t border-slate-100">
+                    <td class="px-3 py-2 text-slate-400">${i + 1}</td>
+                    <td class="px-3 py-2"><button type="button" onclick="indOpenEmployee(${r.employeeId})" class="font-semibold text-sky-700 hover:underline text-left">${escapeHtml(r.name)}</button></td>
+                    <td class="px-3 py-2 text-slate-500">${escapeHtml(r.department)}</td>
+                    <td class="px-3 py-2 text-center font-bold">${r.total}</td>
+                    <td class="px-3 py-2 text-center ${r.injustificada ? 'font-bold text-rose-700' : 'text-slate-300'}">${r.injustificada || 0}</td>
+                    <td class="px-3 py-2 text-center ${r.pendiente ? 'font-semibold text-slate-700' : 'text-slate-300'}">${r.pendiente || 0}</td>
+                    <td class="px-3 py-2 text-center ${r.justificada ? 'font-semibold text-emerald-700' : 'text-slate-300'}">${r.justificada || 0}</td>
+                </tr>`).join('') : '<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">Ningún colaborador tuvo novedades en este periodo.</td></tr>';
+        }
+        // ---- Incapacidades (dentro de Indicadores) ----
+        let indIncSortKey = 'dias';
+        function indIncSort(key) {
+            indIncSortKey = key;
+            [['dias', 'Dias'], ['episodios', 'Episodios'], ['costo', 'Costo']].forEach(([k, id]) => {
+                const b = document.getElementById('indIncSort' + id);
+                b.className = `px-2 py-1 rounded-full border border-slate-300 font-semibold ${k === key ? 'bg-slate-800 text-white' : 'bg-white text-slate-700'}`;
+            });
+            if (lastIndicators) renderIncapacities(lastIndicators);
+        }
+        function renderIncapacities(d) {
+            const inc = d.incapacities || { total: {}, previous: {}, employees: [] };
+            const t = inc.total, p = inc.previous;
+            const card = (title, value, sub, delta) => `
+                <div class="border border-slate-200 rounded-lg p-3 bg-white">
+                    <p class="text-2xs font-bold text-slate-500 uppercase">${title}</p>
+                    <p class="text-2xl font-black text-slate-800 leading-tight mt-1">${value}</p>
+                    <p class="text-2xs text-slate-500">${sub}</p>
+                    ${delta ? `<p class="text-2xs mt-1.5">${delta}</p>` : ''}
+                </div>`;
+            const num = (v) => String(v);
+            document.getElementById('indIncCards').innerHTML = [
+                card('Días de incapacidad', `${t.dias || 0}`, `Tasa de incapacidad: <strong>${fmtPct(t.tasa)}</strong> del tiempo programado`, indDelta(t.dias || 0, p.dias, 'down', (v) => `${v} día(s)`, ' día(s)')),
+                card('Número de incapacidades', `${t.episodios || 0}`, `${t.colaboradores || 0} colaborador(es) incapacitado(s)`, indDelta(t.episodios || 0, p.episodios, 'down', num, '')),
+                card('Costo en salario', pdfMoney(t.costoSalario), 'Valor de los días no trabajados (salario ÷ 30 × días)', indDelta(t.costoSalario || 0, p.costoSalario, 'down', pdfMoney, '$')),
+                card('A cargo de la empresa (est.)', pdfMoney(t.valorEmpresa), `${t.diasEmpresa || 0} día(s): los 2 primeros de cada incapacidad`, ''),
+            ].join('');
+            const list = [...inc.employees].sort((a, b) => indIncSortKey === 'episodios' ? (b.episodios - a.episodios || b.dias - a.dias)
+                : indIncSortKey === 'costo' ? (b.costoSalario - a.costoSalario) : (b.dias - a.dias || b.episodios - a.episodios));
+            const dm = (iso) => iso.split('-').reverse().slice(0, 2).join('/');
+            document.getElementById('indIncBody').innerHTML = list.length ? list.map(e => `
+                <tr class="border-t border-slate-100 align-top">
+                    <td class="px-3 py-2 font-semibold">${escapeHtml(e.name)}${e.episodios >= 3 ? ' <span class="ml-1 px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 text-3xs font-bold" title="3 o más incapacidades en el periodo">Recurrente</span>' : ''}</td>
+                    <td class="px-3 py-2 text-slate-500">${escapeHtml(e.department)}</td>
+                    <td class="px-3 py-2 text-center font-bold">${e.episodios}</td>
+                    <td class="px-3 py-2 text-center font-bold">${e.dias}</td>
+                    <td class="px-3 py-2 text-right text-slate-500">${pdfMoney(e.salary)}</td>
+                    <td class="px-3 py-2 text-right font-semibold">${pdfMoney(e.costoSalario)}</td>
+                    <td class="px-3 py-2 text-right">${pdfMoney(e.valorEmpresa)} <span class="block text-3xs text-slate-400">${e.diasEmpresa} día(s)</span></td>
+                    <td class="px-3 py-2 text-slate-500">${e.periodos.sort((a, b) => a.desde.localeCompare(b.desde)).map(x => x.desde === x.hasta ? `${dm(x.desde)} (1 d)` : `${dm(x.desde)}–${dm(x.hasta)} (${x.dias} d)`).join(' · ')}</td>
+                </tr>`).join('') : '<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">No hubo incapacidades en este periodo.</td></tr>';
+            document.getElementById('indIncFoot').innerHTML = list.length ? `<tr class="border-t-2 border-slate-200">
+                <td class="px-3 py-2 uppercase text-2xs text-slate-500" colspan="2">Total (${t.colaboradores} colaborador${t.colaboradores === 1 ? '' : 'es'})</td>
+                <td class="px-3 py-2 text-center">${t.episodios}</td><td class="px-3 py-2 text-center">${t.dias}</td><td></td>
+                <td class="px-3 py-2 text-right">${pdfMoney(t.costoSalario)}</td><td class="px-3 py-2 text-right">${pdfMoney(t.valorEmpresa)}</td><td></td></tr>` : '';
+        }
+        // Gráfica de una sola serie (sin doble eje), con tooltip al pasar el mouse.
+        function indDrawChart(canvasId, type, labels, values, fmt) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas || typeof Chart === 'undefined') return;
+            if (indCharts[canvasId]) indCharts[canvasId].destroy();
+            const color = '#0284c7';
+            indCharts[canvasId] = new Chart(canvas.getContext('2d'), {
+                type,
+                data: { labels, datasets: [{ data: values, borderColor: color, backgroundColor: type === 'bar' ? color : color, borderWidth: 2, pointRadius: 4, pointHoverRadius: 6, borderRadius: 4, maxBarThickness: 28, spanGaps: true, tension: 0.25 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => c.raw == null ? 'Sin turnos' : fmt(c.raw) } } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 } } },
+                        y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 5 } },
+                    },
+                },
+            });
+        }
+        function indOpenEmployee(employeeId) {
+            document.getElementById('attAlertsFrom').value = lastIndicators ? lastIndicators.from : document.getElementById('indFrom').value;
+            document.getElementById('attAlertsTo').value = lastIndicators ? lastIndicators.to : document.getElementById('indTo').value;
+            document.getElementById('attAlertsType').value = '';
+            document.getElementById('attAlertsStatus').value = '';
+            const sel = document.getElementById('attAlertsEmployee');
+            if (![...sel.options].some(o => o.value === String(employeeId))) sel.add(new Option('', String(employeeId)));
+            sel.value = String(employeeId);
+            attendanceSetSubTab('alerts');
+        }
+        function indAreaSheetRows(d) {
+            const row = (a, name) => [name, a.programados, a.asistidos, a.ausencias, a.ausenciasJustificadas, a.ausentismo, a.ausentismoInjustificado,
+                a.entradas, a.tarde, a.puntualidad, a.minutosRetraso, a.minutosPerdidos, a.costoPerdido,
+                Math.round(a.extraDiurnaMin / 6) / 10, Math.round(a.extraNocturnaMin / 6) / 10, a.incapacidadDias || 0, a.incapacidadCosto || 0, a.sinCerrar, a.manuales];
+            return d.areas.map(a => row(a, a.name)).concat([row(d.total, 'TOTAL')]);
+        }
+        async function exportIndicatorsXLSX() {
+            const d = lastIndicators;
+            if (!d) { showAppToast('Primero consulta el periodo.'); return; }
+            try {
+                await loadXLSXLibrary();
+                const wb = XLSX.utils.book_new();
+                const empById0 = (id) => { const e = appState.employees.find(x => Number(x.id) === Number(id)); return e ? docLabel(e) : ''; };
+                const head = ['Área', 'Turnos evaluados', 'Asistidos', 'Ausencias', 'Ausencias justificadas', 'Ausentismo %', 'Ausentismo injustificado %',
+                    'Entradas', 'Llegadas tarde', 'Puntualidad %', 'Min. de retraso', 'Min. perdidos', 'Costo perdido ($)', 'Horas extra diurnas', 'Horas extra nocturnas', 'Días de incapacidad', 'Costo incapacidad ($)', 'Turnos sin cerrar', 'Marcaciones manuales'];
+                const info = [[`Indicadores de asistencia · ${appState.orgName || ''}`], [`Periodo: ${pdfDate(d.from)} al ${pdfDate(d.to)}${d.area ? ' · Área: ' + d.area : ''}`], []];
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...info, head, ...indAreaSheetRows(d)]), 'Por área');
+                const inc = d.incapacities || { total: {}, employees: [] };
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+                    ['Colaborador', 'Documento', 'Área', 'N.º incapacidades', 'Días', 'Salario', 'Costo en salario ($)', 'Días a cargo empresa (est.)', 'Valor a cargo empresa (est.)', 'Periodos'],
+                    ...inc.employees.map(e => [e.name, empById0(e.employeeId), e.department, e.episodios, e.dias, e.salary, e.costoSalario, e.diasEmpresa, e.valorEmpresa,
+                        e.periodos.map(x => x.desde === x.hasta ? x.desde : `${x.desde} a ${x.hasta}`).join('; ')]),
+                    ['TOTAL', '', '', inc.total.episodios || 0, inc.total.dias || 0, '', inc.total.costoSalario || 0, inc.total.diasEmpresa || 0, inc.total.valorEmpresa || 0, ''],
+                ]), 'Incapacidades');
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Mes', 'Turnos evaluados', 'Ausentismo %', 'Puntualidad %', 'Horas extra', 'Días de incapacidad', 'Costo incapacidad ($)'],
+                    ...d.trend.map(m => [m.month, m.programados, m.ausentismo, m.puntualidad, m.extraHoras, m.incapacidadDias, m.incapacidadCosto])]), 'Tendencia 6 meses');
+                const empById = new Map(appState.employees.map(e => [Number(e.id), e]));
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['#', 'Colaborador', 'Documento', 'Área', 'Total novedades', 'Injustificadas', 'Pendientes', 'Justificadas'],
+                    ...d.top.map((r, i) => [i + 1, r.name, empById.get(Number(r.employeeId)) ? docLabel(empById.get(Number(r.employeeId))) : '', r.department, r.total, r.injustificada || 0, r.pendiente || 0, r.justificada || 0])]), 'Top 10 novedades');
+                XLSX.writeFile(wb, `Indicadores_asistencia_${d.from}_al_${d.to}.xlsx`);
+            } catch (e) { showAppToast(e.message); }
+        }
+        async function exportIndicatorsPdf() {
+            const d = lastIndicators;
+            if (!d) { showAppToast('Primero consulta el periodo.'); return; }
+            try {
+                await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
+            } catch (e) { showAppToast(e.message); return; }
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+            const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 12;
+            let y = M + 2;
+            const t = d.total, p = d.previous;
+            const txt = (s, x, size = 9, style = 'normal', color = [30, 41, 59], opts = {}) => { doc.setFont('helvetica', style); doc.setFontSize(size); doc.setTextColor(...color); doc.text(String(s), x, y, opts); };
+            const ensure = (h) => { if (y + h > H - 12) { doc.addPage(); y = M + 2; } };
+            const table = (cols, rows, boldLast) => {
+                const totalW = cols.reduce((a, c) => a + c.w, 0), scale = (W - 2 * M) / totalW;
+                const head = () => {
+                    doc.setFillColor(15, 23, 42); doc.rect(M, y - 4, W - 2 * M, 8, 'F');
+                    let x = M;
+                    cols.forEach(c => { const ww = c.w * scale; doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(255, 255, 255);
+                        const l = doc.splitTextToSize(c.h, ww - 2); doc.text(l, c.r ? x + ww - 1 : x + 1, y - (l.length > 1 ? 1.2 : 0), { align: c.r ? 'right' : 'left' }); x += ww; });
+                    y += 6;
+                };
+                head();
+                rows.forEach((r, i) => {
+                    if (y + 6 > H - 12) { doc.addPage(); y = M + 2; head(); }
+                    const bold = boldLast && i === rows.length - 1;
+                    if (bold) { doc.setFillColor(226, 232, 240); doc.rect(M, y - 4, W - 2 * M, 6, 'F'); }
+                    else if (i % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y - 4, W - 2 * M, 6, 'F'); }
+                    let x = M;
+                    cols.forEach((c, j) => { const ww = c.w * scale; doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(7.5); doc.setTextColor(30, 41, 59);
+                        doc.text(doc.splitTextToSize(String(r[j] == null ? '' : r[j]), ww - 2)[0] || '', c.r ? x + ww - 1 : x + 1, y, { align: c.r ? 'right' : 'left' }); x += ww; });
+                    y += 6;
+                });
+                y += 3;
+            };
+            txt('Indicadores de asistencia', M, 15, 'bold', [15, 23, 42]); y += 6;
+            txt(`${appState.orgName || ''} · Periodo ${pdfDate(d.from)} al ${pdfDate(d.to)}${d.area ? ' · Área: ' + d.area : ''} · Comparado con ${pdfDate(d.prevFrom)} al ${pdfDate(d.prevTo)}`, M, 9, 'normal', [71, 85, 105]); y += 8;
+            table([{ h: 'Indicador', w: 50 }, { h: 'Valor', w: 35 }, { h: 'Detalle', w: 110 }, { h: 'Periodo anterior', w: 45 }], [
+                ['Tasa de ausentismo', fmtPct(t.ausentismo), `${t.ausencias} ausencia(s) de ${t.programados} turno(s); injustificado ${fmtPct(t.ausentismoInjustificado)}`, fmtPct(p.ausentismo)],
+                ['Índice de puntualidad', fmtPct(t.puntualidad), `${t.entradas - t.tarde} de ${t.entradas} entradas a tiempo; ${t.tarde} tarde (${fmtMins(t.minutosRetraso)})`, fmtPct(p.puntualidad)],
+                ['Tiempo perdido', fmtMins(t.minutosPerdidos), `Costo aproximado ${pdfMoney(t.costoPerdido)}`, fmtMins(p.minutosPerdidos)],
+                ['Horas extra', fmtMins(t.extraTotalMin), `Diurnas ${fmtMins(t.extraDiurnaMin)}; nocturnas ${fmtMins(t.extraNocturnaMin)}`, fmtMins(p.extraTotalMin)],
+                ['Turnos sin cerrar', String(t.sinCerrar), 'Marcaron entrada pero no la salida', String(p.sinCerrar)],
+                ['Marcaciones manuales', String(t.manuales), 'Hechas a mano (suite o kiosco)', String(p.manuales)],
+                ['Incapacidades', `${(d.incapacities && d.incapacities.total.dias) || 0} día(s)`, `${(d.incapacities && d.incapacities.total.episodios) || 0} incapacidad(es); costo en salario ${pdfMoney(d.incapacities && d.incapacities.total.costoSalario)}`, `${(d.incapacities && d.incapacities.previous.dias) || 0} día(s)`],
+            ]);
+            ensure(20); txt('Por área', M, 11, 'bold', [15, 23, 42]); y += 6;
+            table([{ h: 'Área', w: 40 }, { h: 'Turnos', w: 18, r: 1 }, { h: 'Ausencias', w: 18, r: 1 }, { h: 'Ausentismo', w: 22, r: 1 }, { h: 'Puntualidad', w: 22, r: 1 },
+                { h: 'Tiempo perdido', w: 26, r: 1 }, { h: 'Costo perdido', w: 26, r: 1 }, { h: 'Horas extra', w: 24, r: 1 }, { h: 'Incapacidad', w: 30, r: 1 }, { h: 'Sin cerrar', w: 18, r: 1 }, { h: 'Manuales', w: 18, r: 1 }],
+                d.areas.concat(d.areas.length > 1 ? [Object.assign({}, t, { name: 'TOTAL' })] : []).map(a => [a.name, a.programados, a.ausencias, fmtPct(a.ausentismo), fmtPct(a.puntualidad), fmtMins(a.minutosPerdidos), pdfMoney(a.costoPerdido), fmtMins(a.extraTotalMin), `${a.incapacidadDias || 0} d · ${pdfMoney(a.incapacidadCosto)}`, a.sinCerrar, a.manuales]), d.areas.length > 1);
+            const inc = d.incapacities || { total: {}, previous: {}, employees: [] };
+            ensure(30); txt('Incapacidades', M, 11, 'bold', [15, 23, 42]); y += 5;
+            txt(`${inc.total.dias || 0} día(s) en ${inc.total.episodios || 0} incapacidad(es) de ${inc.total.colaboradores || 0} colaborador(es) · Tasa ${fmtPct(inc.total.tasa)} · Costo en salario ${pdfMoney(inc.total.costoSalario)} · A cargo de la empresa (est.) ${pdfMoney(inc.total.valorEmpresa)} · Periodo anterior: ${inc.previous.dias || 0} día(s), ${pdfMoney(inc.previous.costoSalario)}`, M, 8, 'normal', [71, 85, 105]); y += 6;
+            table([{ h: 'Colaborador', w: 50 }, { h: 'Área', w: 30 }, { h: 'N.º incap.', w: 18, r: 1 }, { h: 'Días', w: 14, r: 1 }, { h: 'Salario', w: 26, r: 1 }, { h: 'Costo en salario', w: 28, r: 1 }, { h: 'A cargo empresa (est.)', w: 30, r: 1 }, { h: 'Periodos', w: 70 }],
+                inc.employees.length ? inc.employees.map(e => [e.name + (e.episodios >= 3 ? ' (recurrente)' : ''), e.department, e.episodios, e.dias, pdfMoney(e.salary), pdfMoney(e.costoSalario), pdfMoney(e.valorEmpresa),
+                    e.periodos.map(x => x.desde === x.hasta ? pdfDate(x.desde).slice(0, 5) : `${pdfDate(x.desde).slice(0, 5)}-${pdfDate(x.hasta).slice(0, 5)}`).join(', ')]) : [['Sin incapacidades en el periodo', '', '', '', '', '', '', '']]);
+            ensure(20); txt('Tendencia de los últimos 6 meses', M, 11, 'bold', [15, 23, 42]); y += 6;
+            table([{ h: 'Mes', w: 40 }, { h: 'Turnos evaluados', w: 30, r: 1 }, { h: 'Ausentismo', w: 30, r: 1 }, { h: 'Puntualidad', w: 30, r: 1 }, { h: 'Horas extra', w: 30, r: 1 }, { h: 'Días incapacidad', w: 30, r: 1 }, { h: 'Costo incapacidad', w: 32, r: 1 }],
+                d.trend.map(m => [m.month, m.programados, fmtPct(m.ausentismo), fmtPct(m.puntualidad), formatHM(m.extraHoras), m.incapacidadDias, pdfMoney(m.incapacidadCosto)]));
+            ensure(20); txt('Top 10 de colaboradores con más novedades', M, 11, 'bold', [15, 23, 42]); y += 6;
+            table([{ h: '#', w: 10 }, { h: 'Colaborador', w: 60 }, { h: 'Área', w: 40 }, { h: 'Total', w: 20, r: 1 }, { h: 'Injustificadas', w: 25, r: 1 }, { h: 'Pendientes', w: 25, r: 1 }, { h: 'Justificadas', w: 25, r: 1 }],
+                d.top.length ? d.top.map((r, i) => [i + 1, r.name, r.department, r.total, r.injustificada || 0, r.pendiente || 0, r.justificada || 0]) : [['', 'Sin novedades en el periodo', '', '', '', '', '']]);
+            const pages = doc.internal.getNumberOfPages();
+            for (let i = 1; i <= pages; i++) { doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(148, 163, 184);
+                doc.text(`Generado el ${new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', dateStyle: 'short', timeStyle: 'short' }).format(new Date())} (hora Colombia) · Página ${i} de ${pages}`, M, H - 6); }
+            doc.save(`Indicadores_asistencia_${d.from}_al_${d.to}.pdf`);
+        }
+
+        // ---- Resumen diario por correo (solo administrador) ----
+        async function loadDigestSettings() {
+            const hourSel = document.getElementById('digHour');
+            if (!hourSel.options.length) hourSel.innerHTML = Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, '0')}:00${h === 0 ? ' (medianoche)' : h === 12 ? ' (mediodía)' : ` (${h % 12} ${h < 12 ? 'a. m.' : 'p. m.'})`}</option>`).join('');
+            try {
+                const s = await apiFetch('/api/attendance/digest-settings');
+                document.getElementById('digEnabled').checked = !!s.enabled;
+                hourSel.value = String(s.hour);
+                document.getElementById('digTo').value = s.to;
+                document.getElementById('digExtra').value = s.extra || '';
+                renderDigestRecipients(s);
+            } catch (e) { document.getElementById('digRecipients').textContent = e.message; }
+        }
+        function renderDigestRecipients(s) {
+            document.getElementById('digRecipients').innerHTML = `${s.enabled ? '<strong class="text-emerald-700">Activado</strong>' : '<strong class="text-slate-500">Desactivado</strong>'} · Destinatarios actuales: ${s.recipients.length ? s.recipients.map(escapeHtml).join(', ') : 'ninguno'}${s.lastSent ? ` · Último envío: ${pdfDate(s.lastSent)}` : ''}`;
+        }
+        async function saveDigestSettings() {
+            const btn = document.getElementById('digSaveBtn'); btn.disabled = true;
+            try {
+                const s = await apiFetch('/api/attendance/digest-settings', { method: 'PUT', body: JSON.stringify({
+                    enabled: document.getElementById('digEnabled').checked, hour: Number(document.getElementById('digHour').value),
+                    to: document.getElementById('digTo').value, extra: document.getElementById('digExtra').value,
+                }) });
+                renderDigestRecipients(s);
+                showAppToast(s.enabled ? `Resumen diario activado: se enviará todos los días a las ${String(s.hour).padStart(2, '0')}:00.` : 'Resumen diario desactivado.');
+            } catch (e) { showAppToast(e.message); }
+            finally { btn.disabled = false; }
+        }
+        async function sendDigestTest() {
+            const btn = document.getElementById('digTestBtn'); btn.disabled = true;
+            try {
+                const r = await apiFetch('/api/attendance/digest-test', { method: 'POST', body: '{}' });
+                showAppToast(r.delivered ? `Resumen de prueba enviado a ${r.to}.` : `No se pudo enviar el correo real (modo ${r.mode || 'desconocido'}). Revisa la configuración de correo del servidor.`);
+            } catch (e) { showAppToast(e.message); }
+            finally { btn.disabled = false; }
         }
 
         // ---- Historial: rangos rápidos y "solo días con novedad" ----
