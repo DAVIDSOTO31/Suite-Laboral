@@ -157,12 +157,17 @@ route('POST', '/api/attendance/devices/:id/rotate', [requirePermission('attendan
 route('POST', '/api/attendance/devices/:id/deactivate', [requirePermission('attendance.manage_devices')], (req, res, params) => attendance.deactivateDevice(req, res, params));
 route('GET', '/api/attendance/devices/:id/employees', [requirePermission('attendance.manage_devices')], (req, res, params, query) => attendance.getDeviceAssignments(req, res, params, query));
 route('POST', '/api/attendance/devices/:id/employees', [requirePermission('attendance.manage_devices')], (req, res, params) => attendance.setDeviceAssignments(req, res, params));
+// Salud de los dispositivos: historial de eventos y avisos por correo.
+route('GET', '/api/attendance/devices/:id/events', [requirePermission('attendance.manage_devices')], (req, res, params, query) => attendance.listDeviceEvents(req, res, params, query));
+route('GET', '/api/attendance/device-alert-settings', [requirePermission('attendance.manage_devices')], (req, res, params, query) => attendance.getDeviceAlertSettingsRoute(req, res, query));
+route('PUT', '/api/attendance/device-alert-settings', [requirePermission('attendance.manage_devices')], (req, res) => attendance.saveDeviceAlertSettings(req, res));
 
 // ---- Kiosco de marcacion: SIN sesion de usuario, autenticado por el token
 // propio del dispositivo (header X-Device-Token). Ver attendance.routes.js. ----
 route('GET', '/api/kiosk/employees-today', [], (req, res) => attendance.kioskEmployeesToday(req, res), { auth: false });
 route('POST', '/api/kiosk/mark', [], (req, res) => attendance.kioskMark(req, res), { auth: false });
 route('POST', '/api/kiosk/mark-by-face', [], (req, res) => attendance.kioskMarkByFace(req, res), { auth: false });
+route('POST', '/api/kiosk/heartbeat', [], (req, res) => attendance.kioskHeartbeat(req, res), { auth: false });
 
 // ---------------------------------------------------------------------------
 // HTTP server: security headers, CORS, static files, API dispatch
