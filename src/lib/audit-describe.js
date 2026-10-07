@@ -97,8 +97,10 @@ function describeAudit(row, ctx = {}) {
     case 'attendance.mark': {
       const label = (m.isSplit ? MARK_SPLIT_ES : MARK_ES)[m.markType] || 'una marcación';
       const how = m.method === 'facial' || m.method === 'face' ? 'por reconocimiento facial en el kiosco'
-        : m.method === 'kiosk-manual' ? 'por selección manual en el kiosco' : m.method === 'manual' ? 'manualmente desde la suite' : 'en el kiosco';
-      return out('Asistencia', m.method === 'manual' || m.method === 'kiosk-manual' ? 'Marcación manual' : 'Marcación',
+        : m.method === 'kiosk-manual' ? 'por selección manual en el kiosco' : m.method === 'manual' ? 'manualmente desde la suite'
+        : m.method === 'kiosk-facial-offline' ? 'por reconocimiento facial en el kiosco, sin conexión (enviada después)'
+        : m.method === 'kiosk-manual-offline' ? 'como marcación sin conexión (enviada después)' : 'en el kiosco';
+      return out('Asistencia', m.method === 'manual' || m.method === 'kiosk-manual' || m.method === 'kiosk-manual-offline' ? 'Marcación manual' : 'Marcación',
         `Registró ${label} de ${empName(row.resource_id)} a las ${val(m.actualClock)} ${how}${m.shiftDateISO ? ` (turno del ${dmy(m.shiftDateISO)})` : ''}.`,
         m.motivo ? [`Motivo: ${m.motivo}`] : [], 'Kiosco');
     }
@@ -119,6 +121,9 @@ function describeAudit(row, ctx = {}) {
       [m.destinatarios ? `Destinatarios: ${m.destinatarios}` : null, m.adicionales ? `Correos adicionales: ${m.adicionales}` : null].filter(Boolean));
     case 'attendance.device_alert_settings': return out('Asistencia', 'Salud de los kioscos',
       `Cambió a ${m.minutos} min el tiempo sin señal para considerar un kiosco "sin conexión".`);
+    case 'attendance.offline_resolved': return out('Asistencia', 'Marcación sin conexión',
+      m.accion === 'aplicada' ? `Asignó a ${val(m.colaborador)} una marcación guardada sin conexión del ${String(m.hora || '').replace(/(\d{4})-(\d{2})-(\d{2})/, '$3/$2/$1')}.` : `Descartó una marcación guardada sin conexión del ${String(m.hora || '').replace(/(\d{4})-(\d{2})-(\d{2})/, '$3/$2/$1')}.`,
+      m.motivo ? [`Motivo: ${m.motivo}`] : []);
     case 'attendance.face_enroll': return out('Asistencia', 'Perfil facial', `Registró el perfil facial de ${val(m.employeeName)} para marcar en el kiosco.`);
     case 'attendance.face_deactivate': return out('Asistencia', 'Perfil facial', `Desactivó el perfil facial de ${val(m.employeeName)}.`);
     case 'attendance.device_create': return out('Asistencia', 'Dispositivo de marcación', `Creó el dispositivo de marcación "${val(m.deviceName)}".`);
