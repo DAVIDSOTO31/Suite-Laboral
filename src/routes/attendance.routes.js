@@ -200,8 +200,12 @@ function listEmployeesToday(req, res, query) {
 // negocio, solo para errores de programacion reales).
 // ---------------------------------------------------------------------------
 // Metodos de marcacion MANUAL: exigen motivo y generan alerta.
-const MANUAL_METHODS = ['manual', 'kiosk-manual'];
-function performMark(orgId, employeeId, userId, method, ip, manualReason) {
+const MANUAL_METHODS = ['manual', 'kiosk-manual', 'kiosk-manual-offline'];
+// Metodos de las marcaciones guardadas por el kiosco SIN conexion y enviadas despues.
+const OFFLINE_METHODS = ['kiosk-facial-offline', 'kiosk-manual-offline'];
+// opts.at: instante real de la marcacion (para las que llegan despues, desde
+// el modo sin conexion). Si no se envia, es "ahora" (comportamiento normal).
+function performMark(orgId, employeeId, userId, method, ip, manualReason, opts = {}) {
   const isManual = MANUAL_METHODS.includes(method);
   const reason = isManual ? String(manualReason || '').trim().slice(0, 300) : null;
   if (isManual && reason.length < 5) {
@@ -213,7 +217,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason) {
   // que el resto de la app hace con otros recursos entre organizaciones.
   if (!employee) return { httpStatus: 404, body: { error: 'Colaborador no encontrado en esta organizacion.' } };
 
-  const now = new Date();
+  const now = opts.at instanceof Date ? opts.at : new Date();
   const shiftDateISO = resolveShiftDateForMark(orgId, employeeId, now);
   const shift = getShiftForEmployeeDate(orgId, employeeId, shiftDateISO);
   if (!shift || shift.isOffDay) {
@@ -319,6 +323,10 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason) {
     const prevDay = db.prepare('SELECT manual_marks FROM attendance_days WHERE employee_id = ? AND shift_date = ?').get(employeeId, shiftDateISO);
     patch.manual_marks = ((prevDay && prevDay.manual_marks) || 0) + 1;
   }
+  if (OFFLINE_METHODS.includes(method)) {
+    const prevDay = db.prepare('SELECT offline_marks FROM attendance_days WHERE employee_id = ? AND shift_date = ?').get(employeeId, shiftDateISO);
+    patch.offline_marks = ((prevDay && prevDay.offline_marks) || 0) + 1;
+  }
   upsertAttendanceDay(orgId, employeeId, shiftDateISO, shift, patch);
 
   // Alerta "Marcacion manual": visible en la pestaña Alertas, con el motivo y
@@ -327,7 +335,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason) {
     const by = userId ? (db.prepare('SELECT email FROM users WHERE id = ?').get(userId) || {}).email : null;
     insertAlert(orgId, employeeId, shiftDateISO, 'marcacion_manual', null, actualClock, null, {
       employeeName: employee.name, markType, motivo: reason,
-      origen: method === 'kiosk-manual' ? 'Kiosco (selección manual)' : 'Administrador',
+      origen: method === 'kiosk-manual' ? 'Kiosco (selección manual)' : method === 'kiosk-manual-offline' ? (opts.assignedBy ? 'Asignada por el administrador (marcación sin conexión)' : 'Kiosco (selección manual, sin conexión)') : 'Administrador',
       por: by || null,
     });
   }
@@ -1002,6 +1010,7 @@ function scanMissingMarks(orgId, force = false) {
     const existsAlert = db.prepare('SELECT 1 FROM attendance_alerts WHERE employee_id = ? AND shift_date = ? AND alert_type = ?');
     const dayRow = db.prepare('SELECT entrada_real, salida_real, status FROM attendance_days WHERE employee_id = ? AND shift_date = ?');
     const markTypes = db.prepare('SELECT mark_type FROM attendance_marks WHERE employee_id = ? AND shift_date = ?');
+    const waitingKiosk = employeesWithPendingKiosk(orgId);
     for (let back = 3; back >= 0; back--) {
       const date = bogota.addDaysISO(today, -back);
       if (NOVEDADES_START && date < NOVEDADES_START) continue;
@@ -1009,6 +1018,7 @@ function scanMissingMarks(orgId, force = false) {
       for (const emp of employees) {
         const s = shifts.get(`${emp.id}|${date}`);
         if (!isWorkShift(s)) continue;
+        if (waitingKiosk.has(emp.id)) continue; // su kiosco tiene marcaciones en camino
         const endRel = clockToRel(s.endTime, s.startTime);
         const nowRel = bogota.minutesSinceShiftMidnight(now, date);
         if (nowRel < endRel) continue; // el turno aun no termina
@@ -1825,6 +1835,187 @@ function devicesWithProblems(orgId) {
     .filter(d => d.health.status === 'sin_conexion' || d.health.status === 'intermitente' || d.health.warnings.length);
 }
 
+// ===========================================================================
+// MODO SIN CONEXION: el kiosco guarda las marcaciones en el equipo cuando no
+// hay internet y las envia despues. Aqui se reciben, se identifica a cada
+// persona y se registran con la HORA REAL en que marco.
+// ===========================================================================
+const OFFLINE_MAX_AGE_MS = 72 * 3600 * 1000;   // mas de 3 dias: requiere revision
+const OFFLINE_CLOCK_TOLERANCE_MS = 2 * 60000;  // cambio del reloj del equipo tolerado
+const OFFLINE_DUP_WINDOW_MS = 3 * 60000;       // misma persona dentro de 3 min: duplicada
+
+function matchFaceOnDevice(device, descriptor) {
+  const profiles = db.prepare(`
+    SELECT fp.employee_id, fp.descriptor_json FROM employee_face_profiles fp
+    JOIN attendance_device_employees de ON de.employee_id = fp.employee_id AND de.device_id = ?
+    WHERE fp.organization_id = ? AND fp.active = 1`).all(device.id, device.organization_id);
+  let best = null;
+  for (const p of profiles) {
+    let d; try { d = JSON.parse(p.descriptor_json); } catch { continue; }
+    const dist = euclideanDistance(descriptor, d);
+    if (!best || dist < best.dist) best = { employeeId: p.employee_id, dist };
+  }
+  return best && best.dist <= FACE_MATCH_THRESHOLD ? best.employeeId : null;
+}
+
+function bogotaLabel(ms) { return new Date(ms - 5 * 3600000).toISOString().slice(0, 16).replace('T', ' '); }
+
+// POST /api/kiosk/sync  { deviceNow, items: [{ clientId, kind: 'face'|'manual', descriptor?, employeeId?, reason?, capturedAt, offsetAtCapture }] }
+async function kioskSync(req, res) {
+  const device = authenticateDevice(req, res, false);
+  if (!device) return;
+  let body;
+  try { body = await readBody(req, 4 * 1024 * 1024); } catch { return sendJson(res, 400, { error: 'Datos inválidos.' }); }
+  const items = Array.isArray(body.items) ? body.items.slice(0, 200) : [];
+  const serverNow = Date.now();
+  const deviceNow = Date.parse(body.deviceNow);
+  // Diferencia entre el reloj del servidor y el del equipo en este momento.
+  const skewNow = Number.isFinite(deviceNow) ? serverNow - deviceNow : 0;
+  const results = [];
+  const counts = { aplicada: 0, duplicada: 0, no_reconocido: 0, revision: 0 };
+  const sorted = items.map(it => ({ ...it, _t: Date.parse(it.capturedAt) })).sort((a, b) => (a._t || 0) - (b._t || 0));
+  for (const it of sorted) {
+    const clientId = String(it.clientId || '').slice(0, 64);
+    if (!clientId || !Number.isFinite(it._t)) { results.push({ clientId, status: 'error', message: 'Registro inválido.' }); continue; }
+    const prev = db.prepare('SELECT status, problem, mark_type, employee_id FROM offline_marks WHERE device_id = ? AND client_id = ?').get(device.id, clientId);
+    if (prev) { results.push({ clientId, status: prev.status, markType: prev.mark_type, message: prev.problem }); continue; }
+
+    const kind = it.kind === 'manual' ? 'manual' : 'face';
+    const capturedMs = it._t + skewNow; // hora real corregida con el reloj del servidor
+    let problem = null;
+    const offsetAtCapture = Number(it.offsetAtCapture);
+    if (Number.isFinite(offsetAtCapture) && Math.abs(skewNow - offsetAtCapture) > OFFLINE_CLOCK_TOLERANCE_MS) {
+      problem = `El reloj del equipo cambió ${Math.round(Math.abs(skewNow - offsetAtCapture) / 60000)} min entre la marcación y el envío. Verifica la hora real antes de aplicarla.`;
+    } else if (capturedMs > serverNow + 60000) {
+      problem = 'La hora de la marcación es posterior a la hora actual del servidor.';
+    } else if (serverNow - capturedMs > OFFLINE_MAX_AGE_MS) {
+      problem = 'La marcación tiene más de 3 días; requiere revisión del administrador.';
+    }
+
+    let employeeId = null;
+    let descriptorJson = null;
+    let reason = kind === 'manual' ? String(it.reason || '').trim().slice(0, 300) : null;
+    if (kind === 'face') {
+      if (!validDescriptor(it.descriptor)) { results.push({ clientId, status: 'error', message: 'Rostro inválido.' }); continue; }
+      descriptorJson = JSON.stringify(it.descriptor);
+      employeeId = matchFaceOnDevice(device, it.descriptor);
+    } else {
+      const eid = Number(it.employeeId);
+      const allowed = db.prepare('SELECT 1 FROM attendance_device_employees WHERE device_id = ? AND employee_id = ?').get(device.id, eid);
+      if (allowed) employeeId = eid;
+      if (!problem && reason.length < 5) problem = 'La marcación manual no tiene motivo.';
+      if (!problem && !allowed) problem = 'El colaborador ya no está autorizado en este dispositivo.';
+    }
+
+    let status, markType = null, empName = null;
+    if (!problem && kind === 'face' && !employeeId) {
+      status = 'no_reconocido'; problem = 'El rostro no coincide con ningún colaborador asignado a este dispositivo.';
+    } else if (!problem) {
+      // Duplicada: la misma persona ya tiene una marcacion a +/- 3 minutos.
+      const near = db.prepare('SELECT actual_at FROM attendance_marks WHERE employee_id = ? AND actual_at BETWEEN ? AND ?')
+        .get(employeeId, new Date(capturedMs - OFFLINE_DUP_WINDOW_MS).toISOString(), new Date(capturedMs + OFFLINE_DUP_WINDOW_MS).toISOString());
+      if (near) {
+        status = 'duplicada'; problem = 'Ya existía una marcación de esta persona en esos minutos.';
+      } else {
+        const method = kind === 'face' ? 'kiosk-facial-offline' : 'kiosk-manual-offline';
+        const r = performMark(device.organization_id, employeeId, null, method, getClientIp(req), reason, { at: new Date(capturedMs) });
+        if (r.httpStatus === 200) { status = 'aplicada'; markType = r.body.markType; empName = r.body.employeeName; }
+        else { status = 'revision'; problem = r.body.error || 'No se pudo registrar.'; }
+      }
+    } else {
+      status = 'revision';
+    }
+    db.prepare(`INSERT INTO offline_marks (id, organization_id, device_id, client_id, kind, employee_id, descriptor_json, reason, captured_device, captured_at, skew_ms, status, problem, mark_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(uid('offm'), device.organization_id, device.id, clientId, kind, employeeId, status === 'aplicada' || status === 'duplicada' ? null : descriptorJson,
+        reason, String(it.capturedAt).slice(0, 40), new Date(capturedMs).toISOString(), skewNow, status, problem, markType);
+    counts[status] = (counts[status] || 0) + 1;
+    results.push({ clientId, status, markType, employeeName: empName, message: problem });
+  }
+  const newCount = Object.values(counts).reduce((a, b) => a + b, 0);
+  if (newCount) {
+    logDeviceEvent(device.organization_id, device.id, 'sincronizado',
+      `Se recibieron ${newCount} marcación(es) guardadas sin conexión: ${counts.aplicada} registrada(s)` +
+      `${counts.duplicada ? `, ${counts.duplicada} duplicada(s)` : ''}${counts.no_reconocido ? `, ${counts.no_reconocido} rostro(s) no reconocido(s)` : ''}${counts.revision ? `, ${counts.revision} por revisar` : ''}.`);
+  }
+  sendJson(res, 200, { ok: true, serverTime: new Date(serverNow).toISOString(), results });
+}
+
+// GET /api/attendance/offline-marks?view=pending|all
+function listOfflineMarks(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const pendingOnly = query.view !== 'all';
+  const rows = db.prepare(`SELECT o.id, o.kind, o.employee_id, o.reason, o.captured_at, o.status, o.problem, o.mark_type, o.received_at, o.resolved_at, o.resolution_note,
+      d.device_name, e.name AS employee_name, u.email AS resolved_by_email
+    FROM offline_marks o JOIN attendance_devices d ON d.id = o.device_id
+    LEFT JOIN employees e ON e.id = o.employee_id LEFT JOIN users u ON u.id = o.resolved_by
+    WHERE o.organization_id = ? ${pendingOnly ? "AND o.status IN ('no_reconocido','revision')" : ''}
+    ORDER BY o.captured_at DESC LIMIT 300`).all(orgId);
+  for (const r of rows) r.captured_local = bogotaLabel(Date.parse(r.captured_at));
+  const pending = db.prepare("SELECT COUNT(*) AS n FROM offline_marks WHERE organization_id = ? AND status IN ('no_reconocido','revision')").get(orgId).n;
+  sendJson(res, 200, { rows, pending });
+}
+
+// POST /api/attendance/offline-marks/:id/apply  { employeeId, reason }
+async function applyOfflineMark(req, res, params) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const om = db.prepare("SELECT * FROM offline_marks WHERE id = ? AND organization_id = ? AND status IN ('no_reconocido','revision')").get(String(params.id), orgId);
+  if (!om) return sendJson(res, 404, { error: 'Esta marcación ya fue resuelta o no existe.' });
+  const reason = String(body.reason || '').trim().slice(0, 300);
+  if (reason.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo (mínimo 5 caracteres).' });
+  const employeeId = Number(body.employeeId);
+  const emp = db.prepare('SELECT id, name FROM employees WHERE id = ? AND organization_id = ?').get(employeeId, orgId);
+  if (!emp) return sendJson(res, 400, { error: 'Elige el colaborador.' });
+  const at = new Date(om.captured_at);
+  const near = db.prepare('SELECT 1 FROM attendance_marks WHERE employee_id = ? AND actual_at BETWEEN ? AND ?')
+    .get(employeeId, new Date(at.getTime() - OFFLINE_DUP_WINDOW_MS).toISOString(), new Date(at.getTime() + OFFLINE_DUP_WINDOW_MS).toISOString());
+  if (near) return sendJson(res, 409, { error: 'Ese colaborador ya tiene una marcación en esos minutos. Descártala si es la misma.' });
+  const r = performMark(orgId, employeeId, req.user.id, 'kiosk-manual-offline', getClientIp(req), reason, { at, assignedBy: true });
+  if (r.httpStatus !== 200) return sendJson(res, r.httpStatus, r.body);
+  db.prepare("UPDATE offline_marks SET status = 'aplicada', employee_id = ?, mark_type = ?, descriptor_json = NULL, resolved_by = ?, resolved_at = datetime('now', '-5 hours'), resolution_note = ? WHERE id = ?")
+    .run(employeeId, r.body.markType, req.user.id, reason, om.id);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.offline_resolved', resourceType: 'employee', resourceId: String(employeeId), ip: getClientIp(req),
+    metadata: { accion: 'aplicada', colaborador: emp.name, hora: bogotaLabel(at.getTime()), markType: r.body.markType, motivo: reason } });
+  sendJson(res, 200, { ok: true, markType: r.body.markType, employeeName: emp.name });
+}
+
+// POST /api/attendance/offline-marks/:id/discard  { reason }
+async function discardOfflineMark(req, res, params) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const om = db.prepare("SELECT * FROM offline_marks WHERE id = ? AND organization_id = ? AND status IN ('no_reconocido','revision')").get(String(params.id), orgId);
+  if (!om) return sendJson(res, 404, { error: 'Esta marcación ya fue resuelta o no existe.' });
+  const reason = String(body.reason || '').trim().slice(0, 300);
+  if (reason.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo (mínimo 5 caracteres).' });
+  db.prepare("UPDATE offline_marks SET status = 'descartada', descriptor_json = NULL, resolved_by = ?, resolved_at = datetime('now', '-5 hours'), resolution_note = ? WHERE id = ?")
+    .run(req.user.id, reason, om.id);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.offline_resolved', resourceType: 'offline_mark', resourceId: om.id, ip: getClientIp(req),
+    metadata: { accion: 'descartada', hora: bogotaLabel(Date.parse(om.captured_at)), motivo: reason } });
+  sendJson(res, 200, { ok: true });
+}
+
+// Colaboradores cuyo kiosco esta sin senal o con marcaciones pendientes por
+// enviar (menos de 24 h): todavia no se les crean alertas de "No se presento"
+// ni "Turno sin cerrar", porque su marcacion puede estar en camino.
+function employeesWithPendingKiosk(orgId) {
+  const nowMs = Date.now();
+  const set = new Set();
+  const rows = db.prepare(`SELECT de.employee_id, d.hb_at_ms, d.hb_pending FROM attendance_devices d
+      JOIN attendance_device_employees de ON de.device_id = d.id
+      WHERE d.organization_id = ? AND d.active = 1 AND d.hb_at_ms IS NOT NULL`).all(orgId);
+  for (const r of rows) {
+    const age = nowMs - Number(r.hb_at_ms);
+    if ((r.hb_pending || 0) > 0 || (age > KIOSK_ONLINE_MS && age < 24 * 3600000)) set.add(r.employee_id);
+  }
+  return set;
+}
+
 // Recalculo unico de los dias ya cerrados cada vez que cambia una regla del
 // motor de horas. Cada version se registra en app_migrations para que se
 // ejecute UNA sola vez, aunque el servicio se reinicie.
@@ -1849,4 +2040,5 @@ module.exports = {
   todayBoard, manageAlert, getAlertAttachment, novedadesSummary,
   indicators, getDigestSettingsRoute, saveDigestSettings, sendDigestTest,
   kioskHeartbeat, listDeviceEvents, getDeviceAlertSettingsRoute, saveDeviceAlertSettings,
+  kioskSync, listOfflineMarks, applyOfflineMark, discardOfflineMark,
 };
