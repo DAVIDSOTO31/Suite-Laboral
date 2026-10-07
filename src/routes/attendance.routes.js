@@ -435,20 +435,32 @@ function listMyHistory(req, res, query) {
 function listAlerts(req, res, query) {
   const orgId = resolveOrgId(req, query);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  scanMissingMarks(orgId);
   const from = query.from || bogota.addDaysISO(bogota.todayISOInBogota(), -7);
   const to = query.to || bogota.todayISOInBogota();
-  // El apartado de Alertas solo debe mostrar estas 3: llegada tarde, exceso
-  // de almuerzo y salida anticipada (las de "hora_extra" se siguen
-  // calculando para la Liquidacion, pero no se muestran aqui).
+  // El apartado de Alertas muestra las novedades (las de "hora_extra" se
+  // siguen calculando para la Liquidacion, pero no se muestran aqui).
+  // Filtros opcionales: tipo, colaborador y estado de gestion.
+  const types = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'marcacion_manual', 'inasistencia', 'turno_sin_cerrar'];
+  const type = query.type && types.includes(query.type) ? query.type : null;
+  const employeeId = query.employeeId ? Number(query.employeeId) : null;
+  const status = ['pendiente', 'justificada', 'injustificada'].includes(query.status) ? query.status : null;
   const rows = db.prepare(`
-    SELECT a.*, e.name as employee_name
+    SELECT a.*, e.name as employee_name,
+           COALESCE(m.status, 'pendiente') AS mgmt_status, m.category AS mgmt_category, m.note AS mgmt_note,
+           m.attachment_name AS mgmt_attachment_name, m.managed_at AS mgmt_at, u.email AS mgmt_by
     FROM attendance_alerts a
     JOIN employees e ON e.id = a.employee_id
+    LEFT JOIN alert_management m ON m.alert_id = a.id
+    LEFT JOIN users u ON u.id = m.managed_by
     WHERE a.organization_id = ? AND a.shift_date BETWEEN ? AND ?
-      AND a.alert_type IN ('llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'marcacion_manual')
+      AND a.alert_type IN (${types.map(() => '?').join(',')})
+      AND (? IS NULL OR a.alert_type = ?)
+      AND (? IS NULL OR a.employee_id = ?)
+      AND (? IS NULL OR COALESCE(m.status, 'pendiente') = ?)
     ORDER BY a.created_at DESC
-  `).all(orgId, from, to);
-  sendJson(res, 200, { rows });
+  `).all(orgId, from, to, ...types, type, type, employeeId, employeeId, status, status);
+  sendJson(res, 200, { rows, from, to });
 }
 
 // ---------------------------------------------------------------------------
@@ -917,6 +929,332 @@ function listCorrections(req, res, query) {
   sendJson(res, 200, { rows });
 }
 
+// ===========================================================================
+// FASE 1 y 2 DE ASISTENCIA: tablero "Hoy", alertas automaticas de
+// "No se presento" / "Turno sin cerrar" y gestion de novedades.
+// Todo es ADICIONAL: no cambia como se marca, ni como se calculan las horas,
+// ni las alertas que ya existian (que siguen siendo inmutables).
+// ===========================================================================
+const NO_SHOW_TOLERANCE_MIN = 15;   // minutos despues de la entrada para mostrar "No ha llegado"
+const OPEN_SHIFT_GRACE_MIN = 60;    // tablero Hoy: minutos despues de la salida programada para mostrar "Sin marcar salida"
+const OPEN_SHIFT_ALERT_MIN = 300;   // alerta "Turno sin cerrar": 5 horas despues de la salida programada (margen para que marque)
+const ABSENCE_LABELS = { vacaciones: 'Vacaciones', incapacidad: 'Incapacidad', sin_horario: 'Sin horario' };
+
+// Fecha desde la cual se generan las alertas automaticas nuevas (el dia en
+// que se instala esta version), para no crear alertas sobre el pasado.
+const NOVEDADES_FEATURE = 'novedades_scan_v1';
+if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(NOVEDADES_FEATURE)) {
+  db.prepare("INSERT INTO app_migrations (name, applied_at) VALUES (?, datetime('now', '-5 hours'))").run(NOVEDADES_FEATURE);
+}
+const NOVEDADES_START = String((db.prepare('SELECT applied_at FROM app_migrations WHERE name = ?').get(NOVEDADES_FEATURE) || {}).applied_at || '').slice(0, 10);
+
+function shiftsByKey(orgId) {
+  const map = new Map();
+  for (const r of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId)) {
+    try {
+      const s = JSON.parse(r.data_json);
+      if (s && s.empId != null && s.date) map.set(`${Number(s.empId)}|${s.date}`, s);
+    } catch { /* fila invalida: se ignora */ }
+  }
+  return map;
+}
+
+function isWorkShift(s) {
+  return !!(s && !s.isOffDay && rules.timeToMinutes(s.startTime) != null && rules.timeToMinutes(s.endTime) != null);
+}
+
+// Minutos (desde la medianoche del dia del turno) de un reloj HH:MM que
+// pertenece al turno (si es menor que la entrada, es del dia siguiente).
+function clockToRel(hhmm, startHHMM) {
+  return rules.scheduledAbsoluteMinutes(hhmm, startHHMM);
+}
+
+function fmtMin(m) {
+  m = Math.max(0, Math.round(m));
+  const h = Math.floor(m / 60), r = m % 60;
+  return h ? `${h} h ${String(r).padStart(2, '0')} min` : `${r} min`;
+}
+
+function getDayZero(orgId) {
+  try {
+    const r = db.prepare('SELECT day_zero FROM org_settings WHERE organization_id = ?').get(orgId);
+    return r && r.day_zero ? r.day_zero : null;
+  } catch { return null; }
+}
+
+// Revisa los ultimos 3 dias y crea (UNA sola vez por colaborador y dia):
+//  - 'inasistencia': el turno ya termino y no hubo ninguna marcacion de entrada.
+//  - 'turno_sin_cerrar': marco entrada pero, 5 horas despues de la salida
+//    programada, todavia no marca salida.
+const lastScanAt = new Map();
+function scanMissingMarks(orgId, force = false) {
+  const nowMs = Date.now();
+  if (!force && lastScanAt.has(orgId) && nowMs - lastScanAt.get(orgId) < 60000) return;
+  lastScanAt.set(orgId, nowMs);
+  try {
+    const now = new Date();
+    const today = bogota.todayISOInBogota(now);
+    const dayZero = getDayZero(orgId);
+    const shifts = shiftsByKey(orgId);
+    const employees = db.prepare('SELECT id, name FROM employees WHERE organization_id = ?').all(orgId);
+    const existsAlert = db.prepare('SELECT 1 FROM attendance_alerts WHERE employee_id = ? AND shift_date = ? AND alert_type = ?');
+    const dayRow = db.prepare('SELECT entrada_real, salida_real, status FROM attendance_days WHERE employee_id = ? AND shift_date = ?');
+    const markTypes = db.prepare('SELECT mark_type FROM attendance_marks WHERE employee_id = ? AND shift_date = ?');
+    for (let back = 3; back >= 0; back--) {
+      const date = bogota.addDaysISO(today, -back);
+      if (NOVEDADES_START && date < NOVEDADES_START) continue;
+      if (dayZero && date <= dayZero) continue;
+      for (const emp of employees) {
+        const s = shifts.get(`${emp.id}|${date}`);
+        if (!isWorkShift(s)) continue;
+        const endRel = clockToRel(s.endTime, s.startTime);
+        const nowRel = bogota.minutesSinceShiftMidnight(now, date);
+        if (nowRel < endRel) continue; // el turno aun no termina
+        const d = dayRow.get(emp.id, date);
+        const types = new Set(markTypes.all(emp.id, date).map(r => r.mark_type));
+        const hasEntrada = types.has('entrada') || !!(d && d.entrada_real);
+        const hasSalida = types.has('salida') || !!(d && d.salida_real) || (d && d.status === 'turno_finalizado');
+        if (!hasEntrada) {
+          if (!existsAlert.get(emp.id, date, 'inasistencia')) {
+            insertAlert(orgId, emp.id, date, 'inasistencia', s.startTime, null, null, {
+              employeeName: emp.name, turno: `${s.startTime} - ${s.endTime}`,
+            });
+          }
+        } else if (!hasSalida && nowRel >= endRel + OPEN_SHIFT_ALERT_MIN) {
+          if (!existsAlert.get(emp.id, date, 'turno_sin_cerrar')) {
+            insertAlert(orgId, emp.id, date, 'turno_sin_cerrar', s.endTime, null, null, {
+              employeeName: emp.name, turno: `${s.startTime} - ${s.endTime}`,
+              entrada: d && d.entrada_real ? d.entrada_real : null,
+            });
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[asistencia] Revision de marcaciones faltantes:', e.message);
+  }
+}
+
+// Revision periodica (cada 5 minutos) para todas las organizaciones activas,
+// asi las alertas aparecen aunque nadie abra el modulo.
+const scanTimer = setInterval(() => {
+  try {
+    for (const o of db.prepare('SELECT DISTINCT organization_id AS id FROM employees').all()) scanMissingMarks(o.id, true);
+  } catch { /* nada */ }
+}, 5 * 60 * 1000);
+if (scanTimer.unref) scanTimer.unref();
+
+// ---------------------------------------------------------------------------
+// GET /api/attendance/today  -- tablero "Hoy" en tiempo real.
+// ---------------------------------------------------------------------------
+function todayBoard(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  scanMissingMarks(orgId);
+  const now = new Date();
+  const today = bogota.todayISOInBogota(now);
+  const yesterday = bogota.addDaysISO(today, -1);
+  const shifts = shiftsByKey(orgId);
+  const employees = db.prepare('SELECT id, name, role, department FROM employees WHERE organization_id = ? ORDER BY name ASC').all(orgId);
+  const dayRow = db.prepare('SELECT * FROM attendance_days WHERE employee_id = ? AND shift_date = ?');
+  const lunchMark = db.prepare("SELECT actual_at FROM attendance_marks WHERE employee_id = ? AND shift_date = ? AND mark_type = 'inicio_almuerzo' ORDER BY actual_at ASC LIMIT 1");
+
+  const people = [];
+  const absences = [];
+
+  const evaluate = (emp, s, date) => {
+    const startRel = rules.timeToMinutes(s.startTime);
+    const endRel = clockToRel(s.endTime, s.startTime);
+    const nowRel = bogota.minutesSinceShiftMidnight(now, date);
+    const d = dayRow.get(emp.id, date);
+    let status, label;
+    if (d && (d.salida_real || d.status === 'turno_finalizado')) {
+      status = 'finalizado'; label = d.salida_real ? `Salió ${d.salida_real}` : 'Turno finalizado';
+    } else if (!d || !d.entrada_real) {
+      if (nowRel < startRel) { status = 'por_iniciar'; label = `Inicia ${s.startTime}`; }
+      else if (nowRel < startRel + NO_SHOW_TOLERANCE_MIN) { status = 'en_espera'; label = `Debía llegar ${s.startTime}`; }
+      else if (nowRel >= endRel) { status = 'no_llego'; label = 'No se presentó'; }
+      else { status = 'no_llego'; label = `Lleva ${fmtMin(nowRel - startRel)} de retraso (entrada ${s.startTime})`; }
+    } else if (nowRel >= endRel + OPEN_SHIFT_GRACE_MIN) {
+      status = 'sin_cerrar'; label = `Debía salir a las ${s.endTime}`;
+    } else if (d.inicio_almuerzo_real && !d.fin_almuerzo_real) {
+      const lm = lunchMark.get(emp.id, date);
+      const used = lm ? Math.max(0, Math.round((now.getTime() - Date.parse(lm.actual_at)) / 60000)) : 0;
+      const allowed = Number(s.breakM) || 0;
+      if (allowed && used > allowed) { status = 'almuerzo_largo'; label = `En almuerzo ${fmtMin(used)} (permitido ${allowed} min)`; }
+      else { status = 'almuerzo'; label = `En almuerzo desde ${d.inicio_almuerzo_real}`; }
+    } else if ((d.retraso_min || 0) > 0) {
+      status = 'tarde'; label = `Llegó ${d.entrada_real} (+${fmtMin(d.retraso_min)})`;
+    } else {
+      status = 'presente'; label = `Llegó ${d.entrada_real}`;
+    }
+    const expectedNow = nowRel >= startRel && nowRel < endRel;
+    people.push({
+      id: emp.id, name: emp.name, role: emp.role, department: emp.department || 'Sin área',
+      shiftDate: date, scheduled: `${s.startTime} - ${s.endTime}`, isSplit: !!s.isSplit,
+      status, label, expectedNow,
+    });
+  };
+
+  for (const emp of employees) {
+    // Turno nocturno de ayer que sigue abierto (aun no marca salida).
+    const sy = shifts.get(`${emp.id}|${yesterday}`);
+    if (isWorkShift(sy) && isOvernightShift(sy)) {
+      const dy = dayRow.get(emp.id, yesterday);
+      if (dy && dy.entrada_real && !dy.salida_real && dy.status !== 'turno_finalizado') evaluate(emp, sy, yesterday);
+    }
+    const s = shifts.get(`${emp.id}|${today}`);
+    if (!s) continue;
+    if (s.isOffDay) {
+      if (s.absenceType && ABSENCE_LABELS[s.absenceType]) {
+        absences.push({ id: emp.id, name: emp.name, department: emp.department || 'Sin área', type: s.absenceType, label: ABSENCE_LABELS[s.absenceType] });
+      }
+      continue;
+    }
+    if (isWorkShift(s)) evaluate(emp, s, today);
+  }
+
+  const c = (fn) => people.filter(fn).length;
+  const PRESENT = new Set(['presente', 'tarde', 'almuerzo', 'almuerzo_largo']);
+  const counters = {
+    programados: people.length,
+    presentes: c(p => PRESENT.has(p.status)),
+    tarde: c(p => p.status === 'tarde'),
+    almuerzo: c(p => p.status === 'almuerzo' || p.status === 'almuerzo_largo'),
+    noLlego: c(p => p.status === 'no_llego'),
+    porIniciar: c(p => p.status === 'por_iniciar' || p.status === 'en_espera'),
+    finalizados: c(p => p.status === 'finalizado'),
+    sinCerrar: c(p => p.status === 'sin_cerrar'),
+    ausencias: absences.length,
+  };
+  const areaMap = new Map();
+  for (const p of people) {
+    if (!areaMap.has(p.department)) areaMap.set(p.department, { name: p.department, total: 0, present: 0, expectedNow: 0, people: [] });
+    const a = areaMap.get(p.department);
+    a.total++;
+    if (PRESENT.has(p.status)) a.present++;
+    if (p.expectedNow) a.expectedNow++;
+    a.people.push(p);
+  }
+  const areas = [...areaMap.values()].sort((x, y) => x.name.localeCompare(y.name, 'es'));
+  sendJson(res, 200, {
+    date: today, now: hhmmFromAbsMinutes(now), counters, areas, absences,
+    tolerance: NO_SHOW_TOLERANCE_MIN, grace: OPEN_SHIFT_GRACE_MIN,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/attendance/alerts/:id/manage
+//  { status: 'pendiente'|'justificada'|'injustificada', category, note,
+//    attachment: { name, type, data(base64) } | null, removeAttachment }
+// La alerta original NO se toca; la gestion se guarda en alert_management.
+// ---------------------------------------------------------------------------
+const MGMT_STATUSES = ['pendiente', 'justificada', 'injustificada'];
+const ATTACH_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
+const MGMT_LABELS = { pendiente: 'Pendiente', justificada: 'Justificada', injustificada: 'Injustificada' };
+async function manageAlert(req, res, params) {
+  let body;
+  try { body = await readBody(req, 6 * 1024 * 1024); } catch (e) {
+    return sendJson(res, e && e.message === 'payload_too_large' ? 413 : 400, { error: e && e.message === 'payload_too_large' ? 'El archivo es demasiado grande (máximo 3 MB).' : 'JSON invalido' });
+  }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const alert = db.prepare(`SELECT a.*, e.name AS employee_name FROM attendance_alerts a JOIN employees e ON e.id = a.employee_id
+                            WHERE a.id = ? AND a.organization_id = ?`).get(String(params.id), orgId);
+  if (!alert) return sendJson(res, 404, { error: 'Alerta no encontrada.' });
+  const status = String(body.status || '');
+  if (!MGMT_STATUSES.includes(status)) return sendJson(res, 400, { error: 'Elige si la novedad queda justificada, injustificada o pendiente.' });
+  const note = String(body.note || '').trim().slice(0, 600);
+  if (status !== 'pendiente' && note.length < 5) return sendJson(res, 400, { error: 'Escribe una nota de la gestión (mínimo 5 caracteres).' });
+  const category = String(body.category || '').trim().slice(0, 60) || null;
+
+  const prev = db.prepare('SELECT * FROM alert_management WHERE alert_id = ?').get(alert.id);
+  let attName = prev ? prev.attachment_name : null;
+  let attType = prev ? prev.attachment_type : null;
+  let attData = prev ? prev.attachment_data : null;
+  if (body.removeAttachment) { attName = null; attType = null; attData = null; }
+  if (body.attachment && body.attachment.data) {
+    const t = String(body.attachment.type || '').toLowerCase();
+    if (!ATTACH_TYPES.includes(t)) return sendJson(res, 400, { error: 'El soporte debe ser una imagen (PNG, JPG, WEBP) o un PDF.' });
+    const data = String(body.attachment.data).replace(/^data:[^,]*,/, '');
+    if (!/^[A-Za-z0-9+/=\s]+$/.test(data)) return sendJson(res, 400, { error: 'El archivo adjunto no es valido.' });
+    const bytes = Math.floor(data.replace(/\s/g, '').length * 3 / 4);
+    if (bytes > 3 * 1024 * 1024) return sendJson(res, 400, { error: 'El archivo es demasiado grande (máximo 3 MB).' });
+    attName = String(body.attachment.name || 'soporte').replace(/[\\/:*?"<>|]/g, '_').slice(0, 120);
+    attType = t;
+    attData = data.replace(/\s/g, '');
+  }
+
+  db.prepare(`
+    INSERT INTO alert_management (alert_id, organization_id, status, category, note, attachment_name, attachment_type, attachment_data, managed_by, managed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-5 hours'))
+    ON CONFLICT(alert_id) DO UPDATE SET status = excluded.status, category = excluded.category, note = excluded.note,
+      attachment_name = excluded.attachment_name, attachment_type = excluded.attachment_type, attachment_data = excluded.attachment_data,
+      managed_by = excluded.managed_by, managed_at = excluded.managed_at
+  `).run(alert.id, orgId, status, category, note || null, attName, attType, attData, req.user.id);
+
+  logAction({
+    organizationId: orgId, userId: req.user.id, action: 'attendance.alert_managed',
+    resourceType: 'employee', resourceId: String(alert.employee_id), ip: getClientIp(req),
+    metadata: {
+      colaborador: alert.employee_name, fecha: alert.shift_date, tipo: alert.alert_type,
+      estado: MGMT_LABELS[status], estadoAnterior: prev ? MGMT_LABELS[prev.status] : 'Pendiente',
+      categoria: category, nota: note || null, soporte: attName || null,
+    },
+  });
+  sendJson(res, 200, { ok: true, status, hasAttachment: !!attData });
+}
+
+// GET /api/attendance/alerts/:id/attachment -- descarga el soporte adjunto.
+function getAlertAttachment(req, res, params) {
+  const orgId = resolveOrgId(req, {});
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const row = db.prepare('SELECT attachment_name, attachment_type, attachment_data FROM alert_management WHERE alert_id = ? AND organization_id = ?').get(String(params.id), orgId);
+  if (!row || !row.attachment_data) return sendJson(res, 404, { error: 'Esta novedad no tiene soporte adjunto.' });
+  const buf = Buffer.from(row.attachment_data, 'base64');
+  res.writeHead(200, {
+    'Content-Type': row.attachment_type || 'application/octet-stream',
+    'Content-Length': buf.length,
+    'Content-Disposition': `inline; filename="${encodeURIComponent(row.attachment_name || 'soporte')}"`,
+    'Cache-Control': 'no-store',
+  });
+  res.end(buf);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/attendance/novedades?from=&to=  -- resumen por colaborador.
+// ---------------------------------------------------------------------------
+const NOVEDAD_TYPES = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'inasistencia', 'turno_sin_cerrar', 'marcacion_manual'];
+function novedadesSummary(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  scanMissingMarks(orgId);
+  const to = query.to || bogota.todayISOInBogota();
+  const from = query.from || bogota.addDaysISO(to, -30);
+  const rows = db.prepare(`
+    SELECT a.employee_id, a.alert_type, a.diff_minutes, COALESCE(m.status, 'pendiente') AS mgmt_status
+    FROM attendance_alerts a LEFT JOIN alert_management m ON m.alert_id = a.id
+    WHERE a.organization_id = ? AND a.shift_date BETWEEN ? AND ?
+      AND a.alert_type IN (${NOVEDAD_TYPES.map(() => '?').join(',')})
+  `).all(orgId, from, to, ...NOVEDAD_TYPES);
+  const employees = db.prepare('SELECT id, name, role, department FROM employees WHERE organization_id = ? ORDER BY name ASC').all(orgId);
+  const by = new Map(employees.map(e => [e.id, {
+    employeeId: e.id, name: e.name, role: e.role, department: e.department || 'Sin área',
+    llegada_tarde: 0, exceso_almuerzo: 0, salida_anticipada: 0, inasistencia: 0, turno_sin_cerrar: 0, marcacion_manual: 0,
+    minutesLate: 0, total: 0, pendiente: 0, justificada: 0, injustificada: 0,
+  }]));
+  for (const r of rows) {
+    const o = by.get(r.employee_id);
+    if (!o) continue;
+    o[r.alert_type]++;
+    o.total++;
+    o[r.mgmt_status] = (o[r.mgmt_status] || 0) + 1;
+    if (r.alert_type === 'llegada_tarde') o.minutesLate += Math.max(0, r.diff_minutes || 0);
+  }
+  const list = [...by.values()].filter(o => o.total > 0).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'es'));
+  sendJson(res, 200, { from, to, rows: list });
+}
+
 // Recalculo unico de los dias ya cerrados cada vez que cambia una regla del
 // motor de horas. Cada version se registra en app_migrations para que se
 // ejecute UNA sola vez, aunque el servicio se reinicie.
@@ -938,4 +1276,5 @@ module.exports = {
   listDevices, createDevice, rotateDeviceToken, deactivateDevice, getDeviceAssignments, setDeviceAssignments,
   kioskEmployeesToday, kioskMark, kioskMarkByFace,
   listPayrollAttendance,
+  todayBoard, manageAlert, getAlertAttachment, novedadesSummary,
 };
