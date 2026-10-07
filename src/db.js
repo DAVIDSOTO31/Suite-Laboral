@@ -697,6 +697,38 @@ if (!digestCols.includes('digest_to')) db.exec("ALTER TABLE org_settings ADD COL
 if (!digestCols.includes('digest_extra')) db.exec('ALTER TABLE org_settings ADD COLUMN digest_extra TEXT NULL');
 if (!digestCols.includes('digest_last_sent')) db.exec('ALTER TABLE org_settings ADD COLUMN digest_last_sent TEXT NULL');
 
+// ---------------------------------------------------------------------------
+// SALUD DE LOS DISPOSITIVOS DE MARCACION (kioscos)
+//  - Cada kiosco envia cada minuto una senal ("estoy vivo") con su bateria,
+//    estado de la camara, marcaciones pendientes y version.
+//  - device_events: historial de eventos (sin conexion, reconectado, bateria
+//    baja, problema de camara).
+//  - org_settings.device_alerts_enabled / device_offline_min: avisos por correo
+//    y minutos sin senal para considerar un kiosco "sin conexion".
+// ---------------------------------------------------------------------------
+const devCols = db.prepare('PRAGMA table_info(attendance_devices)').all().map(c => c.name);
+for (const [col, def] of [
+  ['hb_at_ms', 'INTEGER NULL'], ['hb_battery', 'REAL NULL'], ['hb_charging', 'INTEGER NULL'], ['hb_camera', 'TEXT NULL'],
+  ['hb_pending', 'INTEGER NULL'], ['hb_version', 'TEXT NULL'], ['hb_ua', 'TEXT NULL'], ['hb_online_since_ms', 'INTEGER NULL'],
+  ['offline_since_ms', 'INTEGER NULL'], ['offline_notified', 'INTEGER NOT NULL DEFAULT 0'], ['battery_notified_date', 'TEXT NULL'],
+]) {
+  if (!devCols.includes(col)) db.exec(`ALTER TABLE attendance_devices ADD COLUMN ${col} ${def}`);
+}
+db.exec(`
+CREATE TABLE IF NOT EXISTS device_events (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  details TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', '-5 hours'))
+);
+CREATE INDEX IF NOT EXISTS idx_device_events_dev ON device_events(device_id, created_at);
+`);
+const orgSetCols2 = db.prepare('PRAGMA table_info(org_settings)').all().map(c => c.name);
+if (!orgSetCols2.includes('device_alerts_enabled')) db.exec('ALTER TABLE org_settings ADD COLUMN device_alerts_enabled INTEGER NOT NULL DEFAULT 1');
+if (!orgSetCols2.includes('device_offline_min')) db.exec('ALTER TABLE org_settings ADD COLUMN device_offline_min INTEGER NOT NULL DEFAULT 10');
+
 module.exports = {
   db,
   uid,
