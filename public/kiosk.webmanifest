@@ -1,0 +1,21 @@
+{
+  "id": "/kiosk.html",
+  "name": "RR.HH PYMES · Kiosco de marcación",
+  "short_name": "Kiosco RR.HH",
+  "description": "Punto de marcación de asistencia de la suite RR.HH PYMES.",
+  "lang": "es-CO",
+  "start_url": "/kiosk.html?app=1",
+  "scope": "/kiosk",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#0c2340",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/kiosk-icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/kiosk-icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/kiosk-icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/kiosk-icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

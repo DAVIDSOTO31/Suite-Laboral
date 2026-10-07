@@ -4,6 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Punto de marcación — RR.HH PYMES</title>
+<!-- App instalable "Kiosco RR.HH" (Android: Chrome → Instalar app; iPad/iPhone: Safari → Compartir → Agregar a inicio) -->
+<link rel="manifest" href="/kiosk.webmanifest">
+<meta name="theme-color" content="#0c2340">
+<link rel="icon" type="image/png" href="/kiosk-icons/favicon-32.png">
+<link rel="apple-touch-icon" href="/kiosk-icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Kiosco RR.HH">
+<meta name="application-name" content="Kiosco RR.HH">
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <style>
@@ -16,7 +26,7 @@
   <div id="setupScreen" class="w-full max-w-sm hidden">
     <div class="bg-slate-900/80 border border-slate-700 rounded-2xl p-6 shadow-2xl">
       <div class="text-center mb-4">
-        <i class="fa-solid fa-tablet-screen-button text-sky-400 text-3xl mb-2"></i>
+        <img src="/kiosk-icons/icon.svg" alt="Kiosco RR.HH" width="64" height="64" class="w-16 h-16 mx-auto mb-2" style="width:64px;height:64px">
         <h1 class="font-bold text-lg">Configurar este dispositivo</h1>
         <p class="text-xs text-slate-400 mt-1">Pega aquí el token que te dio tu administrador al crear este dispositivo en la suite (Asistencia → Dispositivos).</p>
       </div>
@@ -24,6 +34,8 @@
       <div id="setupError" class="hidden text-xs text-rose-400 mb-3"></div>
       <button onclick="saveDeviceToken()" class="w-full py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 font-semibold text-sm">Guardar y continuar</button>
     </div>
+    <!-- Instalar como app (solo aparece si este equipo aún no la tiene instalada) -->
+    <div id="installBoxSetup" class="hidden mt-3 bg-slate-900/80 border border-sky-800 rounded-2xl p-4 text-xs text-slate-300"></div>
   </div>
 
   <!-- Pantalla principal de marcación -->
@@ -74,12 +86,15 @@
       <button onclick="speakConfirmation({ employeeName: 'David Soto', markType: 'entrada', isSplit: false }, true)" class="w-full py-2 rounded-lg bg-slate-700 hover:bg-slate-600 font-semibold">Probar voz</button>
     </div>
 
+    <div id="installBoxMark" class="hidden mt-3 bg-slate-900/80 border border-sky-800 rounded-xl p-3 text-xs text-slate-300"></div>
     <button onclick="resetDevice()" class="w-full text-center text-2xs text-slate-500 hover:text-slate-300 mt-4">Cambiar dispositivo / token</button>
 
     <div class="flex-1"></div>
     <div class="text-center mb-4">
+      <img src="/kiosk-icons/icon.svg" alt="Kiosco RR.HH" width="40" height="40" class="w-10 h-10 mx-auto mb-1" style="width:40px;height:40px">
       <p class="text-xs text-slate-400 uppercase tracking-wider" id="deviceNameLabel"></p>
       <h1 class="font-bold text-xl">Punto de marcación</h1>
+      <p class="text-2xs text-slate-500 mt-1" id="appVersionLabel"></p>
     </div>
    </div>
   </div>
@@ -462,7 +477,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-offline';
+const KIOSK_VERSION = '2026.10-app1';
 let cameraState = 'desconocido';
 let batteryRef = null;
 async function detectCameraState() {
@@ -486,7 +501,7 @@ function setConnStatus(online, text) {
 }
 async function sendHeartbeat() {
   if (!getToken()) return;
-  const body = { camera: cameraState, pending: offlineQueue().length, version: KIOSK_VERSION };
+  const body = { camera: cameraState, pending: offlineQueue().length, version: KIOSK_VERSION + (isInstalledApp() ? ' · app' : ' · web') };
   try {
     if (!batteryRef && navigator.getBattery) batteryRef = await navigator.getBattery();
     if (batteryRef) body.battery = { level: batteryRef.level, charging: batteryRef.charging };
@@ -578,6 +593,73 @@ if (getToken()) {
   // Deja cargado el modelo de reconocimiento facial mientras hay internet,
   // para poder reconocer rostros aunque después se caiga la conexión.
   if (navigator.onLine) setTimeout(() => { ensureFaceModelsLoaded().catch(() => {}); }, 3000);
+}
+
+// ---- App instalable (PWA) para Android y iOS ----
+// Android (Chrome/Edge/Samsung Internet): aparece el botón "Instalar app".
+// iPad/iPhone (Safari): se muestran los pasos Compartir → Agregar a inicio.
+function isInstalledApp() {
+  return (window.matchMedia && (matchMedia('(display-mode: fullscreen)').matches || matchMedia('(display-mode: standalone)').matches))
+    || window.navigator.standalone === true;
+}
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+let deferredInstallPrompt = null;
+function installBoxes() { return [document.getElementById('installBoxSetup'), document.getElementById('installBoxMark')].filter(Boolean); }
+function renderInstallBox() {
+  const boxes = installBoxes();
+  if (isInstalledApp()) { boxes.forEach(b => b.classList.add('hidden')); return; }
+  let html = '';
+  if (deferredInstallPrompt) {
+    html = `<div class="flex items-center gap-3"><img src="/kiosk-icons/icon.svg" alt="" width="36" height="36" class="w-9 h-9 shrink-0" style="width:36px;height:36px;flex-shrink:0">
+      <div class="flex-1 text-left"><p class="font-semibold text-slate-100">Instala el Kiosco RR.HH</p><p class="text-slate-400">Abre a pantalla completa y funciona aunque se caiga el internet.</p></div>
+      <button onclick="installKioskApp()" class="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 font-semibold text-white whitespace-nowrap">Instalar app</button></div>`;
+  } else if (isIOS()) {
+    html = `<div class="flex items-start gap-3"><img src="/kiosk-icons/icon.svg" alt="" width="36" height="36" class="w-9 h-9 shrink-0" style="width:36px;height:36px;flex-shrink:0">
+      <div class="flex-1 text-left"><p class="font-semibold text-slate-100">Instala el Kiosco RR.HH en este iPad/iPhone</p>
+      <p class="text-slate-400 mt-1">1. Toca <i class="fa-solid fa-arrow-up-from-bracket"></i> <b>Compartir</b> en Safari.<br>2. Elige <b>Agregar a inicio</b> y toca <b>Agregar</b>.<br>3. Abre el ícono <b>Kiosco RR.HH</b> y pega ahí el token del dispositivo.</p>
+      <p class="text-amber-300 mt-1">En iPad/iPhone la app instalada no comparte datos con Safari: el token se pega dentro de la app.</p></div></div>`;
+  }
+  boxes.forEach(b => { b.innerHTML = html; b.classList.toggle('hidden', !html); });
+}
+async function installKioskApp() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  try { await deferredInstallPrompt.userChoice; } catch (e) { /* nada */ }
+  deferredInstallPrompt = null;
+  renderInstallBox();
+}
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstallPrompt = e; renderInstallBox(); });
+window.addEventListener('appinstalled', () => { deferredInstallPrompt = null; renderInstallBox(); });
+renderInstallBox();
+document.getElementById('appVersionLabel').textContent = 'Kiosco RR.HH · v' + KIOSK_VERSION + (isInstalledApp() ? ' · app' : '');
+
+// Service worker: guarda la app en el equipo y la actualiza sola.
+// Cuando hay versión nueva, recarga solo si nadie ha tocado la pantalla en el
+// último minuto, para no interrumpir una marcación.
+let lastKioskTouch = Date.now();
+['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, () => { lastKioskTouch = Date.now(); }, true));
+if ('serviceWorker' in navigator) {
+  let reloadPending = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloadPending) return;
+    reloadPending = true;
+    const tryReload = () => {
+      const idle = Date.now() - lastKioskTouch > 60 * 1000;
+      if (idle && !syncing) location.reload(); else setTimeout(tryReload, 15 * 1000);
+    };
+    tryReload();
+  });
+  navigator.serviceWorker.register('/kiosk-sw.js', { scope: '/kiosk' }).then((reg) => {
+    const activateWaiting = () => { if (reg.waiting && navigator.serviceWorker.controller) reg.waiting.postMessage('skipWaiting'); };
+    activateWaiting();
+    reg.addEventListener('updatefound', () => {
+      const nw = reg.installing;
+      if (nw) nw.addEventListener('statechange', () => { if (nw.state === 'installed') activateWaiting(); });
+    });
+    setInterval(() => { if (navigator.onLine) reg.update().catch(() => {}); }, 30 * 60 * 1000);
+  }).catch(() => { /* navegador sin soporte: el kiosco funciona igual como página web */ });
 }
 
 // Al usar /kiosk.html, se muestra el nombre del dispositivo si ya hay token
