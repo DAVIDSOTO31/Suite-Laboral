@@ -1244,6 +1244,45 @@
                                 <tbody id="attDevicesTableBody"></tbody>
                             </table>
                         </div>
+
+                        <div class="mt-5">
+                            <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+                                <h4 class="font-bold text-slate-800 text-sm flex items-center gap-2"><i class="fa-solid fa-wifi text-amber-600"></i> Marcaciones sin conexión <span id="offPendingBadge" class="hidden px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-2xs font-bold"></span></h4>
+                                <label class="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer"><input type="checkbox" id="offShowAll" onchange="attendanceLoadOfflineMarks()" class="rounded h-4 w-4"> Ver también las ya procesadas</label>
+                            </div>
+                            <p class="text-2xs text-slate-500 mb-2">Cuando un kiosco no tiene internet, guarda las marcaciones en el equipo y las envía al volver la conexión, con su hora real. Se registran solas; aquí quedan solo las que necesitan tu decisión: rostros no reconocidos, horas dudosas, marcaciones de más de 3 días o colaboradores sin turno.</p>
+                            <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                                <table class="w-full text-xs">
+                                    <thead class="bg-slate-50 text-slate-500 uppercase"><tr>
+                                        <th class="text-left px-3 py-2">Hora real</th><th class="text-left px-3 py-2">Dispositivo</th>
+                                        <th class="text-left px-3 py-2">Tipo</th><th class="text-left px-3 py-2">Colaborador</th>
+                                        <th class="text-left px-3 py-2">Estado</th><th class="text-left px-3 py-2">Acciones</th>
+                                    </tr></thead>
+                                    <tbody id="offMarksBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal: resolver una marcación sin conexión -->
+                <div id="offResolveModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
+                    <div class="bg-white rounded-xl p-5 w-full max-w-md space-y-3 text-xs">
+                        <h3 class="font-bold text-slate-800 text-base" id="offResolveTitle">-</h3>
+                        <p class="text-slate-500" id="offResolveInfo">-</p>
+                        <input type="hidden" id="offResolveId"><input type="hidden" id="offResolveMode">
+                        <div id="offResolveEmpBox">
+                            <label class="block font-semibold text-slate-700 mb-1">Colaborador <span class="text-rose-600">*</span></label>
+                            <select id="offResolveEmp" class="w-full p-2 border rounded-lg bg-white"></select>
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-700 mb-1">Motivo <span class="text-rose-600">*</span></label>
+                            <textarea id="offResolveReason" rows="2" maxlength="300" class="w-full p-2 border rounded-lg" placeholder="Ej. El supervisor confirma que era Juan Pérez marcando su entrada"></textarea>
+                        </div>
+                        <div class="flex justify-end gap-2 border-t pt-3">
+                            <button onclick="closeModal('offResolveModal')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold">Cancelar</button>
+                            <button id="offResolveBtn" onclick="submitOfflineResolve()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-semibold">Guardar</button>
+                        </div>
                     </div>
                 </div>
 
@@ -7427,14 +7466,15 @@
 
         function initAttendanceView() {
             if (!currentAttendanceSubTab || (currentAttendanceSubTab === 'mark' && !CAN('attendance.mark'))) currentAttendanceSubTab = 'history';
-            attendanceSetSubTab(currentAttendanceSubTab);
-            refreshAttAlertsBadge();
-            if (currentAttendanceSubTab !== 'today') refreshAttTodayBadge();
-            const today = new Date().toISOString().slice(0, 10);
+            // Fecha de hoy en hora Colombia (no UTC: después de las 7 p. m. UTC ya es el día siguiente).
+            const today = bogotaTodayISO();
             if (!document.getElementById('attHistoryFrom').value) {
                 document.getElementById('attHistoryFrom').value = today;
                 document.getElementById('attHistoryTo').value = today;
             }
+            attendanceSetSubTab(currentAttendanceSubTab);
+            refreshAttAlertsBadge();
+            if (currentAttendanceSubTab !== 'today') refreshAttTodayBadge();
         }
 
         let currentAttendanceSubTab = 'history';
@@ -7936,7 +7976,7 @@
                         <td class="px-3 py-2">${attRecargoCell(r)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.hed_min)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.hen_min)}</td>
-                        <td class="px-3 py-2">${attStatusBadge(r.status, r.is_split)}${r.corrected ? '<span class="block mt-0.5 text-3xs font-bold text-sky-700"><i class="fa-solid fa-pen"></i> Corregido</span>' : ''}${r.manual_marks ? `<span class="block mt-0.5 text-3xs font-bold text-violet-700" title="Ver motivo en la pestaña Alertas"><i class="fa-solid fa-hand-pointer"></i> Manual (${r.manual_marks})</span>` : ''}</td>
+                        <td class="px-3 py-2">${attStatusBadge(r.status, r.is_split)}${r.corrected ? '<span class="block mt-0.5 text-3xs font-bold text-sky-700"><i class="fa-solid fa-pen"></i> Corregido</span>' : ''}${r.manual_marks ? `<span class="block mt-0.5 text-3xs font-bold text-violet-700" title="Ver motivo en la pestaña Alertas"><i class="fa-solid fa-hand-pointer"></i> Manual (${r.manual_marks})</span>` : ''}${r.offline_marks ? `<span class="block mt-0.5 text-3xs font-bold text-amber-700" title="Marcada en el kiosco sin internet y enviada después, con su hora real"><i class="fa-solid fa-wifi"></i> Sin conexión (${r.offline_marks})</span>` : ''}</td>
                         <td class="px-3 py-2 text-right" data-perm="attendance.mark">${r.shift_date < bogotaTodayISO() ? `<button onclick="openAttendanceCorrection(${r.employee_id}, '${r.shift_date}')" class="text-2xs font-semibold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200">Corregir</button>` : ''}</td>
                     </tr>`).join('') || `<tr><td colspan="15" class="px-3 py-6 text-center text-slate-400">${document.getElementById('attHistoryOnlyNovelty')?.checked ? 'Sin días con novedad en este rango de fechas.' : 'Sin marcaciones en este rango de fechas.'}</td></tr>`;
 
@@ -8807,6 +8847,7 @@
                 }, 60000);
                 loadDeviceAlertSettings();
             }
+            attendanceLoadOfflineMarks();
             try {
                 const { devices } = await apiFetch('/api/attendance/devices');
                 body.dataset.loaded = '1';
@@ -8831,7 +8872,7 @@
         const DEVICE_EVENT_LABELS = {
             sin_conexion: ['Sin conexión', 'bg-rose-100 text-rose-700'], reconectado: ['Reconectado', 'bg-emerald-100 text-emerald-700'],
             bateria_baja: ['Batería baja', 'bg-amber-100 text-amber-800'], camara: ['Cámara', 'bg-rose-100 text-rose-700'],
-            camara_ok: ['Cámara OK', 'bg-emerald-100 text-emerald-700'], aviso_enviado: ['Aviso por correo (anterior)', 'bg-sky-100 text-sky-700'],
+            camara_ok: ['Cámara OK', 'bg-emerald-100 text-emerald-700'], sincronizado: ['Marcaciones enviadas', 'bg-amber-100 text-amber-800'], aviso_enviado: ['Aviso por correo (anterior)', 'bg-sky-100 text-sky-700'],
         };
         async function attendanceOpenDeviceEvents(deviceId) {
             try {
@@ -8845,6 +8886,70 @@
                 }).join('') : '<p class="px-3 py-6 text-center text-slate-400">Sin eventos registrados. Todo ha funcionado normal.</p>';
                 openModal('attDeviceEventsModal');
             } catch (e) { showAppToast(e.message); }
+        }
+        // ---- Marcaciones guardadas sin conexión ----
+        const OFF_STATUS = {
+            no_reconocido: ['Rostro no reconocido', 'bg-rose-100 text-rose-700'], revision: ['Por revisar', 'bg-amber-100 text-amber-800'],
+            aplicada: ['Registrada', 'bg-emerald-100 text-emerald-700'], duplicada: ['Duplicada (ignorada)', 'bg-slate-100 text-slate-600'],
+            descartada: ['Descartada', 'bg-slate-100 text-slate-500'],
+        };
+        let lastOfflineMarks = [];
+        async function attendanceLoadOfflineMarks() {
+            const body = document.getElementById('offMarksBody');
+            if (!body) return;
+            try {
+                const all = document.getElementById('offShowAll').checked;
+                const { rows, pending } = await apiFetch(`/api/attendance/offline-marks${all ? '?view=all' : ''}`);
+                lastOfflineMarks = rows;
+                const badge = document.getElementById('offPendingBadge');
+                badge.textContent = `${pending} por revisar`; badge.classList.toggle('hidden', !pending);
+                const canResolve = CAN('attendance.mark');
+                body.innerHTML = rows.length ? rows.map(r => {
+                    const [label, cls] = OFF_STATUS[r.status] || [r.status, 'bg-slate-100 text-slate-600'];
+                    const open = r.status === 'no_reconocido' || r.status === 'revision';
+                    return `<tr class="border-t border-slate-100 align-top">
+                        <td class="px-3 py-2 whitespace-nowrap">${escapeHtml(r.captured_local)}</td>
+                        <td class="px-3 py-2">${escapeHtml(r.device_name)}</td>
+                        <td class="px-3 py-2">${r.kind === 'face' ? 'Reconocimiento facial' : 'Selección manual'}${r.reason ? `<span class="block text-3xs text-slate-500">Motivo: ${escapeHtml(r.reason)}</span>` : ''}</td>
+                        <td class="px-3 py-2">${r.employee_name ? escapeHtml(r.employee_name) : '<span class="text-slate-400">Sin identificar</span>'}${r.mark_type ? `<span class="block text-3xs text-slate-500">${escapeHtml(ATTENDANCE_MARK_LABELS[r.mark_type] || r.mark_type)}</span>` : ''}</td>
+                        <td class="px-3 py-2"><span class="px-2 py-0.5 rounded-full ${cls} text-2xs font-bold whitespace-nowrap">${label}</span>${r.problem ? `<span class="block text-3xs text-slate-500 mt-0.5 max-w-[260px]">${escapeHtml(r.problem)}</span>` : ''}${r.resolution_note ? `<span class="block text-3xs text-slate-500 mt-0.5">${escapeHtml(r.resolved_by_email || '')}: ${escapeHtml(r.resolution_note)}</span>` : ''}</td>
+                        <td class="px-3 py-2">${open && canResolve ? `<div class="flex flex-wrap gap-1"><button onclick="openOfflineResolve('${r.id}','apply')" class="px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 font-semibold">Asignar y registrar</button><button onclick="openOfflineResolve('${r.id}','discard')" class="px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold">Descartar</button></div>` : ''}</td>
+                    </tr>`;
+                }).join('') : `<tr><td colspan="6" class="px-3 py-5 text-center text-slate-400">${all ? 'Aún no hay marcaciones hechas sin conexión.' : 'No hay marcaciones sin conexión pendientes de revisar.'}</td></tr>`;
+            } catch (e) { body.innerHTML = `<tr><td colspan="6" class="px-3 py-5 text-center text-slate-400">${escapeHtml(e.message)}</td></tr>`; }
+        }
+        function openOfflineResolve(id, mode) {
+            const r = lastOfflineMarks.find(x => x.id === id);
+            if (!r) return;
+            document.getElementById('offResolveId').value = id;
+            document.getElementById('offResolveMode').value = mode;
+            document.getElementById('offResolveTitle').textContent = mode === 'apply' ? 'Asignar y registrar la marcación' : 'Descartar la marcación';
+            document.getElementById('offResolveInfo').textContent = `${r.kind === 'face' ? 'Reconocimiento facial' : 'Selección manual'} en "${r.device_name}" a las ${r.captured_local}. ${mode === 'apply' ? 'Se registrará con esa hora real; el sistema detecta qué marcación le corresponde.' : 'No se registrará ninguna marcación.'}`;
+            document.getElementById('offResolveEmpBox').classList.toggle('hidden', mode !== 'apply');
+            const sel = document.getElementById('offResolveEmp');
+            sel.innerHTML = '<option value="">Elige el colaborador…</option>' + [...appState.employees].sort((a, b) => a.name.localeCompare(b.name)).map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
+            sel.value = r.employee_id ? String(r.employee_id) : '';
+            document.getElementById('offResolveReason').value = '';
+            document.getElementById('offResolveBtn').textContent = mode === 'apply' ? 'Registrar' : 'Descartar';
+            openModal('offResolveModal');
+        }
+        async function submitOfflineResolve() {
+            const id = document.getElementById('offResolveId').value, mode = document.getElementById('offResolveMode').value;
+            const reason = document.getElementById('offResolveReason').value.trim();
+            if (reason.length < 5) { showAppToast('Escribe el motivo (mínimo 5 caracteres).'); return; }
+            const payload = { reason };
+            if (mode === 'apply') {
+                payload.employeeId = Number(document.getElementById('offResolveEmp').value);
+                if (!payload.employeeId) { showAppToast('Elige el colaborador.'); return; }
+            }
+            const btn = document.getElementById('offResolveBtn'); btn.disabled = true;
+            try {
+                const r = await apiFetch(`/api/attendance/offline-marks/${encodeURIComponent(id)}/${mode === 'apply' ? 'apply' : 'discard'}`, { method: 'POST', body: JSON.stringify(payload) });
+                closeModal('offResolveModal');
+                showAppToast(mode === 'apply' ? `Registrada: ${r.employeeName} · ${ATTENDANCE_MARK_LABELS[r.markType] || r.markType}.` : 'Marcación descartada.');
+                attendanceLoadOfflineMarks();
+            } catch (e) { showAppToast(e.message); }
+            finally { btn.disabled = false; }
         }
         async function loadDeviceAlertSettings() {
             try {
