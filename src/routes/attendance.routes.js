@@ -168,7 +168,7 @@ function listEmployeesToday(req, res, query) {
   const orgId = resolveOrgId(req, query);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   const now = new Date();
-  const employees = db.prepare('SELECT id, name, role, department FROM employees WHERE organization_id = ? ORDER BY name ASC').all(orgId);
+  const employees = db.prepare("SELECT id, name, role, department FROM employees WHERE organization_id = ? AND COALESCE(status, 'activo') != 'retirado' ORDER BY name ASC").all(orgId);
 
   const result = employees.map(emp => {
     const shiftDateISO = resolveShiftDateForMark(orgId, emp.id, now);
@@ -218,6 +218,10 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
   if (!employee) return { httpStatus: 404, body: { error: 'Colaborador no encontrado en esta organizacion.' } };
 
   const now = opts.at instanceof Date ? opts.at : new Date();
+  // Colaborador retirado: no puede marcar despues de su ultimo dia laborado.
+  if (employee.status === 'retirado' && employee.retired_at && bogota.todayISOInBogota(now) > employee.retired_at) {
+    return { httpStatus: 409, body: { error: `Este colaborador fue retirado el ${employee.retired_at.split('-').reverse().join('/')}.`, state: 'retirado' } };
+  }
   const shiftDateISO = resolveShiftDateForMark(orgId, employeeId, now);
   const shift = getShiftForEmployeeDate(orgId, employeeId, shiftDateISO);
   if (!shift || shift.isOffDay) {
@@ -497,7 +501,7 @@ function validDescriptor(d) {
 function listFaceProfiles(req, res, query) {
   const orgId = resolveOrgId(req, query);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
-  const employees = db.prepare('SELECT id, name, role FROM employees WHERE organization_id = ? ORDER BY name ASC').all(orgId);
+  const employees = db.prepare("SELECT id, name, role FROM employees WHERE organization_id = ? AND COALESCE(status, 'activo') != 'retirado' ORDER BY name ASC").all(orgId);
   const profiles = db.prepare('SELECT employee_id, active, consent_given, consent_at, updated_at FROM employee_face_profiles WHERE organization_id = ?').all(orgId);
   const byEmp = Object.fromEntries(profiles.map(p => [p.employee_id, p]));
   sendJson(res, 200, {
@@ -679,7 +683,7 @@ function getDeviceAssignments(req, res, params, query) {
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   const device = db.prepare('SELECT * FROM attendance_devices WHERE id = ? AND organization_id = ?').get(params.id, orgId);
   if (!device) return sendJson(res, 404, { error: 'Dispositivo no encontrado en esta organizacion.' });
-  const employees = db.prepare('SELECT id, name, department FROM employees WHERE organization_id = ? ORDER BY department ASC, name ASC').all(orgId);
+  const employees = db.prepare("SELECT id, name, department FROM employees WHERE organization_id = ? AND COALESCE(status, 'activo') != 'retirado' ORDER BY department ASC, name ASC").all(orgId);
   const assigned = new Set(db.prepare('SELECT employee_id FROM attendance_device_employees WHERE device_id = ?').all(device.id).map(r => r.employee_id));
   sendJson(res, 200, {
     device: deviceOutputRow(device),
@@ -735,7 +739,7 @@ function kioskEmployeesToday(req, res) {
   const orgId = device.organization_id;
   const now = new Date();
   const assignedIds = new Set(db.prepare('SELECT employee_id FROM attendance_device_employees WHERE device_id = ?').all(device.id).map(r => r.employee_id));
-  const employees = db.prepare('SELECT id, name FROM employees WHERE organization_id = ? ORDER BY name ASC').all(orgId)
+  const employees = db.prepare("SELECT id, name FROM employees WHERE organization_id = ? AND COALESCE(status, 'activo') != 'retirado' ORDER BY name ASC").all(orgId)
     .filter(e => assignedIds.has(e.id));
 
   const result = employees.map(emp => {
@@ -1006,7 +1010,7 @@ function scanMissingMarks(orgId, force = false) {
     const today = bogota.todayISOInBogota(now);
     const dayZero = getDayZero(orgId);
     const shifts = shiftsByKey(orgId);
-    const employees = db.prepare('SELECT id, name FROM employees WHERE organization_id = ?').all(orgId);
+    const employees = db.prepare('SELECT id, name, status, retired_at FROM employees WHERE organization_id = ?').all(orgId);
     const existsAlert = db.prepare('SELECT 1 FROM attendance_alerts WHERE employee_id = ? AND shift_date = ? AND alert_type = ?');
     const dayRow = db.prepare('SELECT entrada_real, salida_real, status FROM attendance_days WHERE employee_id = ? AND shift_date = ?');
     const markTypes = db.prepare('SELECT mark_type FROM attendance_marks WHERE employee_id = ? AND shift_date = ?');
@@ -1019,6 +1023,7 @@ function scanMissingMarks(orgId, force = false) {
         const s = shifts.get(`${emp.id}|${date}`);
         if (!isWorkShift(s)) continue;
         if (waitingKiosk.has(emp.id)) continue; // su kiosco tiene marcaciones en camino
+        if (emp.status === 'retirado' && emp.retired_at && date > emp.retired_at) continue; // ya estaba retirado
         const endRel = clockToRel(s.endTime, s.startTime);
         const nowRel = bogota.minutesSinceShiftMidnight(now, date);
         if (nowRel < endRel) continue; // el turno aun no termina
@@ -1067,7 +1072,7 @@ function todayBoard(req, res, query) {
   const today = bogota.todayISOInBogota(now);
   const yesterday = bogota.addDaysISO(today, -1);
   const shifts = shiftsByKey(orgId);
-  const employees = db.prepare('SELECT id, name, role, department FROM employees WHERE organization_id = ? ORDER BY name ASC').all(orgId);
+  const employees = db.prepare("SELECT id, name, role, department FROM employees WHERE organization_id = ? AND (COALESCE(status, 'activo') != 'retirado' OR retired_at >= ?) ORDER BY name ASC").all(orgId, bogota.addDaysISO(bogota.todayISOInBogota(), -1));
   const dayRow = db.prepare('SELECT * FROM attendance_days WHERE employee_id = ? AND shift_date = ?');
   const lunchMark = db.prepare("SELECT actual_at FROM attendance_marks WHERE employee_id = ? AND shift_date = ? AND mark_type = 'inicio_almuerzo' ORDER BY actual_at ASC LIMIT 1");
 
