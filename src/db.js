@@ -660,6 +660,28 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get('horario_bogo
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
 
+// ---------------------------------------------------------------------------
+// GESTION DE NOVEDADES DE ASISTENCIA: las alertas siguen siendo INMUTABLES
+// (attendance_alerts no se modifica nunca). La gestion que hace RR.HH. sobre
+// cada alerta (justificada / injustificada, nota y soporte adjunto) se guarda
+// aparte, en esta tabla, una fila por alerta.
+// ---------------------------------------------------------------------------
+db.exec(`
+CREATE TABLE IF NOT EXISTS alert_management (
+  alert_id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pendiente' CHECK (status IN ('pendiente','justificada','injustificada')),
+  category TEXT,
+  note TEXT,
+  attachment_name TEXT,
+  attachment_type TEXT,
+  attachment_data TEXT,
+  managed_by TEXT,
+  managed_at TEXT NOT NULL DEFAULT (datetime('now', '-5 hours'))
+);
+CREATE INDEX IF NOT EXISTS idx_alert_mgmt_org ON alert_management(organization_id);
+`);
+
 module.exports = {
   db,
   uid,
