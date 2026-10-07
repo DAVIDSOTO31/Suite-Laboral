@@ -1165,7 +1165,8 @@ async function manageAlert(req, res, params) {
   const status = String(body.status || '');
   if (!MGMT_STATUSES.includes(status)) return sendJson(res, 400, { error: 'Elige si la novedad queda justificada, injustificada o pendiente.' });
   const note = String(body.note || '').trim().slice(0, 600);
-  if (status !== 'pendiente' && note.length < 5) return sendJson(res, 400, { error: 'Escribe una nota de la gestión (mínimo 5 caracteres).' });
+  // Justificada: la nota es obligatoria (por que se justifica). Injustificada: la nota es opcional.
+  if (status === 'justificada' && note.length < 5) return sendJson(res, 400, { error: 'Para justificar escribe una nota (mínimo 5 caracteres).' });
   const category = String(body.category || '').trim().slice(0, 60) || null;
 
   const prev = db.prepare('SELECT * FROM alert_management WHERE alert_id = ?').get(alert.id);
