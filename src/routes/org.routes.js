@@ -138,6 +138,7 @@ function getOrgData(req, res, query) {
     employees,
     shifts,
     viewer: { scope, employeeId: selfEmployeeId, canSeePayroll },
+    dataVersion: getDataVersion(orgId),
     isEmpty: scope === 'all' && employees.length === 0 && departments.length === 0,
   });
 }
@@ -149,6 +150,7 @@ function seedDemo(req, res, body) {
   if (existing > 0) return sendJson(res, 409, { error: 'Esta organizacion ya tiene datos; no se cargaron datos de demostracion.' });
   seedDemoDataForOrg(orgId);
   logAction({ organizationId: orgId, userId: req.user.id, action: 'org_data.seed_demo', ip: getClientIp(req) });
+  bumpDataVersion(orgId);
   sendJson(res, 200, { ok: true });
 }
 
@@ -232,10 +234,19 @@ async function replaceShiftPresets(req, res) {
 // or concurrent multi-editor support are needed later.
 async function syncEmployeesAndShifts(req, res) {
   let body;
-  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  try { body = await readBody(req, 30 * 1024 * 1024); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
   const orgId = resolveOrgId(req, body);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
 
+  // Control de version: solo se acepta el guardado si se hizo sobre la version
+  // ACTUAL de los datos. Si otra pestana u otro usuario guardo despues, se
+  // rechaza (en vez de sobrescribir esos cambios con una copia vieja).
+  const currentVersion = getDataVersion(orgId);
+  if (body.baseVersion === undefined || Number(body.baseVersion) !== currentVersion) {
+    return sendJson(res, 409, { error: 'Otro usuario (u otra pestaña) guardó cambios después de que abriste la suite. Recarga para ver la versión actual.', conflict: true, currentVersion });
+  }
+  db.exec('BEGIN');
+  try {
   // Cada cambio se aplica SOLO si el usuario tiene el permiso correspondiente.
   // Lo que no tenga permiso se ignora (no se borra ni se modifica nada) y se
   // informa en la respuesta, en lugar de rechazar toda la sincronizacion.
@@ -453,7 +464,25 @@ async function syncEmployeesAndShifts(req, res) {
     logAction({ organizationId: orgId, userId: req.user.id, action: 'user.auto_linked', resourceType: 'user', ip: getClientIp(req), metadata: l });
   }
   if (ignored.length) logAction({ organizationId: orgId, userId: req.user.id, action: 'org_data.ignored', ip: getClientIp(req), metadata: { ignorados: ignored } });
-  sendJson(res, 200, { ok: true, ignored, linked, shiftChanges: shiftChanges.length });
+  const newVersion = bumpDataVersion(orgId);
+  db.exec('COMMIT');
+  sendJson(res, 200, { ok: true, ignored, linked, shiftChanges: shiftChanges.length, dataVersion: newVersion });
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* ya cerrada */ }
+    throw e;
+  }
+}
+
+function getDataVersion(orgId) {
+  const r = db.prepare('SELECT data_version FROM org_settings WHERE organization_id = ?').get(orgId);
+  return r ? Number(r.data_version) || 0 : 0;
+}
+function bumpDataVersion(orgId) {
+  if (!db.prepare('SELECT 1 FROM org_settings WHERE organization_id = ?').get(orgId)) {
+    db.prepare("INSERT INTO org_settings (organization_id, org_name) VALUES (?, 'Empresa')").run(orgId);
+  }
+  db.prepare('UPDATE org_settings SET data_version = data_version + 1 WHERE organization_id = ?').run(orgId);
+  return getDataVersion(orgId);
 }
 
 // ---------------------------------------------------------------------------
@@ -1099,7 +1128,7 @@ async function retireEmployee(req, res, params) {
   const lastMark = db.prepare('SELECT MAX(shift_date) AS d FROM attendance_marks WHERE employee_id = ?').get(emp.id).d;
   if (lastMark && lastMark > date) return sendJson(res, 409, { error: `Tiene marcaciones hasta el ${lastMark.split('-').reverse().join('/')}. La fecha de retiro no puede ser anterior.` });
   const r = retireEmployeeRecord(orgId, emp.id, { date, reason, detail, userId: req.user.id, deactivateUser: !!body.deactivateUser, ip: getClientIp(req) });
-  sendJson(res, 200, { ok: true, ...r, retiredAt: date });
+  sendJson(res, 200, { ok: true, ...r, retiredAt: date, dataVersion: bumpDataVersion(orgId) });
 }
 
 // POST /api/employees/:id/reactivate
@@ -1113,7 +1142,7 @@ async function reactivateEmployee(req, res, params) {
   db.prepare("UPDATE employees SET status = 'activo', retired_at = NULL, retire_reason = NULL, retire_detail = NULL, retired_by = NULL WHERE id = ?").run(emp.id);
   logAction({ organizationId: orgId, userId: req.user.id, action: 'employee.reactivated', resourceType: 'employee', resourceId: String(emp.id), ip: getClientIp(req),
     metadata: { colaborador: emp.name, retiroAnterior: emp.retired_at, motivoAnterior: emp.retire_reason } });
-  sendJson(res, 200, { ok: true });
+  sendJson(res, 200, { ok: true, dataVersion: bumpDataVersion(orgId) });
 }
 
 // POST /api/employees/:id/delete-permanent -- solo fichas SIN historial (ej. creadas por error).
@@ -1127,7 +1156,7 @@ async function deleteEmployeePermanent(req, res, params) {
   if (employeeHasHistory(orgId, emp.id)) return sendJson(res, 409, { error: 'Este colaborador tiene marcaciones o liquidaciones registradas: no se puede eliminar, solo retirar. Su historial debe conservarse.' });
   deleteEmployeeCompletely(orgId, emp.id);
   logAction({ organizationId: orgId, userId: req.user.id, action: 'employee.deleted', resourceType: 'employee', resourceId: String(emp.id), ip: getClientIp(req), metadata: { colaborador: emp.name, sinHistorial: true } });
-  sendJson(res, 200, { ok: true });
+  sendJson(res, 200, { ok: true, dataVersion: bumpDataVersion(orgId) });
 }
 
 // GET /api/employees/:id/has-history
