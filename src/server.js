@@ -122,6 +122,9 @@ route('POST', '/api/employees/:id/retire', [requirePermission('employees.delete'
 route('POST', '/api/employees/:id/reactivate', [requirePermission('employees.delete')], (req, res, params) => org.reactivateEmployee(req, res, params));
 route('POST', '/api/employees/:id/delete-permanent', [requirePermission('employees.delete')], (req, res, params) => org.deleteEmployeePermanent(req, res, params));
 route('GET', '/api/employees/:id/has-history', [requirePermission('employees.delete')], (req, res, params, query) => org.employeeHistoryCheck(req, res, params, query));
+// Ventana de turnos: turnos anteriores bajo demanda; depuración automática.
+route('GET', '/api/org/shifts', [], (req, res, params, query) => org.getShiftsRange(req, res, query));
+route('PUT', '/api/org/data-retention', [requirePermission('settings.manage')], (req, res) => org.saveDataRetention(req, res));
 route('GET', '/api/org/users', [requirePermission('users.view')], (req, res) => org.listOrgUsers(req, res));
 route('POST', '/api/org/users', [requirePermission('users.create')], (req, res) => org.createOrgUser(req, res));
 route('PUT', '/api/org/users/:id', [requirePermission('users.edit')], (req, res, params) => org.updateOrgUser(req, res, params));
