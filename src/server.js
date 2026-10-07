@@ -218,7 +218,9 @@ const server = http.createServer(async (req, res) => {
     // reconocimiento facial (face-api.js) desde el mismo CDN del script.
     // Esto NO envia fotos de los empleados a ningun lado -- solo descarga
     // el modelo de IA una vez (se queda en cache del navegador).
-    "connect-src 'self' https://cdn.jsdelivr.net; " +
+    // cdn.tailwindcss.com y cdnjs.cloudflare.com: el Kiosco RR.HH (app instalable)
+    // guarda esas librerias en el equipo para poder abrir sin internet.
+    "connect-src 'self' https://cdn.jsdelivr.net https://cdn.tailwindcss.com https://cdnjs.cloudflare.com; " +
     // app.html y superadmin.html usan onclick="..."/onchange="..." en vez de addEventListener.
     // 'unsafe-inline' aqui solo afecta a esos atributos de evento (no a los <script> del bloque
     // anterior, que ya quedan protegidos por los hashes de arriba).
