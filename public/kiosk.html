@@ -60,7 +60,10 @@
       <div id="resultBox" class="mt-4 hidden"></div>
     </div>
 
-    <div class="mt-4 text-center text-2xs text-slate-400">
+    <div class="mt-3 text-center text-2xs">
+      <span id="connStatus" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-800 text-slate-300"><span id="connDot" class="w-2 h-2 rounded-full bg-slate-500 inline-block"></span> <span id="connText">Verificando conexión…</span></span>
+    </div>
+    <div class="mt-2 text-center text-2xs text-slate-400">
       <i class="fa-solid fa-volume-high"></i> Voz: <span id="voiceLabel">-</span>
       · <button onclick="toggleVoicePanel()" class="underline hover:text-slate-200">Cambiar</button>
     </div>
@@ -229,7 +232,15 @@ async function ensureFaceModelsLoaded() {
   faceModelsLoaded = true;
 }
 async function startCameraOn(videoEl) {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+    cameraState = 'ok';
+  } catch (e) {
+    cameraState = e && e.name === 'NotAllowedError' ? 'denegada' : (e && (e.name === 'NotFoundError' || e.name === 'OverconstrainedError')) ? 'sin_camara' : 'error';
+    sendHeartbeat();
+    throw e;
+  }
   videoEl.srcObject = stream;
   await new Promise(resolve => { videoEl.onloadedmetadata = resolve; });
   return stream;
@@ -394,6 +405,60 @@ function escapeHtml(s) {
 }
 
 init();
+
+// ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
+// Envía batería, estado de la cámara y versión, para que el administrador vea
+// en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
+const KIOSK_VERSION = '2026.10-salud';
+let cameraState = 'desconocido';
+let batteryRef = null;
+async function detectCameraState() {
+  try {
+    if (navigator.permissions && navigator.permissions.query) {
+      const p = await navigator.permissions.query({ name: 'camera' });
+      if (p.state === 'denied') { cameraState = 'denegada'; return; }
+      if (p.state === 'granted') cameraState = 'ok';
+    }
+  } catch (e) { /* el navegador no permite consultar el permiso */ }
+  try {
+    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      if (!devs.some(d => d.kind === 'videoinput')) { cameraState = 'sin_camara'; return; }
+    }
+  } catch (e) { /* sin acceso */ }
+}
+function setConnStatus(online, text) {
+  document.getElementById('connDot').className = 'w-2 h-2 rounded-full inline-block ' + (online ? 'bg-emerald-400' : 'bg-rose-500');
+  document.getElementById('connText').textContent = text;
+}
+async function sendHeartbeat() {
+  if (!getToken()) return;
+  const body = { camera: cameraState, pending: 0, version: KIOSK_VERSION };
+  try {
+    if (!batteryRef && navigator.getBattery) batteryRef = await navigator.getBattery();
+    if (batteryRef) body.battery = { level: batteryRef.level, charging: batteryRef.charging };
+  } catch (e) { /* sin API de batería (iPhone/iPad) */ }
+  try {
+    await apiKiosk('/api/kiosk/heartbeat', { method: 'POST', body: JSON.stringify(body) });
+    setConnStatus(true, 'En línea');
+  } catch (e) {
+    setConnStatus(false, navigator.onLine ? 'Sin conexión con el servidor' : 'Sin internet');
+  }
+}
+// Mantiene la pantalla encendida mientras el kiosco está abierto (si el
+// equipo lo permite), para que no deje de marcar ni de enviar señal.
+let wakeLock = null;
+async function keepScreenOn() {
+  try { if ('wakeLock' in navigator && document.visibilityState === 'visible') wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* no soportado */ }
+}
+if (getToken()) {
+  detectCameraState().finally(sendHeartbeat);
+  setInterval(sendHeartbeat, 60 * 1000);
+  window.addEventListener('online', sendHeartbeat);
+  window.addEventListener('offline', () => setConnStatus(false, 'Sin internet'));
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepScreenOn(); sendHeartbeat(); } });
+  keepScreenOn();
+}
 
 // Al usar /kiosk.html, se muestra el nombre del dispositivo si ya hay token
 if (getToken()) {
