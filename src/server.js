@@ -134,6 +134,11 @@ route('GET', '/api/attendance/corrections', [requirePermission('attendance.view'
 // "Mis marcaciones": cada usuario ve solo las de su propia ficha de colaborador.
 route('GET', '/api/attendance/my-history', [requirePermission('self.view')], (req, res, params, query) => attendance.listMyHistory(req, res, query));
 route('GET', '/api/attendance/alerts', [requirePermission('attendance.view_alerts')], (req, res, params, query) => attendance.listAlerts(req, res, query));
+// Tablero "Hoy" y gestion de novedades (justificar / injustificar con nota y soporte).
+route('GET', '/api/attendance/today', [requirePermission('attendance.view')], (req, res, params, query) => attendance.todayBoard(req, res, query));
+route('GET', '/api/attendance/novedades', [requirePermission('attendance.view_alerts')], (req, res, params, query) => attendance.novedadesSummary(req, res, query));
+route('POST', '/api/attendance/alerts/:id/manage', [requirePermission('attendance.view_alerts')], (req, res, params) => attendance.manageAlert(req, res, params));
+route('GET', '/api/attendance/alerts/:id/attachment', [requirePermission('attendance.view_alerts')], (req, res, params) => attendance.getAlertAttachment(req, res, params));
 route('GET', '/api/attendance/payroll-summary', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listPayrollAttendance(req, res, query));
 route('GET', '/api/attendance/face-profiles', [requirePermission('attendance.manage_biometrics')], (req, res, params, query) => attendance.listFaceProfiles(req, res, query));
 route('POST', '/api/attendance/face-profiles', [requirePermission('attendance.manage_biometrics')], (req, res) => attendance.enrollFaceProfile(req, res));
