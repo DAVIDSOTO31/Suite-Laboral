@@ -101,7 +101,12 @@ function getOrgData(req, res, query) {
       .map(u => [Number(u.employee_id), { email: u.email, status: u.status }]));
     employees = employees.map(e => ({ ...e, linkedUser: linkedUsers.get(Number(e.id)) || null }));
   }
-  let shifts = db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId).map(r => JSON.parse(r.data_json));
+  // VENTANA DE TURNOS: el navegador recibe solo los turnos desde el dia 1 del
+  // mes de hace dos meses en adelante. Los anteriores se piden aparte
+  // (/api/org/shifts) solo cuando alguien navega a esas semanas o liquida
+  // ese periodo. Asi la suite pesa lo mismo el primer mes que en el ano cinco.
+  const shiftsFrom = defaultShiftsWindowFrom();
+  let shifts = readShiftsRange(orgId, shiftsFrom, null);
 
   // Alcance segun el rol:
   //  - Administrador / Supervisor: toda la organizacion.
@@ -139,6 +144,8 @@ function getOrgData(req, res, query) {
     shifts,
     viewer: { scope, employeeId: selfEmployeeId, canSeePayroll },
     dataVersion: getDataVersion(orgId),
+    shiftsFrom,
+    dataRetention: getRetentionInfo(orgId),
     isEmpty: scope === 'all' && employees.length === 0 && departments.length === 0,
   });
 }
@@ -244,6 +251,11 @@ async function syncEmployeesAndShifts(req, res) {
   const currentVersion = getDataVersion(orgId);
   if (body.baseVersion === undefined || Number(body.baseVersion) !== currentVersion) {
     return sendJson(res, 409, { error: 'Otro usuario (u otra pestaña) guardó cambios después de que abriste la suite. Recarga para ver la versión actual.', conflict: true, currentVersion });
+  }
+  // Desde que fecha tiene el navegador los turnos cargados (ventana de turnos).
+  const windowFrom = String(body.shiftsFrom || '');
+  if (Array.isArray(body.shifts) && !/^\d{4}-\d{2}-\d{2}$/.test(windowFrom)) {
+    return sendJson(res, 400, { error: 'Recarga la suite para guardar (versión anterior de la página).' });
   }
   db.exec('BEGIN');
   try {
@@ -402,11 +414,9 @@ async function syncEmployeesAndShifts(req, res) {
       const pubs = getPublications(orgId);
       const keyOf = (sh) => `${Number(sh.empId)}|${sh.date}`;
       const beforeAll = new Map();
-      for (const row of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId)) {
-        try { const sh = JSON.parse(row.data_json); beforeAll.set(keyOf(sh), sh); } catch { /* fila invalida */ }
-      }
+      for (const sh of readShiftsRange(orgId, windowFrom, null)) beforeAll.set(keyOf(sh), sh);
       const afterAll = new Map();
-      for (const sh of body.shifts) { if (sh) afterAll.set(keyOf(sh), sh); }
+      for (const sh of body.shifts) { if (sh && sh.date >= windowFrom) afterAll.set(keyOf(sh), sh); }
       const auditByEmp = new Map();
       for (const k of new Set([...beforeAll.keys(), ...afterAll.keys()])) {
         const b = shiftSummary(beforeAll.get(k)), a = shiftSummary(afterAll.get(k));
@@ -422,12 +432,16 @@ async function syncEmployeesAndShifts(req, res) {
         logAction({ organizationId: orgId, userId: req.user.id, action: 'shifts.changed', resourceType: 'employee', resourceId: String(empId), ip: getClientIp(req),
           metadata: { colaborador: emp ? emp.name : `Colaborador ${empId}`, total: list.length, cambios: list.slice(0, 120) } });
       }
-      db.prepare('DELETE FROM shifts WHERE organization_id = ?').run(orgId);
+      // Solo se reemplazan los turnos de la ventana que el navegador tiene
+      // cargada (desde windowFrom); los anteriores no se tocan.
+      db.prepare("DELETE FROM shifts WHERE organization_id = ? AND json_extract(data_json, '$.date') >= ?").run(orgId, windowFrom);
       const insert = db.prepare('INSERT INTO shifts (id, organization_id, data_json) VALUES (?, ?, ?)');
+      const purgeCutoff = retentionCutoff(orgId);
       // Colaboradores retirados: no se aceptan turnos posteriores a su fecha de retiro.
       const retiredAt = new Map(db.prepare("SELECT id, retired_at FROM employees WHERE organization_id = ? AND status = 'retirado'").all(orgId).map(r => [Number(r.id), r.retired_at]));
       for (const sh of body.shifts) {
-        if (!sh) continue;
+        if (!sh || !sh.date || sh.date < windowFrom) continue;
+        if (purgeCutoff && sh.date < purgeCutoff) continue; // ya depurado: no se vuelve a crear
         const rAt = retiredAt.get(Number(sh.empId));
         if (rAt && sh.date > rAt) continue;
         const id = sh.id || `${sh.empId}_${sh.date}_${uid('s')}`;
@@ -471,6 +485,90 @@ async function syncEmployeesAndShifts(req, res) {
     try { db.exec('ROLLBACK'); } catch { /* ya cerrada */ }
     throw e;
   }
+}
+
+// ---- Ventana de turnos y depuracion ----
+function defaultShiftsWindowFrom() {
+  const today = new Date(Date.now() - 5 * 3600000);
+  const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 2, 1));
+  return d.toISOString().slice(0, 10);
+}
+// Turnos de un rango de fechas (to = null: sin limite superior).
+function readShiftsRange(orgId, from, to) {
+  const rows = to
+    ? db.prepare("SELECT data_json FROM shifts WHERE organization_id = ? AND json_extract(data_json, '$.date') >= ? AND json_extract(data_json, '$.date') <= ?").all(orgId, from, to)
+    : db.prepare("SELECT data_json FROM shifts WHERE organization_id = ? AND json_extract(data_json, '$.date') >= ?").all(orgId, from);
+  const out = [];
+  for (const r of rows) { try { out.push(JSON.parse(r.data_json)); } catch { /* fila invalida */ } }
+  return out;
+}
+
+// GET /api/org/shifts?from=&to=  -- turnos anteriores a la ventana, bajo demanda.
+function getShiftsRange(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(query.from || '') ? query.from : '0000-01-01';
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(query.to || '') ? query.to : null;
+  let shifts = readShiftsRange(orgId, from, to);
+  const scope = (can(req, 'employees.view') || can(req, 'shifts.view')) ? 'all' : 'self';
+  if (scope === 'self') {
+    const selfId = req.user.employeeId != null ? Number(req.user.employeeId) : null;
+    const pubs = getPublications(orgId);
+    shifts = selfId == null ? [] : shifts.filter(sh => Number(sh.empId) === selfId && isDatePublished(pubs, sh.date));
+  }
+  sendJson(res, 200, { from, to, shifts });
+}
+
+function retentionCutoff(orgId) {
+  const r = db.prepare('SELECT shift_retention_years FROM org_settings WHERE organization_id = ?').get(orgId);
+  const years = r && Number(r.shift_retention_years);
+  if (!years || years < 3) return null;
+  const today = new Date(Date.now() - 5 * 3600000);
+  return new Date(Date.UTC(today.getUTCFullYear() - years, today.getUTCMonth(), today.getUTCDate())).toISOString().slice(0, 10);
+}
+function getRetentionInfo(orgId) {
+  const r = db.prepare('SELECT shift_retention_years, shift_purge_info FROM org_settings WHERE organization_id = ?').get(orgId) || {};
+  let last = null; try { last = r.shift_purge_info ? JSON.parse(r.shift_purge_info) : null; } catch { last = null; }
+  return { years: r.shift_retention_years || null, cutoff: retentionCutoff(orgId), last };
+}
+
+// Depura (borra) los turnos mas antiguos que el plazo configurado. Se ejecuta
+// sola una vez al dia. Solo la programacion de turnos: las marcaciones, los
+// cierres y la auditoria no se tocan.
+function purgeOldShifts(orgId, userId = null) {
+  const cutoff = retentionCutoff(orgId);
+  if (!cutoff) return 0;
+  const n = db.prepare("DELETE FROM shifts WHERE organization_id = ? AND json_extract(data_json, '$.date') < ?").run(orgId, cutoff).changes;
+  const info = { at: new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 16).replace('T', ' '), cutoff, deleted: n };
+  db.prepare('UPDATE org_settings SET shift_purge_info = ? WHERE organization_id = ?').run(JSON.stringify(info), orgId);
+  if (n) logAction({ organizationId: orgId, userId, action: 'shifts.purged', resourceType: 'organization', resourceId: orgId, ip: null, metadata: { turnos: n, antesDe: cutoff } });
+  return n;
+}
+let lastPurgeDay = null;
+const purgeTimer = setInterval(() => {
+  const today = new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10);
+  if (lastPurgeDay === today) return;
+  lastPurgeDay = today;
+  try {
+    for (const o of db.prepare('SELECT organization_id AS id FROM org_settings WHERE shift_retention_years IS NOT NULL').all()) purgeOldShifts(o.id);
+  } catch (e) { console.error('[turnos] Depuración:', e.message); }
+}, 60 * 60 * 1000);
+if (purgeTimer.unref) purgeTimer.unref();
+
+// PUT /api/org/data-retention  { years: null | 3 | 5 | 10 }
+async function saveDataRetention(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const years = body.years == null || body.years === '' ? null : Number(body.years);
+  if (years !== null && ![3, 5, 10].includes(years)) return sendJson(res, 400, { error: 'El plazo debe ser 3, 5 o 10 años (o desactivado).' });
+  if (!db.prepare('SELECT 1 FROM org_settings WHERE organization_id = ?').get(orgId)) db.prepare("INSERT INTO org_settings (organization_id, org_name) VALUES (?, 'Empresa')").run(orgId);
+  const prev = getRetentionInfo(orgId).years;
+  db.prepare('UPDATE org_settings SET shift_retention_years = ? WHERE organization_id = ?').run(years, orgId);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'settings.shift_retention', resourceType: 'organization', resourceId: orgId, ip: getClientIp(req), metadata: { antes: prev, despues: years } });
+  const deleted = years ? purgeOldShifts(orgId, req.user.id) : 0;
+  sendJson(res, 200, { ok: true, deleted, ...getRetentionInfo(orgId) });
 }
 
 function getDataVersion(orgId) {
@@ -1169,6 +1267,7 @@ function employeeHistoryCheck(req, res, params, query) {
 }
 
 module.exports = {
+  getShiftsRange, saveDataRetention,
   retireEmployee, reactivateEmployee, deleteEmployeePermanent, employeeHistoryCheck,
   setDayZero, saveOpeningBalance, deleteOpeningBalance,
   publishShifts, listShiftChanges, replaceRotationPatterns,
