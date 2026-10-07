@@ -92,8 +92,9 @@ function getOrgData(req, res, query) {
   const settingsRow = db.prepare('SELECT * FROM org_settings WHERE organization_id = ?').get(orgId);
   const departments = db.prepare('SELECT id, name, icon FROM departments WHERE organization_id = ? ORDER BY position ASC').all(orgId);
   const presetRows = db.prepare('SELECT data_json FROM shift_presets WHERE organization_id = ?').all(orgId);
-  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number FROM employees WHERE organization_id = ?').all(orgId)
-    .map(({ night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, ...e }) => ({ ...e, email: email || '', nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '', countWorkedDays: count_worked_days === 1, documentType: document_type || 'CC', documentNumber: document_number || '' }));
+  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, status, retired_at, retire_reason, retire_detail FROM employees WHERE organization_id = ?').all(orgId)
+    .map(({ night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, status, retired_at, retire_reason, retire_detail, ...e }) => ({ ...e, email: email || '', nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '', countWorkedDays: count_worked_days === 1, documentType: document_type || 'CC', documentNumber: document_number || '',
+      status: status === 'retirado' ? 'retirado' : 'activo', retiredAt: retired_at || null, retireReason: retire_reason || null, retireDetail: retire_detail || null }));
   // Usuario de la suite vinculado a cada colaborador (solo para quien gestiona usuarios).
   if (can(req, 'users.view')) {
     const linkedUsers = new Map(db.prepare('SELECT employee_id, email, status FROM users WHERE organization_id = ? AND employee_id IS NOT NULL').all(orgId)
@@ -249,7 +250,7 @@ async function syncEmployeesAndShifts(req, res) {
     // Los empleados se ACTUALIZAN (no se borran y recrean) para no arrastrar en
     // cascada su historial de asistencia ni su perfil biometrico.
     const existing = new Map(
-      db.prepare('SELECT id, name, role, department, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
+      db.prepare('SELECT id, name, role, department, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, status FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
     );
     const incomingIds = new Set(body.employees.map(e => Number(e.id)));
     const toDelete = [...existing.keys()].filter(id => !incomingIds.has(id));
@@ -257,7 +258,16 @@ async function syncEmployeesAndShifts(req, res) {
       if (canDelete) {
         const del = db.prepare('DELETE FROM employees WHERE organization_id = ? AND id = ?');
         for (const id of toDelete) {
-          del.run(orgId, id);
+          // PROTECCION DEL HISTORIAL: si el colaborador ya tiene marcaciones,
+          // alertas, cierres u otros registros, NO se borra: se retira (se
+          // conserva toda su evidencia). Solo se borran fichas sin historial.
+          if (employeeHasHistory(orgId, id)) {
+            if (existing.get(id).status !== 'retirado') {
+              retireEmployeeRecord(orgId, id, { date: bogotaToday(), reason: 'Otro', detail: 'Quitado de la lista de colaboradores (se conserva su historial).', userId: req.user.id, deactivateUser: false, ip: getClientIp(req), auto: true });
+            }
+            continue;
+          }
+          deleteEmployeeCompletely(orgId, id);
           logAction({ organizationId: orgId, userId: req.user.id, action: 'employee.deleted', resourceType: 'employee', resourceId: String(id), ip: getClientIp(req), metadata: { colaborador: existing.get(id).name } });
         }
       } else {
@@ -403,7 +413,12 @@ async function syncEmployeesAndShifts(req, res) {
       }
       db.prepare('DELETE FROM shifts WHERE organization_id = ?').run(orgId);
       const insert = db.prepare('INSERT INTO shifts (id, organization_id, data_json) VALUES (?, ?, ?)');
+      // Colaboradores retirados: no se aceptan turnos posteriores a su fecha de retiro.
+      const retiredAt = new Map(db.prepare("SELECT id, retired_at FROM employees WHERE organization_id = ? AND status = 'retirado'").all(orgId).map(r => [Number(r.id), r.retired_at]));
       for (const sh of body.shifts) {
+        if (!sh) continue;
+        const rAt = retiredAt.get(Number(sh.empId));
+        if (rAt && sh.date > rAt) continue;
         const id = sh.id || `${sh.empId}_${sh.date}_${uid('s')}`;
         insert.run(id, orgId, JSON.stringify(sh));
       }
@@ -1008,7 +1023,124 @@ async function replaceRotationPatterns(req, res) {
   sendJson(res, 200, { ok: true });
 }
 
+// ===========================================================================
+// RETIRO DE COLABORADORES (en lugar de borrarlos)
+// ===========================================================================
+const RETIRE_REASONS = ['Renuncia voluntaria', 'Terminación con justa causa', 'Terminación sin justa causa', 'Vencimiento del contrato',
+  'Mutuo acuerdo', 'Terminación en periodo de prueba', 'Pensión', 'Fallecimiento', 'Otro'];
+function bogotaToday() { return new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10); }
+
+// ¿El colaborador tiene historial que la empresa debe conservar?
+function employeeHasHistory(orgId, empId) {
+  const id = Number(empId);
+  const q = (sql, ...a) => !!db.prepare(sql).get(...a);
+  if (q('SELECT 1 FROM attendance_marks WHERE employee_id = ? LIMIT 1', id)) return true;
+  if (q('SELECT 1 FROM attendance_days WHERE employee_id = ? LIMIT 1', id)) return true;
+  if (q('SELECT 1 FROM attendance_alerts WHERE employee_id = ? LIMIT 1', id)) return true;
+  try { if (q('SELECT 1 FROM attendance_corrections WHERE employee_id = ? LIMIT 1', id)) return true; } catch { /* tabla ausente */ }
+  try { if (q('SELECT 1 FROM employee_opening_balances WHERE employee_id = ? LIMIT 1', id)) return true; } catch { /* tabla ausente */ }
+  const pats = [`%"employeeId":${id},%`, `%"employeeId":${id}}%`, `%"employeeId":"${id}"%`];
+  if (q('SELECT 1 FROM payroll_closures WHERE organization_id = ? AND (snapshot_json LIKE ? OR snapshot_json LIKE ? OR snapshot_json LIKE ?) LIMIT 1', orgId, ...pats)) return true;
+  return false;
+}
+
+function deleteShiftsOfEmployee(orgId, empId, afterDate) {
+  const del = db.prepare('DELETE FROM shifts WHERE id = ?');
+  let n = 0;
+  for (const r of db.prepare('SELECT id, data_json FROM shifts WHERE organization_id = ?').all(orgId)) {
+    try {
+      const sh = JSON.parse(r.data_json);
+      if (Number(sh.empId) === Number(empId) && (!afterDate || sh.date > afterDate)) { del.run(r.id); n++; }
+    } catch { /* fila invalida */ }
+  }
+  return n;
+}
+
+function deleteEmployeeCompletely(orgId, empId) {
+  deleteShiftsOfEmployee(orgId, empId, null);
+  db.prepare('UPDATE users SET employee_id = NULL WHERE organization_id = ? AND employee_id = ?').run(orgId, Number(empId));
+  db.prepare('DELETE FROM employees WHERE organization_id = ? AND id = ?').run(orgId, Number(empId));
+}
+
+function retireEmployeeRecord(orgId, empId, { date, reason, detail, userId, deactivateUser, ip, auto }) {
+  const emp = db.prepare('SELECT id, name FROM employees WHERE id = ? AND organization_id = ?').get(Number(empId), orgId);
+  if (!emp) return null;
+  db.prepare("UPDATE employees SET status = 'retirado', retired_at = ?, retire_reason = ?, retire_detail = ?, retired_by = ? WHERE id = ?")
+    .run(date, reason, detail || null, userId || null, emp.id);
+  const shiftsRemoved = deleteShiftsOfEmployee(orgId, emp.id, date);   // turnos posteriores al retiro
+  db.prepare('DELETE FROM attendance_device_employees WHERE employee_id = ?').run(emp.id); // ya no marca en ningún kiosco
+  const faceRemoved = db.prepare('DELETE FROM employee_face_profiles WHERE employee_id = ?').run(emp.id).changes; // Ley 1581: sin biometría
+  let userDeactivated = null;
+  if (deactivateUser) {
+    const u = db.prepare("SELECT id, email FROM users WHERE organization_id = ? AND employee_id = ? AND status != 'inactive'").get(orgId, emp.id);
+    if (u) { db.prepare("UPDATE users SET status = 'inactive', updated_at = datetime('now') WHERE id = ?").run(u.id); userDeactivated = u.email; }
+  }
+  logAction({ organizationId: orgId, userId, action: 'employee.retired', resourceType: 'employee', resourceId: String(emp.id), ip,
+    metadata: { colaborador: emp.name, fecha: date, motivo: reason, detalle: detail || null, turnosQuitados: shiftsRemoved, perfilFacialBorrado: faceRemoved > 0, usuarioDesactivado: userDeactivated, automatico: !!auto } });
+  return { shiftsRemoved, faceRemoved: faceRemoved > 0, userDeactivated };
+}
+
+// POST /api/employees/:id/retire  { date, reason, detail, deactivateUser }
+async function retireEmployee(req, res, params) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const emp = db.prepare('SELECT * FROM employees WHERE id = ? AND organization_id = ?').get(Number(params.id), orgId);
+  if (!emp) return sendJson(res, 404, { error: 'Colaborador no encontrado.' });
+  if (emp.status === 'retirado') return sendJson(res, 409, { error: 'Este colaborador ya está retirado.' });
+  const date = String(body.date || '');
+  if (!ISO_DATE.test(date)) return sendJson(res, 400, { error: 'Indica la fecha de retiro (último día laborado).' });
+  const reason = RETIRE_REASONS.includes(body.reason) ? body.reason : null;
+  if (!reason) return sendJson(res, 400, { error: 'Elige el motivo del retiro.' });
+  const detail = String(body.detail || '').trim().slice(0, 300);
+  if (reason === 'Otro' && detail.length < 5) return sendJson(res, 400, { error: 'Describe el motivo del retiro (mínimo 5 caracteres).' });
+  // No puede haber marcaciones después del último día laborado.
+  const lastMark = db.prepare('SELECT MAX(shift_date) AS d FROM attendance_marks WHERE employee_id = ?').get(emp.id).d;
+  if (lastMark && lastMark > date) return sendJson(res, 409, { error: `Tiene marcaciones hasta el ${lastMark.split('-').reverse().join('/')}. La fecha de retiro no puede ser anterior.` });
+  const r = retireEmployeeRecord(orgId, emp.id, { date, reason, detail, userId: req.user.id, deactivateUser: !!body.deactivateUser, ip: getClientIp(req) });
+  sendJson(res, 200, { ok: true, ...r, retiredAt: date });
+}
+
+// POST /api/employees/:id/reactivate
+async function reactivateEmployee(req, res, params) {
+  let body = {};
+  try { body = await readBody(req); } catch { /* opcional */ }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const emp = db.prepare("SELECT * FROM employees WHERE id = ? AND organization_id = ? AND status = 'retirado'").get(Number(params.id), orgId);
+  if (!emp) return sendJson(res, 404, { error: 'Colaborador retirado no encontrado.' });
+  db.prepare("UPDATE employees SET status = 'activo', retired_at = NULL, retire_reason = NULL, retire_detail = NULL, retired_by = NULL WHERE id = ?").run(emp.id);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'employee.reactivated', resourceType: 'employee', resourceId: String(emp.id), ip: getClientIp(req),
+    metadata: { colaborador: emp.name, retiroAnterior: emp.retired_at, motivoAnterior: emp.retire_reason } });
+  sendJson(res, 200, { ok: true });
+}
+
+// POST /api/employees/:id/delete-permanent -- solo fichas SIN historial (ej. creadas por error).
+async function deleteEmployeePermanent(req, res, params) {
+  let body = {};
+  try { body = await readBody(req); } catch { /* opcional */ }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const emp = db.prepare('SELECT * FROM employees WHERE id = ? AND organization_id = ?').get(Number(params.id), orgId);
+  if (!emp) return sendJson(res, 404, { error: 'Colaborador no encontrado.' });
+  if (employeeHasHistory(orgId, emp.id)) return sendJson(res, 409, { error: 'Este colaborador tiene marcaciones o liquidaciones registradas: no se puede eliminar, solo retirar. Su historial debe conservarse.' });
+  deleteEmployeeCompletely(orgId, emp.id);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'employee.deleted', resourceType: 'employee', resourceId: String(emp.id), ip: getClientIp(req), metadata: { colaborador: emp.name, sinHistorial: true } });
+  sendJson(res, 200, { ok: true });
+}
+
+// GET /api/employees/:id/has-history
+function employeeHistoryCheck(req, res, params, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const emp = db.prepare('SELECT id FROM employees WHERE id = ? AND organization_id = ?').get(Number(params.id), orgId);
+  if (!emp) return sendJson(res, 404, { error: 'Colaborador no encontrado.' });
+  sendJson(res, 200, { hasHistory: employeeHasHistory(orgId, emp.id) });
+}
+
 module.exports = {
+  retireEmployee, reactivateEmployee, deleteEmployeePermanent, employeeHistoryCheck,
   setDayZero, saveOpeningBalance, deleteOpeningBalance,
   publishShifts, listShiftChanges, replaceRotationPatterns,
   listPayrollClosures, createPayrollClosure, reopenPayrollClosure,
