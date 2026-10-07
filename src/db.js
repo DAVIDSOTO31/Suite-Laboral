@@ -763,6 +763,19 @@ CREATE INDEX IF NOT EXISTS idx_offline_marks_org ON offline_marks(organization_i
 const dayColsOff = db.prepare('PRAGMA table_info(attendance_days)').all().map(c => c.name);
 if (!dayColsOff.includes('offline_marks')) db.exec('ALTER TABLE attendance_days ADD COLUMN offline_marks INTEGER NOT NULL DEFAULT 0');
 
+// ---------------------------------------------------------------------------
+// RETIRO DE COLABORADORES: en lugar de borrar la ficha (lo que eliminaba en
+// cascada sus marcaciones, alertas e historial), el colaborador se RETIRA:
+// sale de la planilla, del kiosco y de los listados, pero todo su historial
+// se conserva (evidencia de jornada y horas extras).
+// ---------------------------------------------------------------------------
+const empRetCols = db.prepare('PRAGMA table_info(employees)').all().map(c => c.name);
+if (!empRetCols.includes('status')) db.exec("ALTER TABLE employees ADD COLUMN status TEXT NOT NULL DEFAULT 'activo'");
+if (!empRetCols.includes('retired_at')) db.exec('ALTER TABLE employees ADD COLUMN retired_at TEXT NULL');
+if (!empRetCols.includes('retire_reason')) db.exec('ALTER TABLE employees ADD COLUMN retire_reason TEXT NULL');
+if (!empRetCols.includes('retire_detail')) db.exec('ALTER TABLE employees ADD COLUMN retire_detail TEXT NULL');
+if (!empRetCols.includes('retired_by')) db.exec('ALTER TABLE employees ADD COLUMN retired_by TEXT NULL');
+
 module.exports = {
   db,
   uid,
