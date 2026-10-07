@@ -729,6 +729,40 @@ const orgSetCols2 = db.prepare('PRAGMA table_info(org_settings)').all().map(c =>
 if (!orgSetCols2.includes('device_alerts_enabled')) db.exec('ALTER TABLE org_settings ADD COLUMN device_alerts_enabled INTEGER NOT NULL DEFAULT 1');
 if (!orgSetCols2.includes('device_offline_min')) db.exec('ALTER TABLE org_settings ADD COLUMN device_offline_min INTEGER NOT NULL DEFAULT 10');
 
+// ---------------------------------------------------------------------------
+// MODO SIN CONEXION DEL KIOSCO
+//  - offline_marks: cada marcacion que un kiosco guardo sin internet y envio
+//    despues. Queda el registro de lo recibido y de que se hizo con ella
+//    (aplicada, duplicada, rostro no reconocido, por revisar, descartada).
+//  - attendance_days.offline_marks: cuantas marcaciones del dia llegaron asi.
+// ---------------------------------------------------------------------------
+db.exec(`
+CREATE TABLE IF NOT EXISTS offline_marks (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  client_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  employee_id INTEGER NULL,
+  descriptor_json TEXT NULL,
+  reason TEXT NULL,
+  captured_device TEXT NULL,
+  captured_at TEXT NOT NULL,
+  skew_ms INTEGER NULL,
+  status TEXT NOT NULL,
+  problem TEXT NULL,
+  mark_type TEXT NULL,
+  received_at TEXT NOT NULL DEFAULT (datetime('now', '-5 hours')),
+  resolved_by TEXT NULL,
+  resolved_at TEXT NULL,
+  resolution_note TEXT NULL,
+  UNIQUE(device_id, client_id)
+);
+CREATE INDEX IF NOT EXISTS idx_offline_marks_org ON offline_marks(organization_id, status);
+`);
+const dayColsOff = db.prepare('PRAGMA table_info(attendance_days)').all().map(c => c.name);
+if (!dayColsOff.includes('offline_marks')) db.exec('ALTER TABLE attendance_days ADD COLUMN offline_marks INTEGER NOT NULL DEFAULT 0');
+
 module.exports = {
   db,
   uid,
