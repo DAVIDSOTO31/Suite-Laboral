@@ -20,13 +20,27 @@ function resolveOrgId(req, extra) {
 // Turnos (tabla `shifts`, sin modificarla), el turno de un empleado en una
 // fecha especifica. Solo LECTURA.
 function getShiftForEmployeeDate(orgId, employeeId, dateISO) {
-  const rows = db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId);
+  // Prefiltro por fecha en SQL (sin convertir los miles de turnos de la
+  // organizacion): solo se leen los turnos de ESE dia.
+  const rows = db.prepare('SELECT data_json FROM shifts WHERE organization_id = ? AND data_json LIKE ?').all(orgId, `%"date":"${dateISO}"%`);
   for (const row of rows) {
     let s;
     try { s = JSON.parse(row.data_json); } catch { continue; }
     if (Number(s.empId) === Number(employeeId) && s.date === dateISO) return s;
   }
   return null;
+}
+
+// Turnos de hoy y ayer de toda la organizacion, leidos UNA sola vez (para
+// las listas del dia, en lugar de buscar colaborador por colaborador).
+function todayShiftLookup(orgId, now) {
+  const today = bogota.todayISOInBogota(now);
+  const map = new Map();
+  const dates = [today, bogota.addDaysISO(today, -1)];
+  for (const r of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ? AND (data_json LIKE ? OR data_json LIKE ?)').all(orgId, ...dates.map(d => `%"date":"${d}"%`))) {
+    try { const s = JSON.parse(r.data_json); if (s && s.date) map.set(`${Number(s.empId)}|${s.date}`, s); } catch { /* fila invalida */ }
+  }
+  return (o, empId, date) => map.get(`${Number(empId)}|${date}`) || null;
 }
 
 function isOvernightShift(shift) {
@@ -41,14 +55,14 @@ function isOvernightShift(shift) {
 // Si ayer quedo un turno nocturno abierto (con entrada marcada pero sin
 // salida), las marcas de la madrugada de hoy le pertenecen a ESE turno de
 // ayer, no a uno nuevo de hoy (Regla 26).
-function resolveShiftDateForMark(orgId, employeeId, now) {
+function resolveShiftDateForMark(orgId, employeeId, now, lookup = getShiftForEmployeeDate) {
   const todayISO = bogota.todayISOInBogota(now);
   const yesterdayISO = bogota.addDaysISO(todayISO, -1);
   const openYesterday = db.prepare(
     "SELECT * FROM attendance_days WHERE organization_id = ? AND employee_id = ? AND shift_date = ? AND status != 'turno_finalizado'"
   ).get(orgId, employeeId, yesterdayISO);
   if (openYesterday) {
-    const shiftY = getShiftForEmployeeDate(orgId, employeeId, yesterdayISO);
+    const shiftY = lookup(orgId, employeeId, yesterdayISO);
     if (shiftY && isOvernightShift(shiftY)) return yesterdayISO;
   }
   return todayISO;
@@ -170,9 +184,10 @@ function listEmployeesToday(req, res, query) {
   const now = new Date();
   const employees = db.prepare("SELECT id, name, role, department FROM employees WHERE organization_id = ? AND COALESCE(status, 'activo') != 'retirado' ORDER BY name ASC").all(orgId);
 
+  const lookup = todayShiftLookup(orgId, now);
   const result = employees.map(emp => {
-    const shiftDateISO = resolveShiftDateForMark(orgId, emp.id, now);
-    const shift = getShiftForEmployeeDate(orgId, emp.id, shiftDateISO);
+    const shiftDateISO = resolveShiftDateForMark(orgId, emp.id, now, lookup);
+    const shift = lookup(orgId, emp.id, shiftDateISO);
     if (!shift || shift.isOffDay) {
       return { id: emp.id, name: emp.name, role: emp.role, hasShift: false, nextMark: null, shift: null };
     }
@@ -398,7 +413,7 @@ function listHistory(req, res, query) {
   `).all(orgId, from, to, employeeId, employeeId);
   // Marca qué dias eran turno partido (para mostrar "Etapa 1 / Etapa 2").
   const splitKeys = new Set();
-  for (const r of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId)) {
+  for (const r of db.prepare("SELECT data_json FROM shifts WHERE organization_id = ? AND data_json LIKE '%\"isSplit\":true%'").all(orgId)) {
     try {
       const sh = JSON.parse(r.data_json);
       if (sh && sh.isSplit && !sh.isOffDay) splitKeys.add(`${sh.empId}|${sh.date}`);
@@ -431,7 +446,7 @@ function listMyHistory(req, res, query) {
     ORDER BY d.shift_date DESC
   `).all(orgId, employeeId, from, to);
   const splitDates = new Set();
-  for (const r of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId)) {
+  for (const r of db.prepare("SELECT data_json FROM shifts WHERE organization_id = ? AND data_json LIKE '%\"isSplit\":true%'").all(orgId)) {
     try {
       const sh = JSON.parse(r.data_json);
       if (sh && sh.isSplit && !sh.isOffDay && Number(sh.empId) === employeeId) splitDates.add(sh.date);
@@ -742,9 +757,10 @@ function kioskEmployeesToday(req, res) {
   const employees = db.prepare("SELECT id, name FROM employees WHERE organization_id = ? AND COALESCE(status, 'activo') != 'retirado' ORDER BY name ASC").all(orgId)
     .filter(e => assignedIds.has(e.id));
 
+  const lookup = todayShiftLookup(orgId, now);
   const result = employees.map(emp => {
-    const shiftDateISO = resolveShiftDateForMark(orgId, emp.id, now);
-    const shift = getShiftForEmployeeDate(orgId, emp.id, shiftDateISO);
+    const shiftDateISO = resolveShiftDateForMark(orgId, emp.id, now, lookup);
+    const shift = lookup(orgId, emp.id, shiftDateISO);
     if (!shift || shift.isOffDay) return { id: emp.id, name: emp.name, hasShift: false, nextMark: null };
     const marksDone = getExistingMarkTypes(emp.id, shiftDateISO);
     const nextMark = rules.nextExpectedMarkType(marksDone);
@@ -962,9 +978,12 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(NOVEDADES_FEA
 }
 const NOVEDADES_START = String((db.prepare('SELECT applied_at FROM app_migrations WHERE name = ?').get(NOVEDADES_FEATURE) || {}).applied_at || '').slice(0, 10);
 
-function shiftsByKey(orgId) {
+function shiftsByKey(orgId, dates) {
   const map = new Map();
-  for (const r of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId)) {
+  const rows = Array.isArray(dates) && dates.length
+    ? db.prepare(`SELECT data_json FROM shifts WHERE organization_id = ? AND (${dates.map(() => 'data_json LIKE ?').join(' OR ')})`).all(orgId, ...dates.map(d => `%"date":"${d}"%`))
+    : db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId);
+  for (const r of rows) {
     try {
       const s = JSON.parse(r.data_json);
       if (s && s.empId != null && s.date) map.set(`${Number(s.empId)}|${s.date}`, s);
@@ -1009,7 +1028,7 @@ function scanMissingMarks(orgId, force = false) {
     const now = new Date();
     const today = bogota.todayISOInBogota(now);
     const dayZero = getDayZero(orgId);
-    const shifts = shiftsByKey(orgId);
+    const shifts = shiftsByKey(orgId, [0, 1, 2, 3].map(n => bogota.addDaysISO(today, -n)));
     const employees = db.prepare('SELECT id, name, status, retired_at FROM employees WHERE organization_id = ?').all(orgId);
     const existsAlert = db.prepare('SELECT 1 FROM attendance_alerts WHERE employee_id = ? AND shift_date = ? AND alert_type = ?');
     const dayRow = db.prepare('SELECT entrada_real, salida_real, status FROM attendance_days WHERE employee_id = ? AND shift_date = ?');
@@ -1071,7 +1090,7 @@ function todayBoard(req, res, query) {
   const now = new Date();
   const today = bogota.todayISOInBogota(now);
   const yesterday = bogota.addDaysISO(today, -1);
-  const shifts = shiftsByKey(orgId);
+  const shifts = shiftsByKey(orgId, [today, yesterday]);
   const employees = db.prepare("SELECT id, name, role, department FROM employees WHERE organization_id = ? AND (COALESCE(status, 'activo') != 'retirado' OR retired_at >= ?) ORDER BY name ASC").all(orgId, bogota.addDaysISO(bogota.todayISOInBogota(), -1));
   const dayRow = db.prepare('SELECT * FROM attendance_days WHERE employee_id = ? AND shift_date = ?');
   const lunchMark = db.prepare("SELECT actual_at FROM attendance_marks WHERE employee_id = ? AND shift_date = ? AND mark_type = 'inicio_almuerzo' ORDER BY actual_at ASC LIMIT 1");
