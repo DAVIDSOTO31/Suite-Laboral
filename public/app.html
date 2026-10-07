@@ -1808,7 +1808,7 @@
                 </select>
             </div>
             <div class="text-xs">
-                <label class="block font-semibold text-slate-700 mb-1">Nota de la gestión <span class="text-rose-600" id="mgmtNoteReq">*</span></label>
+                <label class="block font-semibold text-slate-700 mb-1">Nota de la gestión <span class="text-3xs font-normal text-slate-400" id="mgmtNoteReq">(obligatoria para justificar; opcional si es injustificada)</span></label>
                 <textarea id="mgmtNote" rows="3" maxlength="600" placeholder="Ej. Presentó constancia de cita médica de las 7:00 a.m." class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none"></textarea>
             </div>
             <div class="text-xs">
@@ -7827,13 +7827,48 @@
         function alertMgmtCell(r) {
             const st = r.mgmt_status || 'pendiente';
             const [label, cls] = MGMT_STYLES[st] || MGMT_STYLES.pendiente;
-            const info = st !== 'pendiente' || r.mgmt_note ? `
-                ${r.mgmt_category ? `<span class="block text-3xs font-semibold text-slate-600">${escapeHtml(r.mgmt_category)}</span>` : ''}
-                ${r.mgmt_note ? `<span class="block text-3xs text-slate-500 max-w-[220px]">${escapeHtml(r.mgmt_note)}</span>` : ''}
-                ${r.mgmt_attachment_name ? `<button type="button" onclick="openAlertAttachment('${r.id}')" class="block text-3xs font-semibold text-sky-700 hover:underline"><i class="fa-solid fa-paperclip"></i> ${escapeHtml(r.mgmt_attachment_name)}</button>` : ''}
-                ${r.mgmt_by ? `<span class="block text-3xs text-slate-400">${escapeHtml(r.mgmt_by)} · ${escapeHtml(r.mgmt_at || '')}</span>` : ''}` : '';
-            return `<div class="space-y-0.5"><span class="inline-block px-2 py-0.5 rounded-full border ${cls} text-2xs font-bold">${label}</span>${info}
-                <button type="button" onclick="openAlertMgmt('${r.id}')" class="block mt-1 text-2xs font-semibold px-2 py-0.5 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200">${st === 'pendiente' ? 'Gestionar' : 'Editar gestión'}</button></div>`;
+            const editBtn = `<button type="button" onclick="openAlertMgmt('${r.id}')" class="block mt-1 text-2xs font-semibold px-2 py-0.5 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200">${st === 'pendiente' ? 'Gestionar' : 'Editar gestión'}</button>`;
+            if (st === 'pendiente') {
+                // Revisión rápida: un clic en "Injustificada" la deja revisada sin comentario.
+                return `<div class="space-y-0.5">
+                    <div class="flex flex-wrap items-center gap-1">
+                        <span class="inline-block px-2 py-0.5 rounded-full border ${cls} text-2xs font-bold">${label}</span>
+                        <button type="button" id="quickUnj-${r.id}" onclick="quickMarkUnjustified('${r.id}')" title="Marcar como injustificada sin comentario" class="inline-block px-2 py-0.5 rounded-full border border-rose-300 bg-white hover:bg-rose-50 text-rose-700 text-2xs font-bold">Injustificada</button>
+                    </div>
+                    ${r.mgmt_note ? `<span class="block text-3xs text-slate-500 max-w-[220px]">${escapeHtml(r.mgmt_note)}</span>` : ''}
+                    ${editBtn}</div>`;
+            }
+            // Justificada / injustificada: el detalle (motivo, soporte, quién la revisó) se ve al hacer clic en el estado.
+            return `<div class="space-y-0.5">
+                <button type="button" onclick="toggleAlertMgmtInfo('${r.id}')" title="Ver detalle de la revisión" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border ${cls} text-2xs font-bold hover:opacity-80">${label} <i id="mgmtCaret-${r.id}" class="fa-solid fa-chevron-down text-[9px]"></i></button>
+                <div id="mgmtInfo-${r.id}" class="hidden space-y-0.5 pt-0.5">
+                    ${r.mgmt_category ? `<span class="block text-3xs font-semibold text-slate-600">${escapeHtml(r.mgmt_category)}</span>` : ''}
+                    ${r.mgmt_note ? `<span class="block text-3xs text-slate-500 max-w-[220px]">${escapeHtml(r.mgmt_note)}</span>` : ''}
+                    ${!r.mgmt_note && !r.mgmt_category ? '<span class="block text-3xs text-slate-400 italic">Sin comentario</span>' : ''}
+                    ${r.mgmt_attachment_name ? `<button type="button" onclick="openAlertAttachment('${r.id}')" class="block text-3xs font-semibold text-sky-700 hover:underline"><i class="fa-solid fa-paperclip"></i> ${escapeHtml(r.mgmt_attachment_name)}</button>` : ''}
+                    ${r.mgmt_by ? `<span class="block text-3xs text-slate-400">Revisó: ${escapeHtml(r.mgmt_by)} · ${escapeHtml(r.mgmt_at || '')}</span>` : ''}
+                    ${editBtn}
+                </div></div>`;
+        }
+        function toggleAlertMgmtInfo(alertId) {
+            const box = document.getElementById(`mgmtInfo-${alertId}`);
+            if (!box) return;
+            const open = box.classList.toggle('hidden') === false;
+            const caret = document.getElementById(`mgmtCaret-${alertId}`);
+            if (caret) caret.className = `fa-solid ${open ? 'fa-chevron-up' : 'fa-chevron-down'} text-[9px]`;
+        }
+        async function quickMarkUnjustified(alertId) {
+            const btn = document.getElementById(`quickUnj-${alertId}`);
+            if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+            try {
+                await apiFetch(`/api/attendance/alerts/${encodeURIComponent(alertId)}/manage`, { method: 'POST', body: JSON.stringify({ status: 'injustificada' }) });
+                showAppToast('Alerta revisada como injustificada.');
+                attendanceLoadAlerts();
+                refreshAttAlertsBadge();
+            } catch (e) {
+                showAppToast(e.message);
+                if (btn) { btn.disabled = false; btn.textContent = 'Injustificada'; }
+            }
         }
         function openAlertMgmt(alertId) {
             const r = lastAlertRows.find(x => x.id === alertId);
@@ -7877,7 +7912,7 @@
             const statusEl = document.querySelector('input[name="mgmtStatus"]:checked');
             if (!statusEl) { showAppToast('Elige si la novedad queda justificada, injustificada o pendiente.'); return; }
             const note = document.getElementById('mgmtNote').value.trim();
-            if (statusEl.value !== 'pendiente' && note.length < 5) { showAppToast('Escribe una nota de la gestión (mínimo 5 caracteres).'); return; }
+            if (statusEl.value === 'justificada' && note.length < 5) { showAppToast('Para justificar escribe una nota (mínimo 5 caracteres).'); return; }
             const payload = { status: statusEl.value, category: document.getElementById('mgmtCategory').value, note };
             const file = document.getElementById('mgmtFile').files[0];
             if (file) {
