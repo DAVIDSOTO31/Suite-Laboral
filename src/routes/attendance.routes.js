@@ -160,6 +160,31 @@ function computeDayHours({ employeeId, shiftDateISO, scheduledStart, scheduledEn
   });
 }
 
+// Turno partido: limite de la jornada ordinaria (horas) del turno, en minutos.
+const STAGE_EXTENDED_TOLERANCE_MIN = 15;
+function splitLimitMinutes(shift) {
+  const l = Number(shift && shift.limit);
+  return Math.round((l > 0 ? l : 8) * 60);
+}
+// Horas de un dia de turno partido a partir de sus 4 marcaciones reales.
+function computeSplitDayHours(employeeId, shiftDateISO, shift, salidaAbsMin, nightEnabled) {
+  const marks = db.prepare('SELECT mark_type, actual_at FROM attendance_marks WHERE employee_id = ? AND shift_date = ? ORDER BY actual_at ASC').all(employeeId, shiftDateISO);
+  const absOf = (type) => { const m = marks.find(x => x.mark_type === type); return m ? bogota.minutesSinceShiftMidnight(new Date(m.actual_at), shiftDateISO) : null; };
+  const start = rules.timeToMinutes(shift.startTime);
+  const e1 = absOf('entrada'), o1 = absOf('inicio_almuerzo'), i2 = absOf('fin_almuerzo');
+  const o2 = salidaAbsMin != null ? salidaAbsMin : absOf('salida');
+  const prog = (c, d) => (c ? rules.scheduledAbsoluteMinutes(c, shift.startTime) : d);
+  return rules.categorizeSplitWorkedMinutes({
+    scheduledEntradaMin: start,
+    stage1Start: e1 == null ? start : e1,
+    stage1End: o1 == null ? prog(shift.splitOut, start) : o1,
+    stage2Start: i2 == null ? prog(shift.splitIn, start) : i2,
+    stage2End: o2 == null ? prog(shift.endTime, start) : o2,
+    limitMinutes: splitLimitMinutes(shift),
+    nightSurchargeEnabled: nightEnabled !== 0,
+  });
+}
+
 // Recalcula hod/hon/hed/hen de los dias YA CERRADOS con el motor corregido
 // (solo se ejecuta una vez, cuando la migracion lo pide). No toca las
 // marcaciones ni las alertas (son inmutables); solo los totales derivados.
@@ -293,6 +318,17 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
     patch.inicio_almuerzo_real = actualClock;
     patch.status = 'en_almuerzo';
     statusLabel = 'en_almuerzo';
+    // Turno partido: la etapa 1 se alargo mas de 15 min. Ese tiempo puede
+    // convertir en extra la ultima parte de la etapa 2: alerta para revisarlo.
+    if (shift.isSplit && shift.splitOut) {
+      const progAbs = rules.scheduledAbsoluteMinutes(shift.splitOut, shift.startTime);
+      const diff = actualAbsMin - progAbs;
+      if (progAbs != null && diff > STAGE_EXTENDED_TOLERANCE_MIN) {
+        insertAlert(orgId, employeeId, shiftDateISO, 'etapa_extendida', shift.splitOut, actualClock, diff, {
+          employeeName: employee.name, etapa: 'Terminó la etapa 1 después de lo programado',
+        });
+      }
+    }
   }
 
   if (markType === 'fin_almuerzo') {
@@ -306,6 +342,16 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
     const cls = rules.classifyAlmuerzo(Number(shift.breakM) || 0, actualBreakMinutes);
     patch.fin_almuerzo_real = actualClock;
     patch.exceso_almuerzo_min = cls.excessMinutes;
+    // Turno partido: regreso a la etapa 2 mas de 15 min antes de lo programado.
+    if (shift.isSplit && shift.splitIn) {
+      const progAbs = rules.scheduledAbsoluteMinutes(shift.splitIn, shift.startTime);
+      const diff = progAbs - actualAbsMin;
+      if (progAbs != null && diff > STAGE_EXTENDED_TOLERANCE_MIN) {
+        insertAlert(orgId, employeeId, shiftDateISO, 'etapa_extendida', shift.splitIn, actualClock, diff, {
+          employeeName: employee.name, etapa: 'Inició la etapa 2 antes de lo programado',
+        });
+      }
+    }
     patch.status = 'en_jornada';
     statusLabel = cls.excessMinutes > 0 ? 'exceso_almuerzo' : 'en_jornada';
     if (cls.excessMinutes > 0) {
@@ -323,6 +369,14 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
     const ordEndClock = ordinaryEndClock(shift);
     const scheduledSalidaAbsMin = rules.scheduledAbsoluteMinutes(ordEndClock, shift.startTime);
     const clsSalida = rules.classifySalida(scheduledSalidaAbsMin, actualAbsMin);
+    // Turno partido: horas ordinarias = primeras horas trabajadas (limite).
+    let splitCat = null;
+    if (shift.isSplit) {
+      splitCat = computeSplitDayHours(employeeId, shiftDateISO, shift, actualAbsMin, employee.night_surcharge === 0 ? 0 : 1);
+      // Solo hay descuento si salio antes de la hora programada Y no completo
+      // las horas de su jornada ordinaria (la llegada tarde no se descuenta aqui).
+      clsSalida.adeudadoMinutes = Math.min(clsSalida.adeudadoMinutes, Math.max(0, splitLimitMinutes(shift) - splitCat.worked));
+    }
     patch.salida_real = actualClock;
     patch.salida_anticipada_min = clsSalida.adeudadoMinutes;
     patch.status = 'turno_finalizado';
@@ -336,7 +390,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
     // con el instante exacto de cada marca (no el reloj HH:MM), para que una
     // entrada anticipada o un turno que cruza medianoche no se confundan.
     const nightEnabled = employee.night_surcharge === 0 ? 0 : 1;
-    const cat = computeDayHours({
+    const cat = splitCat || computeDayHours({
       employeeId, shiftDateISO,
       scheduledStart: shift.startTime, scheduledEnd: ordEndClock,
       salidaAbsMin: actualAbsMin,
@@ -490,7 +544,7 @@ function listAlerts(req, res, query) {
   // El apartado de Alertas muestra las novedades (las de "hora_extra" se
   // siguen calculando para la Liquidacion, pero no se muestran aqui).
   // Filtros opcionales: tipo, colaborador y estado de gestion.
-  const types = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'marcacion_manual', 'inasistencia', 'turno_sin_cerrar'];
+  const types = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'marcacion_manual', 'inasistencia', 'turno_sin_cerrar', 'etapa_extendida'];
   const type = query.type && types.includes(query.type) ? query.type : null;
   const employeeId = query.employeeId ? Number(query.employeeId) : null;
   const status = ['pendiente', 'justificada', 'injustificada'].includes(query.status) ? query.status : null;
@@ -923,14 +977,21 @@ async function registerCorrection(req, res) {
 
   const breakMinutes = abs.fin_almuerzo - abs.inicio_almuerzo;
   const nightEnabled = employee.night_surcharge === 0 ? 0 : 1;
-  const cat = rules.categorizeWorkedMinutes({
-    scheduledEntradaMin, scheduledSalidaMin,
-    actualEntradaMin: abs.entrada, actualSalidaMin: abs.salida,
-    breakMinutes, nightSurchargeEnabled: nightEnabled !== 0,
-  });
+  const cat = shift.isSplit
+    ? rules.categorizeSplitWorkedMinutes({
+        scheduledEntradaMin, stage1Start: abs.entrada, stage1End: abs.inicio_almuerzo,
+        stage2Start: abs.fin_almuerzo, stage2End: abs.salida,
+        limitMinutes: splitLimitMinutes(shift), nightSurchargeEnabled: nightEnabled !== 0,
+      })
+    : rules.categorizeWorkedMinutes({
+        scheduledEntradaMin, scheduledSalidaMin,
+        actualEntradaMin: abs.entrada, actualSalidaMin: abs.salida,
+        breakMinutes, nightSurchargeEnabled: nightEnabled !== 0,
+      });
   const retraso = Math.max(0, abs.entrada - scheduledEntradaMin);
   const exceso = rules.classifyAlmuerzo(Number(shift.breakM) || 0, breakMinutes).excessMinutes;
-  const adeudado = rules.classifySalida(scheduledSalidaMin, abs.salida).adeudadoMinutes;
+  let adeudado = rules.classifySalida(scheduledSalidaMin, abs.salida).adeudadoMinutes;
+  if (shift.isSplit) adeudado = Math.min(adeudado, Math.max(0, splitLimitMinutes(shift) - cat.worked));
   const hedFinal = rules.applyEarlyLeaveDeduction(cat.hed, adeudado);
 
   if (!day) {
@@ -1284,7 +1345,7 @@ function getAlertAttachment(req, res, params) {
 // ---------------------------------------------------------------------------
 // GET /api/attendance/novedades?from=&to=  -- resumen por colaborador.
 // ---------------------------------------------------------------------------
-const NOVEDAD_TYPES = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'inasistencia', 'turno_sin_cerrar', 'marcacion_manual'];
+const NOVEDAD_TYPES = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'inasistencia', 'turno_sin_cerrar', 'marcacion_manual', 'etapa_extendida'];
 function novedadesSummary(req, res, query) {
   const orgId = resolveOrgId(req, query);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
@@ -1300,7 +1361,7 @@ function novedadesSummary(req, res, query) {
   const employees = db.prepare('SELECT id, name, role, department FROM employees WHERE organization_id = ? ORDER BY name ASC').all(orgId);
   const by = new Map(employees.map(e => [e.id, {
     employeeId: e.id, name: e.name, role: e.role, department: e.department || 'Sin área',
-    llegada_tarde: 0, exceso_almuerzo: 0, salida_anticipada: 0, inasistencia: 0, turno_sin_cerrar: 0, marcacion_manual: 0,
+    llegada_tarde: 0, exceso_almuerzo: 0, salida_anticipada: 0, inasistencia: 0, turno_sin_cerrar: 0, marcacion_manual: 0, etapa_extendida: 0,
     minutesLate: 0, total: 0, pendiente: 0, justificada: 0, injustificada: 0,
   }]));
   for (const r of rows) {
@@ -1354,7 +1415,7 @@ function loadIndicatorData(orgId, from, to) {
   const alerts = db.prepare(`SELECT a.employee_id, a.shift_date, a.alert_type, COALESCE(m.status, 'pendiente') AS mgmt
       FROM attendance_alerts a LEFT JOIN alert_management m ON m.alert_id = a.id
       WHERE a.organization_id = ? AND a.shift_date BETWEEN ? AND ?
-        AND a.alert_type IN ('llegada_tarde','exceso_almuerzo','salida_anticipada','inasistencia','turno_sin_cerrar','marcacion_manual')`)
+        AND a.alert_type IN ('llegada_tarde','exceso_almuerzo','salida_anticipada','inasistencia','turno_sin_cerrar','marcacion_manual','etapa_extendida')`)
     .all(orgId, from, to);
   const mw = db.prepare('SELECT minimum_wage FROM org_settings WHERE organization_id = ?').get(orgId);
   return { employees, shifts, days, alerts, dayZero: getDayZero(orgId), incapacityEpisodes: buildIncapacityEpisodes(incapDays, workKeys), minimumWage: (mw && Number(mw.minimum_wage)) || 1750905 };
@@ -1628,7 +1689,7 @@ function buildDigest(orgId, dateISO, now) {
   const manuales = data.alerts.filter(a => a.alert_type === 'marcacion_manual').length;
   const pendientes = db.prepare(`SELECT COUNT(*) AS n FROM attendance_alerts a LEFT JOIN alert_management m ON m.alert_id = a.id
       WHERE a.organization_id = ? AND a.shift_date BETWEEN ? AND ? AND COALESCE(m.status, 'pendiente') = 'pendiente'
-        AND a.alert_type IN ('llegada_tarde','exceso_almuerzo','salida_anticipada','inasistencia','turno_sin_cerrar','marcacion_manual')`)
+        AND a.alert_type IN ('llegada_tarde','exceso_almuerzo','salida_anticipada','inasistencia','turno_sin_cerrar','marcacion_manual','etapa_extendida')`)
     .get(orgId, bogota.addDaysISO(dateISO, -7), dateISO).n;
   const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   const dayName = DAYS[new Date(dateISO + 'T00:00:00Z').getUTCDay()];
