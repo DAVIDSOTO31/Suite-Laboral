@@ -177,7 +177,18 @@ function describeAudit(row, ctx = {}) {
 
     // ---------------- Super Admin ----------------
     case 'organization.create': case 'organization.update': case 'organization.delete':
-      return out('Configuración', 'Organización', 'El administrador de la plataforma modificó los datos de la organización.', [], 'Super Admin');
+    case 'organization.activate': case 'organization.deactivate': {
+      // ctx.orgs (solo en el panel Super Admin) permite mostrar el nombre actual.
+      const orgName = m.name || (ctx.orgs && ctx.orgs.get(row.resource_id)) || 'la organización';
+      const T = {
+        'organization.create': ['Organización creada', `Creó la organización ${orgName}${m.nit ? ` (NIT ${m.nit})` : ''}.`],
+        'organization.update': ['Organización modificada', `Modificó los datos de la organización ${orgName}.`],
+        'organization.delete': ['Organización eliminada', `Eliminó la organización ${orgName} y todos sus datos.`],
+        'organization.activate': ['Organización activada', `Activó la organización ${orgName}; sus usuarios pueden volver a ingresar.`],
+        'organization.deactivate': ['Organización desactivada', `Desactivó la organización ${orgName}; sus usuarios ya no pueden ingresar.`],
+      }[row.action];
+      return out('Configuración', T[0], T[1], [], 'Super Admin');
+    }
     default:
       return out('Otros', 'Acción del sistema', `Acción registrada: ${row.action}.`);
   }
