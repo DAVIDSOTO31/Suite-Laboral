@@ -4,6 +4,8 @@ const { sendJson, readBody, getClientIp } = require('../lib/http');
 const { logAction } = require('../lib/audit');
 const { randomToken, sha256Hex, hashPassword } = require('../lib/crypto');
 const { sendMail } = require('../lib/mailer');
+const { describeAudit } = require('../lib/audit-describe');
+const { todayISOInBogota, addDaysISO } = require('../lib/bogota-time');
 
 function slugify(name) {
   return name.toString().trim().toLowerCase()
@@ -197,14 +199,52 @@ function listRolesForOrg(req, res, query) {
   sendJson(res, 200, { roles });
 }
 
+// GET /api/superadmin/audit?from=&to=&organization_id=&userId=&category=&q=
+// Igual que la auditoria de cada organizacion: cada registro llega con su
+// descripcion en español (que hizo, sobre quien y con que detalle), quien lo
+// hizo (correo y rol) y a que organizacion pertenece.
 function listAuditLogs(req, res, query) {
-  let sql = 'SELECT * FROM audit_logs WHERE 1=1';
-  const params = [];
-  if (query.organization_id) { sql += ' AND organization_id = ?'; params.push(query.organization_id); }
+  const ISO = /^\d{4}-\d{2}-\d{2}$/;
+  const from = ISO.test(query.from || '') ? query.from : addDaysISO(todayISOInBogota(), -30);
+  const to = ISO.test(query.to || '') ? query.to : todayISOInBogota();
+  let sql = 'SELECT * FROM audit_logs WHERE substr(created_at, 1, 10) BETWEEN ? AND ?';
+  const params = [from, to];
+  if (query.organization_id === 'plataforma') sql += ' AND organization_id IS NULL';
+  else if (query.organization_id) { sql += ' AND organization_id = ?'; params.push(query.organization_id); }
+  if (query.userId) { sql += ' AND user_id = ?'; params.push(query.userId); }
   if (query.action) { sql += ' AND action LIKE ?'; params.push(`%${query.action}%`); }
-  sql += ' ORDER BY created_at DESC LIMIT 200';
+  sql += ' ORDER BY created_at DESC LIMIT 3000';
   const rows = db.prepare(sql).all(...params);
-  sendJson(res, 200, { logs: rows.map(r => ({ ...r, metadata: r.metadata_json ? JSON.parse(r.metadata_json) : null })) });
+
+  const ROLE_ES = { org_admin: 'Administrador', supervisor: 'Supervisor', empleado: 'Empleado', super_admin: 'Super Admin' };
+  const users = new Map(db.prepare(`SELECT u.id, u.email, u.organization_id, u.is_super_admin,
+      (SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id LIMIT 1) AS role
+    FROM users u`).all().map(u => [u.id, u]));
+  const orgs = new Map(db.prepare('SELECT id, name FROM organizations').all().map(o => [o.id, o.name]));
+  const empByOrg = new Map();
+  const employeesOf = (orgId) => {
+    if (!orgId) return new Map();
+    if (!empByOrg.has(orgId)) empByOrg.set(orgId, new Map(db.prepare('SELECT id, name FROM employees WHERE organization_id = ?').all(orgId).map(e => [String(e.id), e.name])));
+    return empByOrg.get(orgId);
+  };
+  let logs = rows.map(r => {
+    const metadata = r.metadata_json ? (() => { try { return JSON.parse(r.metadata_json); } catch { return null; } })() : null;
+    const d = describeAudit({ ...r, metadata }, { users, employees: employeesOf(r.organization_id), orgs });
+    const u = r.user_id ? users.get(r.user_id) : null;
+    const role = u ? (u.is_super_admin ? 'Super Admin' : (ROLE_ES[u.role] || u.role || '')) : '';
+    return {
+      id: r.id, at: r.created_at, created_at: r.created_at, action: r.action,
+      organization_id: r.organization_id, orgName: r.organization_id ? (orgs.get(r.organization_id) || (metadata && metadata.name) || 'Organización eliminada') : 'Plataforma',
+      user_id: r.user_id, user: u ? u.email : (d.actorFallback || 'Sistema'), role,
+      category: d.category, title: d.title, text: d.text, details: d.details || [], ip: r.ip,
+    };
+  });
+  if (query.category) logs = logs.filter(l => l.category === query.category);
+  if (query.q) { const q = String(query.q).toLowerCase(); logs = logs.filter(l => (l.text + ' ' + l.details.join(' ') + ' ' + l.user + ' ' + l.orgName).toLowerCase().includes(q)); }
+  sendJson(res, 200, {
+    from, to, logs: logs.slice(0, 1500), truncated: logs.length > 1500,
+    users: [...users.values()].map(u => ({ id: u.id, email: u.email, organizationId: u.organization_id, role: u.is_super_admin ? 'Super Admin' : (ROLE_ES[u.role] || u.role || '') })),
+  });
 }
 
 module.exports = {
