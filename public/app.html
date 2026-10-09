@@ -991,6 +991,7 @@
                         </div>
                         <div id="attTodayDevices"></div>
                         <div id="attTodayCounters" class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2"></div>
+                        <div id="attTodayCounterDetail"></div>
                         <div id="attTodayAreas" class="space-y-3"></div>
                         <div id="attTodayAbsences"></div>
                         <p class="text-3xs text-slate-400">Se actualiza solo cada minuto. "No ha llegado" aparece 15 minutos después de la hora de entrada; "Sin marcar salida", 1 hora después de la hora de salida. Si el turno termina sin ninguna marcación, se genera la alerta <strong>No se presentó</strong>.</p>
@@ -8961,6 +8962,12 @@
         };
         let lastTodayBoard = null;
         let attTodayTimer = null;
+        // Tarjeta del tablero Hoy que está abierta (lista de colaboradores en ese estado).
+        let attTodaySelectedCounter = null;
+        function toggleTodayCounter(key) {
+            attTodaySelectedCounter = attTodaySelectedCounter === key ? null : key;
+            renderTodayBoard();
+        }
         async function refreshAttTodayBadge() {
             const badge = document.getElementById('attBadge-today');
             if (!badge || !CAN('attendance.view')) return;
@@ -9001,7 +9008,7 @@
             if (!b) return;
             const area = document.getElementById('attTodayArea').value;
             const areas = b.areas.filter(a => !area || a.name === area);
-            const people = areas.flatMap(a => a.people);
+            const people = areas.flatMap(a => a.people.map(p => ({ ...p, area: a.name })));
             const absences = b.absences.filter(a => !area || a.department === area);
             const cnt = (fn) => people.filter(fn).length;
             const PRESENT = ['presente', 'tarde', 'almuerzo', 'almuerzo_largo'];
@@ -9020,17 +9027,57 @@
                     : [h.warnings.includes('bateria_baja') ? `batería al ${h.battery} % sin cargar` : null, h.warnings.includes('camara') ? (CAMERA_LABELS[h.camera] || 'problema de cámara').toLowerCase() : null, h.pending ? `${h.pending} marcación(es) pendiente(s) por enviar` : null].filter(Boolean).join(' · ');
                     return `<p><i class="fa-solid fa-tablet-screen-button"></i> <strong>${escapeHtml(x.name)}</strong>: ${escapeHtml(msg)}</p>`; }).join('')}
                 <p class="text-3xs text-amber-700">Revisa el detalle en Asistencia → Dispositivos.</p></div>` : '';
-            const card = (label, value, cls, icon) => `<div class="rounded-lg border px-3 py-2 ${cls}"><p class="text-3xs font-bold uppercase opacity-80 flex items-center gap-1"><i class="fa-solid ${icon}"></i> ${label}</p><p class="text-2xl font-black leading-tight">${value}</p></div>`;
+            // Cada tarjeta es un botón: al hacer clic se despliega debajo la lista de
+            // colaboradores en ese estado (se mantiene abierta al actualizarse cada minuto).
+            const COUNTER_FILTERS = {
+                programados: { label: 'Programados', fn: () => true },
+                presentes: { label: 'Presentes', fn: p => PRESENT.includes(p.status) },
+                tarde: { label: 'Llegaron tarde', fn: p => p.status === 'tarde' },
+                almuerzo: { label: 'En almuerzo', fn: p => p.status === 'almuerzo' || p.status === 'almuerzo_largo' },
+                noLlego: { label: 'No han llegado', fn: p => p.status === 'no_llego' },
+                sinCerrar: { label: 'Sin marcar salida', fn: p => p.status === 'sin_cerrar' },
+                porIniciar: { label: 'Por iniciar', fn: p => p.status === 'por_iniciar' || p.status === 'en_espera' },
+                finalizados: { label: 'Finalizaron', fn: p => p.status === 'finalizado' },
+            };
+            const card = (key, label, value, cls, icon) => {
+                const sel = attTodaySelectedCounter === key;
+                return `<button type="button" onclick="toggleTodayCounter('${key}')" aria-expanded="${sel}" title="Ver la lista de colaboradores" class="text-left min-w-0 rounded-lg border px-2.5 py-2 transition hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-sky-400 ${cls} ${sel ? 'ring-2 ring-sky-500 shadow-md' : ''}">
+                    <p class="text-3xs font-bold uppercase opacity-80 leading-tight tracking-tight break-words">${label}</p>
+                    <p class="flex items-center justify-between gap-1 mt-0.5"><span class="text-2xl font-black leading-tight">${value}</span><span class="flex items-center gap-1.5 opacity-70 text-xs"><i class="fa-solid ${icon}"></i><i class="fa-solid ${sel ? 'fa-chevron-up' : 'fa-chevron-down'} text-3xs"></i></span></p></button>`;
+            };
             document.getElementById('attTodayCounters').innerHTML = [
-                card('Programados', c.programados, 'bg-white border-slate-200 text-slate-800', 'fa-users'),
-                card('Presentes', c.presentes, 'bg-emerald-50 border-emerald-200 text-emerald-800', 'fa-user-check'),
-                card('Llegaron tarde', c.tarde, 'bg-rose-50 border-rose-200 text-rose-700', 'fa-clock'),
-                card('En almuerzo', c.almuerzo, 'bg-amber-50 border-amber-200 text-amber-800', 'fa-utensils'),
-                card('No han llegado', c.noLlego, c.noLlego ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-400', 'fa-user-xmark'),
-                card('Sin marcar salida', c.sinCerrar, c.sinCerrar ? 'bg-amber-400 border-amber-400 text-amber-950' : 'bg-white border-slate-200 text-slate-400', 'fa-door-open'),
-                card('Por iniciar', c.porIniciar, 'bg-sky-50 border-sky-200 text-sky-800', 'fa-hourglass-start'),
-                card('Finalizaron', c.finalizados, 'bg-slate-50 border-slate-200 text-slate-600', 'fa-flag-checkered'),
+                card('programados', 'Programados', c.programados, 'bg-white border-slate-200 text-slate-800', 'fa-users'),
+                card('presentes', 'Presentes', c.presentes, 'bg-emerald-50 border-emerald-200 text-emerald-800', 'fa-user-check'),
+                card('tarde', 'Llegaron tarde', c.tarde, 'bg-rose-50 border-rose-200 text-rose-700', 'fa-clock'),
+                card('almuerzo', 'En almuerzo', c.almuerzo, 'bg-amber-50 border-amber-200 text-amber-800', 'fa-utensils'),
+                card('noLlego', 'No han llegado', c.noLlego, c.noLlego ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-400', 'fa-user-xmark'),
+                card('sinCerrar', 'Sin marcar salida', c.sinCerrar, c.sinCerrar ? 'bg-amber-400 border-amber-400 text-amber-950' : 'bg-white border-slate-200 text-slate-400', 'fa-door-open'),
+                card('porIniciar', 'Por iniciar', c.porIniciar, 'bg-sky-50 border-sky-200 text-sky-800', 'fa-hourglass-start'),
+                card('finalizados', 'Finalizaron', c.finalizados, 'bg-slate-50 border-slate-200 text-slate-600', 'fa-flag-checkered'),
             ].join('');
+            const detailBox = document.getElementById('attTodayCounterDetail');
+            const flt = COUNTER_FILTERS[attTodaySelectedCounter];
+            if (!flt) { detailBox.innerHTML = ''; }
+            else {
+                const sel = people.filter(flt.fn).sort((p, q) => p.area.localeCompare(q.area, 'es') || p.name.localeCompare(q.name, 'es'));
+                detailBox.innerHTML = `<div class="border border-sky-200 rounded-lg overflow-hidden bg-white">
+                    <div class="bg-sky-50 px-3 py-2 flex items-center justify-between gap-2">
+                        <p class="font-bold text-sky-900 text-sm">${flt.label} <span class="text-sky-700 font-semibold">(${sel.length})</span>${area ? ` <span class="text-2xs font-normal text-sky-700">· ${escapeHtml(area)}</span>` : ''}</p>
+                        <button type="button" onclick="toggleTodayCounter('${attTodaySelectedCounter}')" class="text-sky-700 hover:text-sky-900 p-1" aria-label="Cerrar lista"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    ${sel.length ? `<div class="divide-y divide-slate-100">${sel.map(p => {
+                        const st = TODAY_STATUS[p.status] || { label: p.status, chip: 'bg-slate-100 text-slate-600', dot: 'bg-slate-400' };
+                        return `<div class="px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                            <span class="w-2 h-2 rounded-full ${st.dot} shrink-0"></span>
+                            <span class="font-semibold text-slate-800 min-w-[160px]">${escapeHtml(p.name)}<span class="block text-3xs font-normal text-slate-400">${escapeHtml(p.role || '')}</span></span>
+                            <span class="text-slate-600 min-w-[110px]"><i class="fa-solid fa-sitemap text-3xs text-slate-400"></i> ${escapeHtml(p.area)}</span>
+                            <span class="text-slate-500 min-w-[110px]">${escapeHtml(p.scheduled)}${p.isSplit ? ' <span class="text-3xs text-cyan-700 font-semibold">Partido</span>' : ''}${p.shiftDate !== b.date ? ' <span class="text-3xs text-indigo-700 font-semibold">Turno de ayer</span>' : ''}</span>
+                            <span class="px-2 py-0.5 rounded-full ${st.chip} text-2xs font-bold whitespace-nowrap">${st.label}</span>
+                            <span class="text-slate-500">${escapeHtml(p.label)}</span>
+                        </div>`;
+                    }).join('')}</div>` : '<p class="px-3 py-4 text-center text-slate-400 text-xs">Ningún colaborador en este estado en este momento.</p>'}
+                </div>`;
+            }
             document.getElementById('attTodayAreas').innerHTML = areas.length ? areas.map(a => {
                 const list = [...a.people].sort((p, q) => (TODAY_STATUS[p.status]?.order ?? 9) - (TODAY_STATUS[q.status]?.order ?? 9) || p.name.localeCompare(q.name));
                 const presentA = list.filter(p => PRESENT.includes(p.status)).length;
