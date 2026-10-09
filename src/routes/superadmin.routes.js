@@ -84,9 +84,15 @@ async function toggleOrganizationStatus(req, res, params) {
   sendJson(res, 200, { ok: true, status: newStatus });
 }
 
-function deleteOrganization(req, res, params) {
+// Eliminar es irreversible: solo se permite con la organizacion ya
+// DESACTIVADA y escribiendo su nombre exacto como confirmacion.
+async function deleteOrganization(req, res, params) {
   const org = db.prepare('SELECT * FROM organizations WHERE id = ?').get(params.id);
   if (!org) return sendJson(res, 404, { error: 'Organizacion no encontrada.' });
+  let body = {};
+  try { body = await readBody(req); } catch { body = {}; }
+  if (org.status === 'active') return sendJson(res, 409, { error: 'Primero desactiva la organizacion. Solo se puede eliminar una organizacion inactiva.' });
+  if (String(body.confirmName || '').trim() !== String(org.name).trim()) return sendJson(res, 400, { error: 'El nombre escrito no coincide con el de la organizacion. No se elimino nada.' });
   db.prepare('DELETE FROM organizations WHERE id = ?').run(org.id); // ON DELETE CASCADE cleans up dependent rows
   logAction({ organizationId: null, userId: req.user.id, action: 'organization.delete', resourceType: 'organization', resourceId: org.id, ip: getClientIp(req), metadata: { name: org.name } });
   sendJson(res, 200, { ok: true });
@@ -97,7 +103,14 @@ function getOrganizationDetail(req, res, params) {
   if (!org) return sendJson(res, 404, { error: 'Organizacion no encontrada.' });
   const users = db.prepare('SELECT id, email, status, created_at FROM users WHERE organization_id = ?').all(org.id);
   const roles = db.prepare('SELECT id, name FROM roles WHERE organization_id = ?').all(org.id);
-  sendJson(res, 200, { organization: { ...org, settings: JSON.parse(org.settings_json || '{}') }, users, roles });
+  // Cuanta informacion tiene (se muestra antes de eliminarla).
+  const count = (sql) => { try { return db.prepare(sql).get(org.id).c; } catch { return 0; } };
+  const stats = {
+    employees: count('SELECT COUNT(*) c FROM employees WHERE organization_id = ?'),
+    marks: count('SELECT COUNT(*) c FROM attendance_marks WHERE organization_id = ?'),
+    devices: count('SELECT COUNT(*) c FROM attendance_devices WHERE organization_id = ?'),
+  };
+  sendJson(res, 200, { organization: { ...org, settings: JSON.parse(org.settings_json || '{}') }, users, roles, stats });
 }
 
 // ---------------------------------------------------------------------------
