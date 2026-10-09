@@ -6,13 +6,40 @@
 <title>Super Admin - RR.HH PYMES</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+  /* Mismo fondo ejecutivo azul de la pantalla de inicio de sesión */
+  body { background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 45%, #dbeafe 100%); overflow-x: hidden; }
+  .bg-blob { position: fixed; border-radius: 9999px; filter: blur(60px); opacity: 0.55; z-index: 0; pointer-events: none; }
+  .blob-1 { width: 420px; height: 420px; top: -120px; left: -100px; background: #38bdf8; animation: float1 16s ease-in-out infinite; }
+  .blob-2 { width: 380px; height: 380px; bottom: -140px; right: -100px; background: #1e40af; opacity: 0.35; animation: float2 20s ease-in-out infinite; }
+  .blob-3 { width: 300px; height: 300px; top: 40%; left: 60%; background: #7dd3fc; opacity: 0.4; animation: float3 22s ease-in-out infinite; }
+  @keyframes float1 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(60px, 40px) scale(1.12); } }
+  @keyframes float2 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(-50px, -30px) scale(1.08); } }
+  @keyframes float3 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(-40px, 50px) scale(0.9); } }
+  .content-layer { position: relative; z-index: 10; }
+</style>
 </head>
-<body class="bg-gradient-to-br from-sky-50 via-blue-50 to-sky-100 min-h-screen text-slate-800">
-<div id="app" class="max-w-7xl mx-auto p-4 md:p-6">
+<body class="min-h-screen text-slate-800">
+<div class="bg-blob blob-1"></div>
+<div class="bg-blob blob-2"></div>
+<div class="bg-blob blob-3"></div>
+<div id="app" class="max-w-7xl mx-auto p-4 md:p-6 content-layer">
 
   <header class="flex flex-wrap items-center justify-between gap-3 mb-6">
     <div class="flex items-center gap-3">
-      <div class="w-10 h-10 rounded-xl bg-violet-600 text-white flex items-center justify-center"><i class="fa-solid fa-shield-halved"></i></div>
+      <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-sky-500 via-sky-600 to-blue-800 text-white flex items-center justify-center shadow-md shadow-sky-600/30 border border-sky-400/40 shrink-0">
+        <svg class="w-7 h-7" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="RR.HH PYMES">
+          <path d="M24 2 L43 13 V35 L24 46 L5 35 V13 Z" fill="none" stroke="currentColor" stroke-width="2" opacity="0.55"/>
+          <circle cx="24" cy="18" r="5" fill="currentColor"/>
+          <path d="M14 34c0-6 4.5-10 10-10s10 4 10 10v2H14v-2Z" fill="currentColor"/>
+          <circle cx="12" cy="22" r="3" fill="currentColor" opacity="0.75"/>
+          <path d="M6 33c0-3.5 2.6-6.2 6-6.2 1.5 0 2.8.5 3.8 1.4-1 1.3-1.6 3-1.6 4.8v2H6v-2Z" fill="currentColor" opacity="0.75"/>
+          <circle cx="36" cy="22" r="3" fill="currentColor" opacity="0.75"/>
+          <path d="M42 33c0-3.5-2.6-6.2-6-6.2-1.5 0-2.8.5-3.8 1.4 1 1.3 1.6 3 1.6 4.8v2h8.2v-2Z" fill="currentColor" opacity="0.75"/>
+          <circle cx="36" cy="34" r="6" fill="#10b981"/>
+          <path d="M33 34l2 2 4-4" stroke="white" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
       <div>
         <h1 class="text-lg font-bold leading-tight">Panel Super Admin</h1>
         <p class="text-xs text-slate-500">Gestion global de la plataforma</p>
@@ -77,15 +104,32 @@
 
   <!-- AUDIT -->
   <section id="tab-audit" class="tab-panel hidden">
-    <div class="bg-white rounded-xl border border-slate-200 overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead class="bg-slate-50 text-slate-500 text-xs uppercase"><tr>
-          <th class="text-left px-4 py-2">Fecha</th><th class="text-left px-4 py-2">Organizacion</th>
-          <th class="text-left px-4 py-2">Usuario</th><th class="text-left px-4 py-2">Accion</th>
-          <th class="text-left px-4 py-2">Recurso</th>
-        </tr></thead>
-        <tbody id="auditTableBody"></tbody>
-      </table>
+    <div class="bg-white rounded-xl border border-slate-200 p-4">
+      <p class="text-xs text-slate-500 mb-3">Qué hizo cada persona en la plataforma y en cada organización, sobre quién y cuándo (hora Colombia).</p>
+      <div class="flex flex-wrap items-end gap-2 mb-3 text-xs">
+        <div><label class="block font-semibold text-slate-500 mb-1">Desde</label><input type="date" id="auditFrom" class="p-2 border border-slate-300 rounded-lg"></div>
+        <div><label class="block font-semibold text-slate-500 mb-1">Hasta</label><input type="date" id="auditTo" class="p-2 border border-slate-300 rounded-lg"></div>
+        <div><label class="block font-semibold text-slate-500 mb-1">Organización</label><select id="auditOrg" class="p-2 border border-slate-300 rounded-lg bg-white min-w-[170px]"><option value="">Todas</option><option value="plataforma">Plataforma (Super Admin)</option></select></div>
+        <div><label class="block font-semibold text-slate-500 mb-1">Persona</label><select id="auditUser" class="p-2 border border-slate-300 rounded-lg bg-white min-w-[170px] max-w-[240px]"><option value="">Todas</option></select></div>
+        <div><label class="block font-semibold text-slate-500 mb-1">Tipo de acción</label>
+          <select id="auditCategory" class="p-2 border border-slate-300 rounded-lg bg-white">
+            <option value="">Todas</option><option>Colaboradores</option><option>Turnos</option><option>Asistencia</option>
+            <option>Liquidación</option><option>Usuarios</option><option>Configuración</option><option>Sesión</option><option>Otros</option>
+          </select>
+        </div>
+        <div class="flex-1 min-w-[160px]"><label class="block font-semibold text-slate-500 mb-1">Buscar</label><input type="text" id="auditSearch" placeholder="Nombre, correo, organización…" class="w-full p-2 border border-slate-300 rounded-lg"></div>
+        <button onclick="loadAudit()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-semibold">Consultar</button>
+      </div>
+      <p class="text-xs text-slate-500 mb-2" id="auditCount"></p>
+      <div class="overflow-x-auto border border-slate-200 rounded-lg">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 text-slate-500 text-xs uppercase"><tr>
+            <th class="text-left px-3 py-2 whitespace-nowrap">Fecha y hora</th><th class="text-left px-3 py-2">Organización</th>
+            <th class="text-left px-3 py-2">Quién</th><th class="text-left px-3 py-2">Tipo</th><th class="text-left px-3 py-2">Qué hizo</th>
+          </tr></thead>
+          <tbody id="auditTableBody"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 
@@ -320,17 +364,63 @@ async function submitUser() {
   } catch (e) { msg.textContent = e.message; msg.className = 'text-sm text-rose-600 mb-2'; msg.classList.remove('hidden'); }
 }
 
+// ---- Auditoría en español: qué hizo cada persona, sobre quién y cuándo ----
+const AUDIT_CATEGORY_STYLES = {
+  'Colaboradores': 'bg-sky-100 text-sky-800', 'Turnos': 'bg-violet-100 text-violet-800', 'Asistencia': 'bg-emerald-100 text-emerald-800',
+  'Liquidación': 'bg-amber-100 text-amber-800', 'Usuarios': 'bg-rose-100 text-rose-800', 'Configuración': 'bg-slate-200 text-slate-700',
+  'Sesión': 'bg-slate-100 text-slate-500', 'Otros': 'bg-slate-100 text-slate-500',
+};
+let AUDIT_FILTERS_READY = false;
+function bogotaISO(offsetDays) {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+  const d = new Date(today + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
 async function loadAudit() {
-  const d = await api('/api/superadmin/audit');
-  const orgName = (id) => (ORGS_CACHE.find(o => o.id === id) || {}).name || (id ? id.slice(0, 10) : '-');
-  document.getElementById('auditTableBody').innerHTML = d.logs.map(l => `
-    <tr class="border-t border-slate-100">
-      <td class="px-4 py-2 text-slate-500 whitespace-nowrap">${l.created_at}</td>
-      <td class="px-4 py-2">${esc(orgName(l.organization_id))}</td>
-      <td class="px-4 py-2 text-slate-500">${l.user_id ? l.user_id.slice(0, 12) : '-'}</td>
-      <td class="px-4 py-2 font-medium">${esc(l.action)}</td>
-      <td class="px-4 py-2 text-slate-500">${esc(l.resource_type || '-')} ${l.resource_id ? '#' + l.resource_id.slice(0, 8) : ''}</td>
-    </tr>`).join('') || `<tr><td colspan="5" class="px-4 py-6 text-center text-slate-400">Sin eventos registrados.</td></tr>`;
+  const body = document.getElementById('auditTableBody');
+  const fromEl = document.getElementById('auditFrom'), toEl = document.getElementById('auditTo');
+  if (!fromEl.value) { fromEl.value = bogotaISO(-7); toEl.value = bogotaISO(0); }
+  if (!AUDIT_FILTERS_READY) {
+    AUDIT_FILTERS_READY = true;
+    if (!ORGS_CACHE.length) { try { ORGS_CACHE = (await api('/api/superadmin/organizations?search=')).organizations; } catch (e) { /* sin lista */ } }
+    document.getElementById('auditOrg').insertAdjacentHTML('beforeend', ORGS_CACHE.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join(''));
+    document.getElementById('auditSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadAudit(); });
+  }
+  const params = new URLSearchParams({ from: fromEl.value, to: toEl.value });
+  const org = document.getElementById('auditOrg').value, u = document.getElementById('auditUser').value;
+  const c = document.getElementById('auditCategory').value, q = document.getElementById('auditSearch').value.trim();
+  if (org) params.set('organization_id', org);
+  if (u) params.set('userId', u);
+  if (c) params.set('category', c);
+  if (q) params.set('q', q);
+  body.innerHTML = '<tr><td colspan="5" class="px-4 py-6 text-center text-slate-400">Cargando…</td></tr>';
+  try {
+    const d = await api('/api/superadmin/audit?' + params.toString());
+    const userSel = document.getElementById('auditUser');
+    if (userSel.options.length <= 1) {
+      const orgName = (id) => id ? ((ORGS_CACHE.find(o => o.id === id) || {}).name || '') : 'Plataforma';
+      const sorted = [...d.users].sort((a, b) => orgName(a.organizationId).localeCompare(orgName(b.organizationId), 'es') || a.email.localeCompare(b.email));
+      userSel.insertAdjacentHTML('beforeend', sorted.map(x => `<option value="${x.id}">${esc(x.email)}${x.role ? ' (' + esc(x.role) + ')' : ''}${orgName(x.organizationId) ? ' · ' + esc(orgName(x.organizationId)) : ''}</option>`).join(''));
+    }
+    const dmy = (iso) => iso.slice(0, 10).split('-').reverse().join('/');
+    document.getElementById('auditCount').textContent = `${d.logs.length} registro(s) del ${dmy(d.from)} al ${dmy(d.to)}${d.truncated ? ' (se muestran los más recientes; ajusta los filtros para ver más)' : ''}.`;
+    body.innerHTML = d.logs.map((l, i) => `
+      <tr class="border-t border-slate-100 align-top">
+        <td class="px-3 py-2 text-slate-500 whitespace-nowrap text-xs">${esc(dmy(l.at))}<span class="block">${esc(l.at.slice(11, 16))}</span></td>
+        <td class="px-3 py-2 text-xs font-semibold ${l.organization_id ? 'text-slate-700' : 'text-sky-700'}">${esc(l.orgName)}</td>
+        <td class="px-3 py-2 text-xs"><span class="font-semibold text-slate-700 break-all">${esc(l.user)}</span>${l.role ? `<span class="block text-slate-400">${esc(l.role)}</span>` : ''}</td>
+        <td class="px-3 py-2"><span class="inline-block px-2 py-0.5 rounded-full text-xs font-bold whitespace-nowrap ${AUDIT_CATEGORY_STYLES[l.category] || AUDIT_CATEGORY_STYLES.Otros}">${esc(l.category)}</span>
+          <span class="block text-xs text-slate-500 mt-0.5">${esc(l.title)}</span></td>
+        <td class="px-3 py-2 text-slate-700">${esc(l.text)}
+          ${l.details.length ? (l.details.length <= 3
+            ? `<ul class="mt-1 text-xs text-slate-500 list-disc pl-4">${l.details.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`
+            : `<button onclick="document.getElementById('auditDet${i}').classList.toggle('hidden')" class="block mt-1 text-xs text-sky-700 underline">Ver detalle (${l.details.length})</button>
+               <ul id="auditDet${i}" class="hidden mt-1 text-xs text-slate-500 list-disc pl-4">${l.details.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`) : ''}
+        </td>
+      </tr>`).join('') || `<tr><td colspan="5" class="px-4 py-6 text-center text-slate-400">No hay registros con estos filtros.</td></tr>`;
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="5" class="px-4 py-6 text-center text-slate-400">${esc(e.message)}</td></tr>`;
+  }
 }
 
 function openModal(id) { const m = document.getElementById(id); m.classList.remove('hidden'); m.classList.add('flex'); }
