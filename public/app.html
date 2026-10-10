@@ -2457,6 +2457,33 @@
         </div>
     </div>
 
+    <!-- Inasistencia personalizada -->
+    <div id="modalAbsenceType" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl space-y-4 border border-slate-200">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-calendar-xmark text-amber-600"></i> <span id="absTypeTitle">Nueva inasistencia</span></h3>
+                <button onclick="closeModal('modalAbsenceType')" class="text-slate-400 hover:text-slate-600" aria-label="Cerrar"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label for="absTypeName" class="block font-semibold text-slate-700 mb-1">Nombre</label>
+                    <input type="text" id="absTypeName" maxlength="30" oninput="pickAbsenceColor(absenceColorKey)" placeholder="Ej. Compensatorio, Licencia, Calamidad" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-amber-400 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1.5">Color</label>
+                    <div id="absTypeColors" class="flex flex-wrap gap-2"></div>
+                </div>
+                <div class="flex items-center gap-2"><span class="text-slate-500">Así se verá:</span> <span id="absTypePreview"></span></div>
+                <p class="text-3xs text-slate-500">Funciona igual que Vacaciones: ese día el colaborador no tiene horario, no marca en el kiosco y no suma horas.</p>
+                <p id="absTypeMsg" class="hidden text-rose-600 font-semibold"></p>
+            </div>
+            <div class="flex justify-end gap-2 border-t pt-3">
+                <button onclick="closeModal('modalAbsenceType')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                <button onclick="saveAbsenceType()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold shadow">Guardar</button>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL 5: Crear Nuevo Turno Predeterminado -->
     <div id="modalAddPreset" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
         <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-200">
@@ -2512,6 +2539,11 @@
                         <input type="number" id="newPresetBreak" value="20" min="0" step="5" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
                     </div>
                     <input type="hidden" id="newPresetFunction" value="">
+                </div>
+
+                <div>
+                    <label for="newPresetFolder" class="block font-semibold text-slate-700 mb-1"><i class="fa-solid fa-folder text-amber-500"></i> Carpeta</label>
+                    <select id="newPresetFolder" class="w-full p-2 border rounded-lg bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none"><option value="">Sin carpeta</option></select>
                 </div>
 
                 <div id="newPresetSummary" class="text-2xs rounded-lg px-2.5 py-2 bg-slate-50 border border-slate-200 text-slate-600"></div>
@@ -2900,7 +2932,7 @@
                 : '<span class="text-slate-400">Cada turno con el color que se le eligió</span>')
                 + chip(SHIFT_COLOR_THEMES.vivid_yellow.bg, 'Partido')
                 + chip('bg-rose-100 text-rose-700 border-rose-300', 'Descanso')
-                + Object.values(ABSENCE_TYPES).map(a => chip(SHIFT_COLOR_THEMES[a.color].bg, a.label)).join('')
+                + Object.values(ABSENCE_TYPES).filter(a => !a.hidden).map(a => chip((SHIFT_COLOR_THEMES[a.color] || SHIFT_COLOR_THEMES.stone).bg, escapeHtml(a.label))).join('')
                 + `<span class="inline-flex items-center gap-1 text-slate-500"><span class="px-1 rounded bg-orange-500 text-white font-bold">+2h</span> extras programadas</span>`
                 + `<span class="inline-flex items-center gap-1 text-slate-500"><i class="fa-solid fa-note-sticky text-amber-500"></i> nota del día</span>`
                 + (CAN('shifts.edit') ? `<span class="inline-flex items-center gap-1 text-sky-700 font-semibold"><i class="fa-solid fa-hand-pointer"></i> Mantén presionado un turno y arrástralo para copiarlo</span>` : '');
@@ -2959,6 +2991,22 @@
             incapacidad: { label: 'Incapacidad', color: 'orange', icon: 'fa-briefcase-medical' },
             sin_horario: { label: 'Sin Horario', color: 'gray',   icon: 'fa-user-slash' },
         };
+
+        // Inasistencias personalizadas (ej. Compensatorio, Licencia, Calamidad):
+        // cada organización crea las suyas. Se guardan junto a los turnos
+        // predeterminados con kind:'absence' y funcionan igual que vacaciones:
+        // día sin horario de trabajo, sin marcación y sin horas.
+        const BUILTIN_ABSENCE_KEYS = ['vacaciones', 'incapacidad', 'sin_horario'];
+        const ABSENCE_COLOR_CHOICES = ['amber', 'lime', 'teal', 'cyan', 'blue', 'violet', 'pink', 'stone', 'slate', 'green'];
+        function syncCustomAbsenceTypes() {
+            Object.keys(ABSENCE_TYPES).forEach(k => { if (!BUILTIN_ABSENCE_KEYS.includes(k)) delete ABSENCE_TYPES[k]; });
+            (appState.shiftPresets || []).filter(p => p.kind === 'absence').forEach(p => {
+                ABSENCE_TYPES[p.id] = { label: p.name || 'Inasistencia', color: SHIFT_COLOR_THEMES[p.color] ? p.color : 'stone', icon: 'fa-calendar-xmark', custom: true, hidden: !!p.hidden };
+            });
+        }
+        // Turnos predeterminados de trabajo (sin carpetas ni inasistencias).
+        function workPresets() { return (appState.shiftPresets || []).filter(p => !p.kind); }
+        function presetFolders() { return (appState.shiftPresets || []).filter(p => p.kind === 'folder'); }
 
         // Turno partido predeterminado (editable): 08:00-12:00 / 14:00-18:00.
         const SPLIT_PRESET_ID = 'split_shift';
@@ -3099,6 +3147,33 @@
             try { localStorage.setItem('rosterLastShiftConfig', JSON.stringify(cfg)); } catch (e) { /* sin almacenamiento */ }
         }
 
+        // Ficha en día ya iniciado: turno normal -> solo nota; turno partido ->
+        // todo menos la hora de entrada.
+        function applyRosterLockMode(empId, dateISO, existing) {
+            const locked = isShiftLocked(empId, dateISO) && existing && !existing.isOffDay;
+            const isSplit = !!(existing && existing.isSplit);
+            const modal = document.getElementById('modalRosterQuickAssign');
+            let banner = document.getElementById('rosterLockBanner');
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = 'rosterLockBanner';
+                banner.className = 'hidden text-2xs rounded-lg px-2.5 py-2 bg-slate-100 border border-slate-300 text-slate-700';
+                document.getElementById('rosterModalSubtitle').closest('.border-b').insertAdjacentElement('afterend', banner);
+            }
+            const t = shiftLockTime(empId, dateISO);
+            banner.innerHTML = locked ? `<i class="fa-solid fa-lock"></i> <strong>Ya marcó su entrada${t ? ' a las ' + t : ''}.</strong> ${isSplit ? 'Como es turno partido, puedes ajustar las demás horas (o pasarlo a turno normal), pero no la hora de entrada.' : 'El horario de este día ya no se puede cambiar; solo puedes editar la nota del día.'}` : '';
+            banner.classList.toggle('hidden', !locked);
+            const fullLock = locked && !isSplit;
+            ['rosterAssignEnd', 'rosterAssignBreak', 'rosterAssignLimit', 'rosterAssignIsSplit', 'rosterAssignSplitOut', 'rosterAssignSplitIn', 'rosterAssignIsSunday', 'rosterAssignIsOvernight'].forEach(id => {
+                const el = document.getElementById(id); if (el) { el.disabled = fullLock || (id === 'rosterAssignBreak' && isSplit && document.getElementById('rosterAssignIsSplit').checked); }
+            });
+            const st = document.getElementById('rosterAssignStart'); st.disabled = locked;
+            st.classList.toggle('bg-slate-100', locked);
+            ['modalRosterPresetList', 'rosterAssignRepeatDays'].forEach(id => { const el = document.getElementById(id); if (el) el.closest('div.space-y-2, div:not([id])').classList.toggle('hidden', locked); });
+            modal.querySelectorAll('button[onclick="markRosterDayAsOff()"]').forEach(b => b.classList.toggle('hidden', locked));
+            modal.dataset.locked = locked ? (isSplit ? 'split' : 'full') : '';
+        }
+
         // Chips "Repetir en otros días de esta semana" de la ficha de asignación.
         let rosterRepeatDates = new Set();
         function renderRosterRepeatDays(empId, dateISO) {
@@ -3205,7 +3280,7 @@
         }
 
         function resetDefaultPresets() {
-            appState.shiftPresets = loadShiftPresets();
+            appState.shiftPresets = [...appState.shiftPresets.filter(p => p.kind), ...loadShiftPresets()];
             saveShiftPresets();
             appState.quickBrushMode = 'office';
             renderQuickBrushBar();
@@ -3244,17 +3319,61 @@
             container.appendChild(btnOff);
 
             Object.entries(ABSENCE_TYPES).forEach(([key, a]) => {
-                const theme = SHIFT_COLOR_THEMES[a.color];
+                if (a.hidden) return;
+                const theme = SHIFT_COLOR_THEMES[a.color] || SHIFT_COLOR_THEMES.stone;
                 const isSel = appState.quickBrushMode === key;
-                const b = document.createElement('button');
-                b.type = 'button';
-                b.onclick = () => selectQuickBrush(key);
-                b.className = `px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border shadow-xs ${theme.bg} ${isSel ? 'ring-2 ring-sky-600 ring-offset-1 font-black shadow' : 'opacity-90 hover:opacity-100'}`;
-                b.innerHTML = `<i class="fa-solid ${a.icon} text-2xs"></i> <span>${a.label}</span>`;
+                if (!a.custom) {
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.onclick = () => selectQuickBrush(key);
+                    b.className = `px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border shadow-xs ${theme.bg} ${isSel ? 'ring-2 ring-sky-600 ring-offset-1 font-black shadow' : 'opacity-90 hover:opacity-100'}`;
+                    b.innerHTML = `<i class="fa-solid ${a.icon} text-2xs"></i> <span>${a.label}</span>`;
+                    container.appendChild(b);
+                    return;
+                }
+                const b = document.createElement('div');
+                b.className = `inline-flex items-center rounded-lg border text-xs font-bold transition shadow-xs ${theme.bg} ${isSel ? 'ring-2 ring-sky-600 ring-offset-1 font-black shadow' : 'opacity-90 hover:opacity-100'}`;
+                b.innerHTML = `<button type="button" onclick="selectQuickBrush('${key}')" class="pl-2.5 pr-1 py-1.5 flex items-center gap-1.5"><i class="fa-solid ${a.icon} text-2xs"></i> <span>${escapeHtml(a.label)}</span></button>
+                    <button type="button" onclick="openAbsenceTypeModal('${key}')" title="Editar esta inasistencia" class="px-1 py-1 opacity-60 hover:opacity-100"><i class="fa-solid fa-pen text-3xs"></i></button>
+                    <button type="button" onclick="deleteAbsenceType('${key}')" title="Eliminar esta inasistencia" class="pr-2 pl-0.5 py-1 opacity-60 hover:opacity-100 hover:text-rose-700"><i class="fa-solid fa-xmark text-3xs"></i></button>`;
                 container.appendChild(b);
             });
+            const btnAbs = document.createElement('button');
+            btnAbs.type = 'button';
+            btnAbs.onclick = () => openAbsenceTypeModal(null);
+            btnAbs.title = 'Crear un nuevo tipo de inasistencia (ej. Compensatorio, Licencia)';
+            btnAbs.className = 'px-2 py-1.5 rounded-lg text-xs font-bold border border-dashed border-slate-400 text-slate-600 hover:bg-slate-50 flex items-center gap-1';
+            btnAbs.innerHTML = '<i class="fa-solid fa-plus text-3xs"></i> Inasistencia';
+            container.appendChild(btnAbs);
 
-            appState.shiftPresets.forEach(preset => {
+            // Carpetas de turnos predeterminados (filtro)
+            const folders = presetFolders();
+            const allPresets = workPresets();
+            const sel = appState.presetFolderFilter || 'all';
+            const folderRow = document.createElement('div');
+            folderRow.className = 'w-full flex flex-wrap items-center gap-1.5 pt-2 mt-1 border-t border-slate-100';
+            const fchip = (id, label, count, editable) => {
+                const on = sel === id;
+                return `<span class="inline-flex items-center rounded-lg border text-2xs font-bold ${on ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}">
+                    <button type="button" onclick="selectPresetFolder('${id}')" class="px-2 py-1 flex items-center gap-1"><i class="fa-solid ${id === 'all' ? 'fa-layer-group' : (id === 'none' ? 'fa-inbox' : (on ? 'fa-folder-open' : 'fa-folder'))} ${on ? '' : 'text-amber-500'}"></i> ${escapeHtml(label)} <span class="opacity-70 font-normal">(${count})</span></button>
+                    ${editable ? `<button type="button" onclick="renamePresetFolder('${id}')" title="Cambiar nombre" class="px-1 py-1 opacity-60 hover:opacity-100"><i class="fa-solid fa-pen text-3xs"></i></button><button type="button" onclick="deletePresetFolder('${id}')" title="Eliminar carpeta (los turnos quedan sin carpeta)" class="pr-1.5 py-1 opacity-60 hover:opacity-100 hover:text-rose-500"><i class="fa-solid fa-xmark text-3xs"></i></button>` : ''}
+                </span>`;
+            };
+            const noneCount = allPresets.filter(p => !p.folderId || !folders.some(f => f.id === p.folderId)).length;
+            folderRow.innerHTML = `<span class="text-2xs font-bold text-slate-500 mr-1">Turnos:</span>`
+                + fchip('all', 'Todos', allPresets.length, false)
+                + folders.map(f => fchip(f.id, f.name || 'Carpeta', allPresets.filter(p => p.folderId === f.id).length, true)).join('')
+                + (folders.length ? fchip('none', 'Sin carpeta', noneCount, false) : '')
+                + `<button type="button" onclick="createPresetFolder()" class="px-2 py-1 rounded-lg text-2xs font-bold border border-dashed border-amber-400 text-amber-700 hover:bg-amber-50"><i class="fa-solid fa-folder-plus"></i> Nueva carpeta</button>`;
+            container.appendChild(folderRow);
+            if (!allPresets.length) {
+                const empty = document.createElement('p');
+                empty.className = 'w-full text-2xs text-slate-500';
+                empty.innerHTML = 'Aún no hay turnos predeterminados. Créalos con <strong>Nuevo Preset</strong> (arriba a la derecha).';
+                container.appendChild(empty);
+            }
+
+            allPresets.filter(p => sel === 'all' || (sel === 'none' ? (!p.folderId || !folders.some(f => f.id === p.folderId)) : p.folderId === sel)).forEach(preset => {
                 const isSelected = appState.quickBrushMode === preset.id;
                 const theme = rosterColorMode() === 'franja' ? shiftDisplayTheme(preset) : (SHIFT_COLOR_THEMES[preset.color] || SHIFT_COLOR_THEMES.emerald);
                 const btn = document.createElement('div');
@@ -3277,10 +3396,143 @@
             });
         }
 
+        function selectPresetFolder(id) { appState.presetFolderFilter = id; renderQuickBrushBar(); }
+        function createPresetFolder() {
+            const name = (window.prompt('Nombre de la nueva carpeta (ej. Cocina, Rotativos noche):') || '').trim();
+            if (!name) return;
+            const f = { id: 'folder_' + Date.now(), kind: 'folder', name: name.slice(0, 40) };
+            appState.shiftPresets.push(f);
+            appState.presetFolderFilter = f.id;
+            saveShiftPresets(); renderQuickBrushBar();
+            showAppToast(`Carpeta "${f.name}" creada. Los turnos nuevos que crees ahora quedan dentro de ella.`);
+        }
+        function renamePresetFolder(id) {
+            const f = presetFolders().find(x => x.id === id); if (!f) return;
+            const name = (window.prompt('Nuevo nombre de la carpeta:', f.name || '') || '').trim();
+            if (!name) return;
+            f.name = name.slice(0, 40);
+            saveShiftPresets(); renderQuickBrushBar();
+        }
+        function deletePresetFolder(id) {
+            const f = presetFolders().find(x => x.id === id); if (!f) return;
+            const n = workPresets().filter(p => p.folderId === id).length;
+            if (!confirm(`¿Eliminar la carpeta "${f.name}"?${n ? ` Sus ${n} turno(s) NO se borran: quedan en "Sin carpeta".` : ''}`)) return;
+            workPresets().forEach(p => { if (p.folderId === id) delete p.folderId; });
+            appState.shiftPresets = appState.shiftPresets.filter(x => x.id !== id);
+            if (appState.presetFolderFilter === id) appState.presetFolderFilter = 'all';
+            saveShiftPresets(); renderQuickBrushBar();
+        }
+        function fillPresetFolderSelect(selected) {
+            const sel = document.getElementById('newPresetFolder');
+            if (!sel) return;
+            sel.innerHTML = '<option value="">Sin carpeta</option>' + presetFolders().map(f => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name || 'Carpeta')}</option>`).join('');
+            sel.value = selected && presetFolders().some(f => f.id === selected) ? selected : '';
+        }
+        // ---- Inasistencias personalizadas ----
+        let editingAbsenceId = null, absenceColorKey = 'amber';
+        function openAbsenceTypeModal(id) {
+            editingAbsenceId = id;
+            const p = id ? appState.shiftPresets.find(x => x.id === id) : null;
+            document.getElementById('absTypeTitle').textContent = p ? 'Editar inasistencia' : 'Nueva inasistencia';
+            document.getElementById('absTypeName').value = p ? (p.name || '') : '';
+            absenceColorKey = p && p.color ? p.color : 'amber';
+            document.getElementById('absTypeColors').innerHTML = ABSENCE_COLOR_CHOICES.map(k => `<button type="button" data-abs-color="${k}" onclick="pickAbsenceColor('${k}')" title="${SHIFT_COLOR_THEMES[k].text}" class="w-7 h-7 rounded-full border-2 border-white shadow ${SHIFT_COLOR_THEMES[k].swatch}"></button>`).join('');
+            pickAbsenceColor(absenceColorKey);
+            document.getElementById('absTypeMsg').classList.add('hidden');
+            openModal('modalAbsenceType');
+            setTimeout(() => document.getElementById('absTypeName').focus(), 50);
+        }
+        function pickAbsenceColor(k) {
+            absenceColorKey = k;
+            document.querySelectorAll('[data-abs-color]').forEach(b => b.classList.toggle('ring-2', b.dataset.absColor === k));
+            document.querySelectorAll('[data-abs-color]').forEach(b => b.classList.toggle('ring-slate-900', b.dataset.absColor === k));
+            const prev = document.getElementById('absTypePreview');
+            if (prev) prev.className = 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-bold ' + SHIFT_COLOR_THEMES[k].bg;
+            if (prev) prev.innerHTML = `<i class="fa-solid fa-calendar-xmark"></i> ${escapeHtml(document.getElementById('absTypeName').value.trim() || 'Inasistencia')}`;
+        }
+        function saveAbsenceType() {
+            const name = document.getElementById('absTypeName').value.trim();
+            const msg = document.getElementById('absTypeMsg');
+            if (!name) { msg.textContent = 'Escribe el nombre de la inasistencia.'; msg.classList.remove('hidden'); return; }
+            const taken = Object.entries(ABSENCE_TYPES).some(([k, a]) => k !== editingAbsenceId && !a.hidden && a.label.toLowerCase() === name.toLowerCase());
+            if (taken) { msg.textContent = 'Ya existe una inasistencia con ese nombre.'; msg.classList.remove('hidden'); return; }
+            if (editingAbsenceId) {
+                const p = appState.shiftPresets.find(x => x.id === editingAbsenceId);
+                if (p) { p.name = name.slice(0, 30); p.color = absenceColorKey; }
+                // Los días ya asignados toman el nombre nuevo.
+                appState.shifts.forEach(sh => { if (sh.absenceType === editingAbsenceId) { sh.shiftTitle = name; sh.functionTag = name; sh.color = absenceColorKey; } });
+            } else {
+                appState.shiftPresets.push({ id: 'abs_' + Date.now(), kind: 'absence', name: name.slice(0, 30), color: absenceColorKey });
+            }
+            syncCustomAbsenceTypes();
+            saveShiftPresets();
+            closeModal('modalAbsenceType');
+            renderQuickBrushBar(); renderWeeklyRoster();
+            showAppToast(`Inasistencia "${name}" guardada.`);
+        }
+        function deleteAbsenceType(id) {
+            const a = ABSENCE_TYPES[id]; const p = appState.shiftPresets.find(x => x.id === id);
+            if (!a || !p) return;
+            const used = appState.shifts.filter(sh => sh.absenceType === id).length;
+            if (!confirm(`¿Eliminar la inasistencia "${a.label}"?${used ? ` Los ${used} día(s) que ya la tienen asignada se conservan tal cual.` : ''}`)) return;
+            // Se oculta (no se borra) para que los días ya asignados sigan mostrando su nombre.
+            p.hidden = true;
+            if (appState.quickBrushMode === id) appState.quickBrushMode = 'manual';
+            syncCustomAbsenceTypes(); saveShiftPresets(); renderQuickBrushBar(); renderWeeklyRoster();
+        }
+
         function selectQuickBrush(key) {
             appState.quickBrushMode = key;
             renderQuickBrushBar();
             updateBrushNoteHint();
+        }
+
+        // -----------------------------------------------------------------
+        // DÍA YA INICIADO: cuando el colaborador marca su ENTRADA, su horario de
+        // ese día queda bloqueado en el cuadro (el servidor también lo impide).
+        // Excepción: el turno partido se puede ajustar (o pasar a turno normal)
+        // conservando la hora de entrada. La nota del día sí se puede cambiar.
+        // -----------------------------------------------------------------
+        let shiftLocks = new Map();   // 'empId|fecha' -> hora de la entrada
+        let shiftLocksFetchedAt = 0, shiftLocksLoading = null;
+        function isShiftLocked(empId, dateISO) {
+            if (!shiftLocks.has(`${Number(empId)}|${dateISO}`)) return false;
+            const sh = appState.shifts.find(s => Number(s.empId) === Number(empId) && s.date === dateISO);
+            return !!(sh && !sh.isOffDay); // solo se bloquea un turno de trabajo ya iniciado
+        }
+        function shiftLockTime(empId, dateISO) {
+            const at = shiftLocks.get(`${Number(empId)}|${dateISO}`);
+            if (!at) return '';
+            try { return new Date(at).toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hour12: false }); } catch (e) { return ''; }
+        }
+        async function refreshShiftLocks(force) {
+            if (!appState.rosterCurrentMonday) return;
+            if (!force && Date.now() - shiftLocksFetchedAt < 30000) return;
+            if (shiftLocksLoading) return shiftLocksLoading;
+            const from = formatDateISO(appState.rosterCurrentMonday), to = formatDateISO(addDays(appState.rosterCurrentMonday, 6));
+            const today = bogotaTodayISO(), yesterday = formatDateISO(addDays(new Date(today + 'T00:00:00'), -1));
+            shiftLocksFetchedAt = Date.now();
+            if (to < yesterday || from > today) { if (shiftLocks.size) { shiftLocks = new Map(); renderWeeklyRoster(); } return; }
+            shiftLocksLoading = (async () => {
+                try {
+                    const r = await apiFetch(`/api/org/shift-locks?from=${from}&to=${to}`);
+                    const next = new Map((r.locks || []).map(l => [`${Number(l.empId)}|${l.date}`, l.entradaAt]));
+                    const changed = next.size !== shiftLocks.size || [...next.keys()].some(k => !shiftLocks.has(k));
+                    shiftLocks = next;
+                    if (changed) renderWeeklyRoster();
+                } catch (e) { /* sin conexión: se reintenta después */ }
+                finally { shiftLocksLoading = null; }
+            })();
+            return shiftLocksLoading;
+        }
+        setInterval(() => {
+            const v = document.getElementById('view-shifts');
+            if (v && !v.classList.contains('hidden')) refreshShiftLocks(true);
+        }, 60000);
+        function lockedToast(empId, dateISO) {
+            const emp = appState.employees.find(e => Number(e.id) === Number(empId));
+            const t = shiftLockTime(empId, dateISO);
+            showAppToast(`${emp ? emp.name : 'El colaborador'} ya marcó su entrada${t ? ' a las ' + t : ''}: el horario de ese día no se puede cambiar.`);
         }
 
         // -----------------------------------------------------------------
@@ -3305,11 +3557,29 @@
             const sh = appState.shifts.find(s => Number(s.empId) === c.empId && s.date === c.date);
             return sh && !sh.isOffDay ? sh : null;
         }
+        // Qué se puede levantar de una celda: un turno de trabajo (se COPIA) o un
+        // día de descanso (se MUEVE dentro de la misma fila: intercambia con el turno destino).
+        function rcSourceKind(td) {
+            const c = rcCellInfo(td);
+            if (!c) return null;
+            const sh = appState.shifts.find(s => Number(s.empId) === c.empId && s.date === c.date);
+            if (sh && !sh.isOffDay) return 'shift';
+            if (!sh || (sh.isOffDay && !sh.absenceType)) return 'rest';
+            return null;
+        }
+        function makeRestShift(empId, dateISO) {
+            return {
+                empId, date: dateISO, startTime: '--:--', endTime: '--:--', breakM: 0, limit: 8, color: 'rose',
+                shiftTitle: 'Descanso', functionTag: 'Día Libre', isOffDay: true,
+                res: { totalHours: 0, hod: 0, hon: 0, hed: 0, hen: 0, hedd: 0, hend: 0, hourlyRate: 0, baseOrdinaryPay: 0, honSurcharge: 0, hedTotalPay: 0, henTotalPay: 0, domOrdinarySurcharge: 0, totalSurcharges: 0, totalPay: 0, isSunday: isSundayOrHolidayCO(dateISO) }
+            };
+        }
         function rcCanDrop(td) {
             const c = rcCellInfo(td);
             const emp = appState.employees.find(e => Number(e.id) === c.empId);
             if (!emp) return false;
             if (emp.retiredAt && c.date > emp.retiredAt) return false;
+            if (isShiftLocked(c.empId, c.date)) return false;
             const ex = appState.shifts.find(s => Number(s.empId) === c.empId && s.date === c.date);
             return !(ex && ex.absenceType);
         }
@@ -3326,16 +3596,22 @@
             rcDrag = null;
         }
         function rcStartDrag(td, x, y) {
-            const sh = rcWorkedShift(td);
-            if (!sh) return;
+            const kind = rcSourceKind(td);
+            if (!kind) return;
+            const sh = kind === 'shift' ? rcWorkedShift(td) : null;
             const ghost = document.createElement('div');
-            ghost.className = 'rc-drag-ghost px-2 py-1 rounded-lg border shadow-xl text-3xs font-black ' + shiftDisplayTheme(sh).bg;
-            ghost.innerHTML = `<i class="fa-solid fa-copy"></i> ${escapeHtml(shiftTimeLabel(sh))}`;
+            if (kind === 'shift') {
+                ghost.className = 'rc-drag-ghost px-2 py-1 rounded-lg border shadow-xl text-3xs font-black ' + shiftDisplayTheme(sh).bg;
+                ghost.innerHTML = `<i class="fa-solid fa-copy"></i> ${escapeHtml(shiftTimeLabel(sh))}`;
+            } else {
+                ghost.className = 'rc-drag-ghost px-2 py-1 rounded-lg border shadow-xl text-3xs font-black bg-rose-100 text-rose-700 border-rose-300';
+                ghost.innerHTML = '<i class="fa-solid fa-arrows-left-right"></i> Mover descanso';
+            }
             ghost.style.left = x + 'px'; ghost.style.top = y + 'px';
             document.body.appendChild(ghost);
             td.classList.add('rc-drag-source');
             document.body.classList.add('rc-dragging');
-            rcDrag = { sh, srcTd: td, ghost, anchorTd: null, targets: [] };
+            rcDrag = { kind, sh, srcTd: td, ghost, anchorTd: null, targets: [] };
             rcSuppressClickUntil = Date.now() + 100000; // mientras arrastra, ningún clic dispara la ficha
             if (navigator.vibrate) { try { navigator.vibrate(30); } catch (e) { /* sin vibración */ } }
         }
@@ -3343,6 +3619,16 @@
             const el = document.elementFromPoint(x, y);
             const td = el ? el.closest('#rosterTableBody td[data-rc-emp]') : null;
             if (!td) return;
+            if (rcDrag.kind === 'rest') {
+                // El descanso se mueve a UN solo día de la misma persona.
+                rcClearMarks();
+                rcDrag.targets = [];
+                if (td === rcDrag.srcTd) return;
+                const ok = td.parentElement === rcDrag.srcTd.parentElement && rcCanDrop(td);
+                td.classList.add(ok ? 'rc-drag-target' : 'rc-drag-blocked');
+                if (ok) rcDrag.targets = [td];
+                return;
+            }
             if (!rcDrag.anchorTd || rcDrag.anchorTd.parentElement !== td.parentElement) rcDrag.anchorTd = td; // otra fila: empieza tramo nuevo
             const cells = [...td.parentElement.querySelectorAll('td[data-rc-emp]')];
             const a = cells.indexOf(rcDrag.anchorTd), b = cells.indexOf(td);
@@ -3355,7 +3641,30 @@
             const edge = 70;
             if (y < edge) window.scrollBy(0, -14); else if (y > window.innerHeight - edge) window.scrollBy(0, 14);
         }
+        // Mueve el descanso: el día destino queda en descanso y su turno pasa al
+        // día donde estaba el descanso (si el destino no tenía turno, solo se mueve).
+        function rcApplyRestMove() {
+            const s0 = rcCellInfo(rcDrag.srcTd), t0 = rcCellInfo(rcDrag.targets[0]);
+            const emp = appState.employees.find(e => Number(e.id) === s0.empId);
+            if (!emp) return;
+            const prevSrc = appState.shifts.find(s => Number(s.empId) === s0.empId && s.date === s0.date) || null;
+            const prevTgt = appState.shifts.find(s => Number(s.empId) === t0.empId && s.date === t0.date) || null;
+            appState.shifts = appState.shifts.filter(s => !(Number(s.empId) === s0.empId && (s.date === s0.date || s.date === t0.date)));
+            appState.shifts.push(makeRestShift(emp.id, t0.date));
+            if (prevTgt && !prevTgt.isOffDay) {
+                const moved = cloneShiftToDate(prevTgt, emp, s0.date);
+                if (prevTgt.note) moved.note = prevTgt.note;
+                appState.shifts.push(moved);
+            }
+            rcUndo = [{ empId: emp.id, date: s0.date, prev: prevSrc }, { empId: emp.id, date: t0.date, prev: prevTgt }];
+            renderWeeklyRoster();
+            updateDashboardMetrics();
+            renderSelectedEmployeeLedger();
+            const dn = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric' });
+            rcShowUndoBar(`Descanso de ${emp.name} movido al ${dn(t0.date)}${prevTgt && !prevTgt.isOffDay ? `; su turno pasó al ${dn(s0.date)}` : ''}.`);
+        }
         function rcApplyDrop() {
+            if (rcDrag.kind === 'rest') return rcApplyRestMove();
             const src = rcDrag.sh;
             const changes = [];
             let skipped = 0;
@@ -3406,7 +3715,7 @@
         document.addEventListener('pointerdown', (e) => {
             if (e.button !== 0 && e.pointerType === 'mouse') return;
             const td = e.target.closest && e.target.closest('#rosterTableBody td[data-rc-emp]');
-            if (!td || !CAN('shifts.edit') || !rcWorkedShift(td)) return;
+            if (!td || !CAN('shifts.edit') || !rcSourceKind(td)) return;
             rcCancelHold();
             rcHold = { x: e.clientX, y: e.clientY, td, timer: setTimeout(() => { const h = rcHold; rcHold = null; if (h) rcStartDrag(h.td, h.x, h.y); }, RC_HOLD_MS) };
         });
@@ -3443,6 +3752,7 @@
                 return;
             }
             const brushNote = rosterBrushNote();
+            if (isShiftLocked(empId, dateISO) && appState.quickBrushMode !== 'note') { lockedToast(empId, dateISO); return; }
 
             if (appState.quickBrushMode === 'note') {
                 const sh = appState.shifts.find(s => s.empId === empId && s.date === dateISO);
@@ -3561,6 +3871,7 @@
             const formR = autoEndForm('roster');
             formR.refresh && formR.refresh();
             syncColorPickers();
+            applyRosterLockMode(empId, dateISO, existing);
             renderRosterRepeatDays(empId, dateISO);
             // Enter en cualquier casilla guarda el turno (agiliza la carga).
             const modalEl = document.getElementById('modalRosterQuickAssign');
@@ -3580,7 +3891,13 @@
             if (!container) return;
             container.innerHTML = '';
 
-            appState.shiftPresets.forEach(preset => {
+            const folders = presetFolders();
+            const groups = [...folders.map(f => ({ name: f.name, list: workPresets().filter(p => p.folderId === f.id) })),
+                { name: folders.length ? 'Sin carpeta' : '', list: workPresets().filter(p => !p.folderId || !folders.some(f => f.id === p.folderId)) }].filter(g => g.list.length);
+            if (!groups.length) container.innerHTML = '<p class="text-2xs text-slate-500 col-span-full">Aún no hay turnos predeterminados.</p>';
+            groups.forEach(g => {
+              if (g.name) { const h = document.createElement('p'); h.className = 'col-span-full text-3xs font-bold uppercase text-amber-700 mt-1'; h.innerHTML = `<i class="fa-solid fa-folder"></i> ${escapeHtml(g.name)}`; container.appendChild(h); }
+              g.list.forEach(preset => {
                 const theme = rosterColorMode() === 'franja' ? shiftDisplayTheme(preset) : (SHIFT_COLOR_THEMES[preset.color] || SHIFT_COLOR_THEMES.emerald);
                 const btn = document.createElement('div');
                 btn.className = `p-2 rounded-lg border flex items-center justify-between text-left text-xs transition ${theme.bg} hover:shadow`;
@@ -3594,12 +3911,14 @@
                     </button>`}
                 `;
                 container.appendChild(btn);
+              });
             });
         }
 
         function quickApplyPresetAndClose(presetId, empId, dateISO) {
             const preset = appState.shiftPresets.find(p => p.id === presetId);
             if (!preset) return;
+            if (isShiftLocked(empId, dateISO)) { lockedToast(empId, dateISO); return; }
 
             const emp = appState.employees.find(e => e.id === empId);
             const isSunday = isSundayOrHolidayCO(dateISO);
@@ -3644,14 +3963,34 @@
             const on = document.getElementById('rosterAssignIsSplit').checked;
             document.getElementById('rosterAssignSplitFields').classList.toggle('hidden', !on);
             const brk = document.getElementById('rosterAssignBreak');
+            const wasSplit = brk.dataset.splitMode === '1';
+            if (on && !wasSplit) brk.dataset.prevBreak = brk.value; // se recupera si se vuelve a turno normal
+            brk.dataset.splitMode = on ? '1' : '';
             brk.disabled = on;
             brk.classList.toggle('bg-slate-100', on);
             if (on) brk.value = minutesBetween(document.getElementById('rosterAssignSplitOut').value, document.getElementById('rosterAssignSplitIn').value);
+            else if (wasSplit) brk.value = brk.dataset.prevBreak && Number(brk.dataset.prevBreak) < 180 ? brk.dataset.prevBreak : '20';
         }
 
         function saveRosterQuickAssignment() {
             const empId = parseInt(document.getElementById('rosterAssignEmpId').value);
             const dateISO = document.getElementById('rosterAssignDate').value;
+            const lockMode = document.getElementById('modalRosterQuickAssign').dataset.locked || '';
+            if (lockMode === 'full') {
+                // Día ya iniciado con turno normal: solo se guarda la nota.
+                const sh = appState.shifts.find(s => s.empId === empId && s.date === dateISO);
+                const n = document.getElementById('rosterAssignFunction').value.trim();
+                if (sh) { if (n) sh.note = n; else delete sh.note; }
+                closeModal('modalRosterQuickAssign');
+                showAppToast('Nota del día guardada (el horario está bloqueado porque ya marcó entrada).');
+                renderWeeklyRoster(); updateDashboardMetrics(); renderSelectedEmployeeLedger();
+                return;
+            }
+            if (lockMode === 'split') {
+                const prevSh = appState.shifts.find(s => s.empId === empId && s.date === dateISO);
+                if (prevSh) document.getElementById('rosterAssignStart').value = prevSh.startTime; // la entrada no cambia
+                rosterRepeatDates = new Set();
+            }
             const start = document.getElementById('rosterAssignStart').value;
             const end = document.getElementById('rosterAssignEnd').value;
             const breakM = parseFloat(document.getElementById('rosterAssignBreak').value) || 0;
@@ -3697,7 +4036,7 @@
             [...rosterRepeatDates].sort().forEach(d => {
                 if (d === dateISO) return;
                 const ex = appState.shifts.find(s => s.empId === empId && s.date === d);
-                if ((ex && ex.absenceType) || (emp.retiredAt && d > emp.retiredAt)) { skipped++; return; }
+                if ((ex && ex.absenceType) || (emp.retiredAt && d > emp.retiredAt) || isShiftLocked(empId, d)) { skipped++; return; }
                 const sun = isSundayOrHolidayCO(d);
                 const r = calculateShift(start, end, breakFinal, limit, sun, isOvernight, emp.salary, empNightSurcharge(emp));
                 appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === d));
@@ -3721,6 +4060,7 @@
         function markRosterDayAsOff() {
             const empId = parseInt(document.getElementById('rosterAssignEmpId').value);
             const dateISO = document.getElementById('rosterAssignDate').value;
+            if (isShiftLocked(empId, dateISO)) { lockedToast(empId, dateISO); return; }
 
             appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
             appState.shifts.push({
@@ -3777,6 +4117,7 @@
                 document.getElementById('newPresetSplitIn').value = p.splitIn || '14:00';
             }
             selectPresetColor(p.color || 'emerald');
+            fillPresetFolderSelect(p.folderId || '');
             const f = autoEndForm('preset'); f.refresh && f.refresh();
             syncColorPickers();
         }
@@ -3791,6 +4132,8 @@
             document.getElementById('newPresetBreak').disabled = false;
             const f = autoEndForm('preset'); f.recompute && f.recompute();
             syncColorPickers();
+            const fsel = appState.presetFolderFilter;
+            fillPresetFolderSelect(fsel && fsel !== 'all' && fsel !== 'none' ? fsel : '');
         }
 
         // Casilla "Turno partido" del modal: muestra las horas de salida/regreso
@@ -3809,6 +4152,8 @@
                 const p = appState.shiftPresets.find(item => item.id === editId);
                 if (p) {
                     p.name = document.getElementById('newPresetName').value.trim();
+                    const fid = document.getElementById('newPresetFolder').value;
+                    if (fid) p.folderId = fid; else delete p.folderId;
                     p.startTime = document.getElementById('newPresetStart').value;
                     p.endTime = document.getElementById('newPresetEnd').value;
                     p.isOvernight = document.getElementById('newPresetIsOvernight').checked;
@@ -3854,6 +4199,8 @@
                 isOvernight
             };
             if (isSplit) Object.assign(newPreset, { isSplit: true, splitOut, splitIn });
+            const folderId = document.getElementById('newPresetFolder').value;
+            if (folderId) newPreset.folderId = folderId;
 
             appState.shiftPresets.push(newPreset);
             saveShiftPresets();
@@ -4308,6 +4655,7 @@
 
         function renderWeeklyRoster() {
             try { renderRosterColorLegend(); } catch (e) { /* leyenda opcional */ }
+            try { refreshShiftLocks(); } catch (e) { /* bloqueos opcionales */ }
             const mondayCheck = appState.rosterCurrentMonday;
             if (mondayCheck && !shiftsLoaded(formatDateISO(mondayCheck))) {
                 // Semana anterior a la ventana cargada: se trae del servidor y se vuelve a pintar.
@@ -4491,6 +4839,7 @@
                             return `
                                 <td data-rc-emp="${emp.id}" data-rc-date="${d.dateISO}" class="p-1 border-r border-slate-200 text-center align-middle">
                                     <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${escapeHtml(shiftTimeLabel(shift))} · ${shift.res.totalHours.toFixed(2)}h${extraMin ? ' · ' + hmLabel(extraMin) + ' extra programadas' : ''}${shift.note ? ' · Nota: ' + escapeHtml(shift.note) : ''} — Clic para editar" class="px-1 py-0.5 rounded-md border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs text-center">
+                                        ${isShiftLocked(emp.id, d.dateISO) ? `<div class="text-[9px] font-bold leading-tight text-slate-700"><i class="fa-solid fa-lock"></i> Entrada ${shiftLockTime(emp.id, d.dateISO)}</div>` : ''}
                                         ${shift.isSplit && shift.splitOut && shift.splitIn ? `
                                         <div class="text-3xs font-black leading-tight">${shift.startTime}-${shift.splitOut} /</div>
                                         <div class="text-3xs font-black leading-tight">${shift.splitIn}-${shift.endTime} <span class="font-bold font-mono text-[9px] opacity-80">${shift.res.totalHours.toFixed(1)}h</span></div>
@@ -4901,6 +5250,7 @@
                 showAppToast('Por favor seleccione la fecha del turno.');
                 return;
             }
+            if (isShiftLocked(empId, date)) { lockedToast(empId, date); return; }
 
             let res = calculateShift(start, end, breakM, limit, isSunday, isOvernight, emp.salary, empNightSurcharge(emp));
             appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === date));
@@ -6440,6 +6790,7 @@
             for (const emp of emps) {
                 for (let i = 0; i < 7; i++) {
                     const src = formatDateISO(addDays(prev, i)), dst = formatDateISO(addDays(mon, i));
+                    if (isShiftLocked(emp.id, dst)) { skipped++; continue; } // día ya iniciado
                     const from = appState.shifts.find(s => Number(s.empId) === Number(emp.id) && s.date === src);
                     const existing = appState.shifts.find(s => Number(s.empId) === Number(emp.id) && s.date === dst);
                     if (mode === 'empty' && existing) { if (from) skipped++; continue; }
@@ -6457,7 +6808,7 @@
         // ---- Rotaciones ----
         let rotationDraft = { id: '', name: '', days: ['descanso', 'descanso', 'descanso', 'descanso', 'descanso', 'descanso', 'descanso'] };
         function rotationOptionHtml(selected) {
-            const opts = appState.shiftPresets.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === selected ? 'selected' : ''}>${p.name && String(p.name).trim() ? escapeHtml(p.name) + ' (' + escapeHtml(shiftTimeLabel(p).replace(/ - /g, '-')) + ')' : escapeHtml(shiftTimeLabel(p).replace(/ - /g, '-'))}</option>`).join('');
+            const opts = workPresets().map(p => `<option value="${escapeHtml(p.id)}" ${p.id === selected ? 'selected' : ''}>${p.name && String(p.name).trim() ? escapeHtml(p.name) + ' (' + escapeHtml(shiftTimeLabel(p).replace(/ - /g, '-')) + ')' : escapeHtml(shiftTimeLabel(p).replace(/ - /g, '-'))}</option>`).join('');
             return `<option value="descanso" ${selected === 'descanso' ? 'selected' : ''}>Descanso</option>${opts}`;
         }
         function renderRotationDays() {
@@ -6548,6 +6899,7 @@
                     const slot = rotationDraft.days[(i + (stagger ? idx : 0)) % n];
                     const existing = appState.shifts.find(s => Number(s.empId) === empId && s.date === date);
                     if (existing && existing.absenceType) { kept++; continue; } // vacaciones/incapacidad se respetan
+                    if (isShiftLocked(empId, date)) { kept++; continue; } // día ya iniciado
                     if (existing && mode === 'empty') { kept++; continue; }
                     if (existing) appState.shifts = appState.shifts.filter(s => s !== existing);
                     if (slot === 'descanso') continue;
@@ -7915,6 +8267,15 @@
                 throw new Error(data.error || 'Error de servidor');
             }
             if (data.dataVersion != null) appState.dataVersion = Number(data.dataVersion);
+            if (Array.isArray(data.lockedFixed) && data.lockedFixed.length) {
+                // El servidor conservó el horario de días ya iniciados (entrada marcada).
+                data.lockedFixed.forEach(fx => {
+                    appState.shifts = appState.shifts.filter(s => !(Number(s.empId) === Number(fx.empId) && s.date === fx.date));
+                    appState.shifts.push(fx);
+                });
+                showAppToast(`${data.lockedFixed.length} turno(s) no se cambiaron porque el colaborador ya marcó su entrada ese día.`);
+                try { refreshShiftLocks(true); renderWeeklyRoster(); } catch (e) { /* nada */ }
+            }
             syncPendingRetry = false;
             hideSyncBanner();
             return data;
@@ -8148,11 +8509,11 @@
             appState.settings.monthlyHoursDivider = legalMonthlyDividerForDate(todayISO);
             appState.settings.weeklyLimit = appState.settings.monthlyHoursDivider / 5;
             appState.departments = (data.departments && data.departments.length) ? data.departments : getPredefinedDepartments();
-            appState.shiftPresets = (data.shiftPresets && data.shiftPresets.length) ? data.shiftPresets : loadShiftPresets();
-            if (!appState.shiftPresets.some(p => p.id === SPLIT_PRESET_ID)) {
-                appState.shiftPresets.push(defaultSplitPreset());
-                if (CAN('shifts.edit')) saveShiftPresets();
-            }
+            // Una organización nueva empieza SIN turnos predeterminados: cada empresa
+            // crea los suyos. Las inasistencias (vacaciones, incapacidad, sin horario)
+            // siempre están disponibles.
+            appState.shiftPresets = Array.isArray(data.shiftPresets) ? data.shiftPresets : [];
+            syncCustomAbsenceTypes();
             // El turno partido pasa del cian original al amarillo vivo.
             const splitPreset = appState.shiftPresets.find(p => p.id === SPLIT_PRESET_ID);
             if (splitPreset && splitPreset.color === 'cyan') { splitPreset.color = 'vivid_yellow'; if (CAN('shifts.edit')) saveShiftPresets(); }
