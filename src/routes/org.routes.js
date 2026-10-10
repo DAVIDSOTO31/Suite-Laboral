@@ -57,7 +57,7 @@ function isDatePublished(pubs, date) {
 const ABSENCE_LABELS = { vacaciones: 'Vacaciones', incapacidad: 'Incapacidad', sin_horario: 'Sin horario' };
 function shiftSummary(sh) {
   if (!sh) return 'Descanso';
-  if (sh.absenceType && ABSENCE_LABELS[sh.absenceType]) return ABSENCE_LABELS[sh.absenceType];
+  if (sh.absenceType) return ABSENCE_LABELS[sh.absenceType] || sh.shiftTitle || 'Inasistencia';
   if (sh.isOffDay) return 'Descanso';
   const time = sh.isSplit && sh.splitOut && sh.splitIn
     ? `${sh.startTime}-${sh.splitOut} / ${sh.splitIn}-${sh.endTime}`
@@ -218,7 +218,12 @@ async function replaceShiftPresets(req, res) {
   const orgId = resolveOrgId(req, body);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   const list = Array.isArray(body.shiftPresets) ? body.shiftPresets : [];
-  const presetText = (p) => { const t = p.isSplit && p.splitOut ? `${p.startTime}-${p.splitOut} / ${p.splitIn}-${p.endTime}` : `${p.startTime}-${p.endTime}`; return p.name && String(p.name).trim() ? `${p.name} (${t})` : t; };
+  const presetText = (p) => {
+    if (p.kind === 'folder') return `Carpeta "${p.name || ''}"`;
+    if (p.kind === 'absence') return `Inasistencia "${p.name || ''}"${p.hidden ? ' (eliminada)' : ''}`;
+    const t = p.isSplit && p.splitOut ? `${p.startTime}-${p.splitOut} / ${p.splitIn}-${p.endTime}` : `${p.startTime}-${p.endTime}`;
+    return `${p.name && String(p.name).trim() ? `${p.name} (${t})` : t}${p.folderId ? ' [carpeta]' : ''}`;
+  };
   const beforePresets = new Map(db.prepare('SELECT id, data_json FROM shift_presets WHERE organization_id = ?').all(orgId).map(r => { try { return [String(r.id), JSON.parse(r.data_json)]; } catch { return [String(r.id), {}]; } }));
   db.prepare('DELETE FROM shift_presets WHERE organization_id = ?').run(orgId);
   const insert = db.prepare('INSERT INTO shift_presets (id, organization_id, data_json) VALUES (?, ?, ?)');
@@ -408,6 +413,7 @@ async function syncEmployeesAndShifts(req, res) {
     if (payrollIgnored) ignored.push('cambios de salario, recargo nocturno o conteo de dias laborados: requiere permiso de nomina');
   }
   let shiftChanges = [];
+  let lockedFixedAll = [];
   if (Array.isArray(body.shifts)) {
     if (canShifts) {
       // Diferencias de turnos (todos los dias): para la auditoria, y los de
@@ -416,6 +422,40 @@ async function syncEmployeesAndShifts(req, res) {
       const keyOf = (sh) => `${Number(sh.empId)}|${sh.date}`;
       const beforeAll = new Map();
       for (const sh of readShiftsRange(orgId, windowFrom, null)) beforeAll.set(keyOf(sh), sh);
+      // BLOQUEO DEL DIA YA INICIADO: si el colaborador ya marco su ENTRADA de
+      // ese turno (hoy o el turno de anoche), su horario ya no se cambia desde
+      // el cuadro. Unica excepcion: el turno partido, que se puede ajustar
+      // (incluso pasarlo a turno normal) pero conservando la hora de entrada.
+      // La nota del dia si se puede cambiar. Lo que llegue distinto se corrige
+      // aqui y se devuelve al navegador en lockedFixed.
+      const lockedFixed = [];
+      {
+        const lockFrom = addDaysISO(bogotaToday(), -1);
+        const locked = db.prepare("SELECT DISTINCT employee_id, shift_date FROM attendance_marks WHERE organization_id = ? AND mark_type = 'entrada' AND shift_date >= ?").all(orgId, lockFrom);
+        if (locked.length) {
+          const idxByKey = new Map();
+          body.shifts.forEach((sh, i) => { if (sh && sh.date) idxByKey.set(keyOf(sh), i); });
+          for (const l of locked) {
+            const k = `${Number(l.employee_id)}|${l.shift_date}`;
+            const stored = beforeAll.get(k);
+            if (!stored || stored.isOffDay) continue;
+            const i = idxByKey.get(k);
+            const inc = i != null ? body.shifts[i] : null;
+            let final = inc;
+            if (!inc || inc.isOffDay) final = stored;
+            else if (stored.isSplit) { if (inc.startTime !== stored.startTime) final = { ...inc, startTime: stored.startTime }; }
+            else {
+              const same = ['startTime', 'endTime', 'breakM', 'limit', 'isSplit'].every(f => String(inc[f] ?? '') === String(stored[f] ?? ''));
+              if (!same) { final = { ...stored }; if (inc.note) final.note = inc.note; else delete final.note; }
+            }
+            if (final !== inc) {
+              if (i != null) body.shifts[i] = final; else body.shifts.push(final);
+              lockedFixed.push(final);
+            }
+          }
+        }
+      }
+      lockedFixedAll = lockedFixed;
       const afterAll = new Map();
       for (const sh of body.shifts) { if (sh && sh.date >= windowFrom) afterAll.set(keyOf(sh), sh); }
       const auditByEmp = new Map();
@@ -481,7 +521,7 @@ async function syncEmployeesAndShifts(req, res) {
   if (ignored.length) logAction({ organizationId: orgId, userId: req.user.id, action: 'org_data.ignored', ip: getClientIp(req), metadata: { ignorados: ignored } });
   const newVersion = bumpDataVersion(orgId);
   db.exec('COMMIT');
-  sendJson(res, 200, { ok: true, ignored, linked, shiftChanges: shiftChanges.length, dataVersion: newVersion });
+  sendJson(res, 200, { ok: true, ignored, linked, shiftChanges: shiftChanges.length, dataVersion: newVersion, lockedFixed: lockedFixedAll });
   } catch (e) {
     try { db.exec('ROLLBACK'); } catch { /* ya cerrada */ }
     throw e;
@@ -505,6 +545,20 @@ function readShiftsRange(orgId, from, to) {
 }
 
 // GET /api/org/shifts?from=&to=  -- turnos anteriores a la ventana, bajo demanda.
+// GET /api/org/shift-locks?from=&to=  Dias con turno ya iniciado (el
+// colaborador marco su entrada). El cuadro de turnos los bloquea. Solo se
+// consideran desde ayer (turnos de noche) en adelante.
+function getShiftLocks(req, res, query = {}) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const yesterday = addDaysISO(bogotaToday(), -1);
+  const from = ISO_DATE.test(query.from || '') && query.from > yesterday ? query.from : yesterday;
+  const to = ISO_DATE.test(query.to || '') ? query.to : addDaysISO(bogotaToday(), 1);
+  const rows = db.prepare(`SELECT employee_id, shift_date, MIN(actual_at) AS at FROM attendance_marks
+    WHERE organization_id = ? AND mark_type = 'entrada' AND shift_date BETWEEN ? AND ? GROUP BY employee_id, shift_date`).all(orgId, from, to);
+  sendJson(res, 200, { locks: rows.map(r => ({ empId: Number(r.employee_id), date: r.shift_date, entradaAt: r.at })) });
+}
+
 function getShiftsRange(req, res, query) {
   const orgId = resolveOrgId(req, query);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
@@ -1274,7 +1328,7 @@ module.exports = {
   publishShifts, listShiftChanges, replaceRotationPatterns,
   listPayrollClosures, createPayrollClosure, reopenPayrollClosure,
   listPayrollAdjustments, savePayrollAdjustment, resetPayrollAdjustments,
-  getOrgData, seedDemo, updateSettings, replaceDepartments, replaceShiftPresets, syncEmployeesAndShifts,
+  getOrgData, seedDemo, updateSettings, replaceDepartments, replaceShiftPresets, syncEmployeesAndShifts, getShiftLocks,
   listOrgUsers, createOrgUser, updateOrgUser, toggleOrgUserStatus, resetOrgUserPassword, listOrgAudit,
   resolveOrgId,
 };
