@@ -387,6 +387,12 @@
                         <div id="rosterBrushButtons" class="flex flex-wrap items-center gap-2 pt-1">
                             <!-- Injected dynamically by renderQuickBrushBar() -->
                         </div>
+                        <div class="flex flex-wrap items-center gap-2 pt-2 text-2xs">
+                            <label for="rosterBrushNote" class="font-bold text-slate-600"><i class="fa-solid fa-note-sticky text-amber-500"></i> Nota del día (opcional):</label>
+                            <input type="text" id="rosterBrushNote" maxlength="200" oninput="updateBrushNoteHint()" placeholder="Ej. Inventario, cubre caja… se aplica a los turnos que asignes con 1 clic" class="flex-1 min-w-[220px] px-2 py-1 border border-slate-300 rounded-lg text-2xs focus:ring-2 focus:ring-amber-400 focus:outline-none">
+                            <button type="button" onclick="clearRosterBrushNote()" class="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold">Limpiar</button>
+                            <span id="rosterBrushNoteHint" class="text-amber-700 font-semibold"></span>
+                        </div>
                         <div class="flex flex-wrap items-center gap-2 pt-2 mt-1 border-t border-slate-100 text-2xs">
                             <label for="rosterColorMode" class="font-bold text-slate-600">Colores del cuadro:</label>
                             <select id="rosterColorMode" onchange="setRosterColorMode(this.value)" class="px-2 py-1 border border-slate-300 rounded-lg bg-white text-2xs">
@@ -2411,11 +2417,12 @@
                 </div>
 
                 <!-- Color Palette Picker -->
-                <div>
-                    <label class="block font-semibold text-slate-700 mb-1.5">Color del turno <span class="font-normal text-slate-400">(se usa cuando el cuadro está en "Colores por turno")</span></label>
+                <div id="rosterColorPickerWrap">
+                    <label class="block font-semibold text-slate-700 mb-1.5">Color del turno</label>
                     <div id="rosterColorPalette" class="flex flex-wrap gap-2">
                     </div>
                 </div>
+                <p id="rosterColorAutoNote" class="hidden text-3xs text-slate-500"><i class="fa-solid fa-palette"></i> El color se asigna solo según la franja (mañana, tarde o noche).</p>
 
                 <div class="space-y-1.5 pt-1">
                     <label class="flex items-center space-x-2 text-xs font-medium text-slate-700 cursor-pointer">
@@ -2502,11 +2509,12 @@
 
                 <div id="newPresetSummary" class="text-2xs rounded-lg px-2.5 py-2 bg-slate-50 border border-slate-200 text-slate-600"></div>
 
-                <div>
+                <div id="presetColorPickerWrap">
                     <label class="block font-semibold text-slate-700 mb-1.5">Color del Turno</label>
                     <div id="presetColorPalette" class="flex flex-wrap gap-2">
                     </div>
                 </div>
+                <p id="presetColorAutoNote" class="hidden text-3xs text-slate-500"><i class="fa-solid fa-palette"></i> El color se asigna solo según la franja de la hora de entrada (mañana, tarde o noche); el turno partido queda en amarillo.</p>
 
                 <div class="pt-1">
                     <label class="flex items-center space-x-2 text-xs font-medium text-slate-700 cursor-pointer">
@@ -2838,9 +2846,9 @@
         // (vacaciones, incapacidad, sin horario) conservan su propio color.
         // -----------------------------------------------------------------
         const SHIFT_BAND_THEMES = {
-            manana: { label: 'Mañana', range: '05:00 a 11:59', bg: 'bg-sky-100 text-sky-900 border-sky-300', badgeBg: 'bg-sky-200 text-sky-900', swatch: 'bg-sky-200 border-sky-400' },
-            tarde:  { label: 'Tarde', range: '12:00 a 20:59', bg: 'bg-violet-100 text-violet-900 border-violet-300', badgeBg: 'bg-violet-200 text-violet-900', swatch: 'bg-violet-200 border-violet-400' },
-            noche:  { label: 'Noche', range: '21:00 a 04:59', bg: 'bg-lime-700 text-white border-lime-800', badgeBg: 'bg-lime-900 text-lime-50', swatch: 'bg-lime-700 border-lime-800' },
+            manana: { label: 'Mañana', range: '05:00 a 11:59', bg: 'bg-sky-100 text-sky-900 border-sky-300', badgeBg: 'bg-sky-200 text-sky-900', icon: 'fa-sun', paletteKey: 'sky' },
+            tarde:  { label: 'Tarde', range: '12:00 a 20:59', bg: 'bg-fuchsia-200 text-fuchsia-950 border-fuchsia-400', badgeBg: 'bg-fuchsia-300 text-fuchsia-950', icon: 'fa-cloud-sun', paletteKey: 'fuchsia' },
+            noche:  { label: 'Noche', range: '21:00 a 04:59', bg: 'bg-lime-500 text-lime-950 border-lime-700', badgeBg: 'bg-lime-600 text-lime-50', icon: 'fa-moon', paletteKey: 'lime' },
         };
         function shiftBandKey(startTime) {
             const m = clockToMin(startTime);
@@ -2854,6 +2862,8 @@
         }
         function setRosterColorMode(mode) {
             try { localStorage.setItem('rosterColorMode', mode === 'turno' ? 'turno' : 'franja'); } catch (e) { /* sin almacenamiento */ }
+            renderQuickBrushBar();
+            syncColorPickers();
             renderWeeklyRoster();
             if (typeof renderMyView === 'function' && !document.getElementById('view-mine').classList.contains('hidden')) renderMyView(false);
         }
@@ -2887,6 +2897,38 @@
                 + `<span class="inline-flex items-center gap-1 text-slate-500"><span class="px-1 rounded bg-orange-500 text-white font-bold">+2h</span> extras programadas</span>`
                 + `<span class="inline-flex items-center gap-1 text-slate-500"><i class="fa-solid fa-note-sticky text-amber-500"></i> nota del día</span>`;
         }
+        // Con "Colores por franja" activo, el color de un turno se asigna solo
+        // según su hora de entrada (el turno partido queda en amarillo vivo).
+        function autoBandColorKey(startTime, isSplit) {
+            if (isSplit) return 'vivid_yellow';
+            return SHIFT_BAND_THEMES[shiftBandKey(startTime)].paletteKey;
+        }
+        // Muestra el selector de colores solo en modo "Por turno".
+        function syncColorPickers() {
+            const franja = rosterColorMode() === 'franja';
+            ['rosterColorPickerWrap', 'presetColorPickerWrap'].forEach(id => { const el = document.getElementById(id); if (el) el.classList.toggle('hidden', franja); });
+            ['rosterColorAutoNote', 'presetColorAutoNote'].forEach(id => { const el = document.getElementById(id); if (el) el.classList.toggle('hidden', !franja); });
+        }
+        // Nota del día que se pega a los turnos asignados con 1 clic.
+        function rosterBrushNote() {
+            const el = document.getElementById('rosterBrushNote');
+            return el ? el.value.trim() : '';
+        }
+        function clearRosterBrushNote() {
+            const el = document.getElementById('rosterBrushNote');
+            if (el) { el.value = ''; el.focus(); }
+            updateBrushNoteHint();
+        }
+        function updateBrushNoteHint() {
+            const hint = document.getElementById('rosterBrushNoteHint');
+            if (!hint) return;
+            const n = rosterBrushNote();
+            const mode = appState.quickBrushMode;
+            hint.textContent = mode === 'note'
+                ? (n ? `Clic en un turno para ponerle la nota "${n}".` : 'Clic en un turno para quitarle la nota (la casilla está vacía).')
+                : (n ? 'Cada turno que asignes con 1 clic llevará esta nota.' : '');
+        }
+
         // Nombre visible de un turno predeterminado: su nombre, o el horario si no tiene.
         function presetDisplayName(p) { return (p && p.name && String(p.name).trim()) ? p.name : shiftTimeLabel(p); }
 
@@ -3175,6 +3217,16 @@
             btnManual.innerHTML = `<i class="fa-solid fa-hand-pointer text-sky-500 text-2xs"></i> <span>Manual / Ficha</span>`;
             container.appendChild(btnManual);
 
+            // Pincel "Solo nota": pone (o quita) la nota del día en un turno ya asignado sin cambiar su horario.
+            const btnNote = document.createElement('button');
+            btnNote.type = 'button';
+            btnNote.onclick = () => { selectQuickBrush('note'); const el = document.getElementById('rosterBrushNote'); if (el && !el.value) el.focus(); };
+            const isNote = appState.quickBrushMode === 'note';
+            btnNote.title = 'Escribe la nota en la casilla "Nota del día" y haz clic en los turnos que la llevan';
+            btnNote.className = `px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border shadow-xs ${isNote ? 'bg-amber-500 text-white border-amber-600 ring-2 ring-amber-300' : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'}`;
+            btnNote.innerHTML = `<i class="fa-solid fa-note-sticky text-2xs"></i> <span>Solo nota</span>`;
+            container.appendChild(btnNote);
+
             const btnOff = document.createElement('button');
             btnOff.type = 'button';
             btnOff.onclick = () => selectQuickBrush('off');
@@ -3196,7 +3248,7 @@
 
             appState.shiftPresets.forEach(preset => {
                 const isSelected = appState.quickBrushMode === preset.id;
-                const theme = SHIFT_COLOR_THEMES[preset.color] || SHIFT_COLOR_THEMES.emerald;
+                const theme = rosterColorMode() === 'franja' ? shiftDisplayTheme(preset) : (SHIFT_COLOR_THEMES[preset.color] || SHIFT_COLOR_THEMES.emerald);
                 const btn = document.createElement('div');
                 btn.className = `group relative inline-flex items-center rounded-lg border text-xs font-bold transition cursor-pointer shadow-xs ${theme.bg} ${isSelected ? 'ring-2 ring-sky-600 ring-offset-1 font-black shadow' : 'opacity-90 hover:opacity-100'}`;
 
@@ -3220,12 +3272,26 @@
         function selectQuickBrush(key) {
             appState.quickBrushMode = key;
             renderQuickBrushBar();
+            updateBrushNoteHint();
         }
 
         function handleRosterCellClick(empId, dateISO, empName, dateFormatted) {
             if (!CAN('shifts.edit')) return;
             if (appState.quickBrushMode === 'manual') {
                 openRosterQuickAssignModal(empId, dateISO, empName, dateFormatted);
+                return;
+            }
+            const brushNote = rosterBrushNote();
+
+            if (appState.quickBrushMode === 'note') {
+                const sh = appState.shifts.find(s => s.empId === empId && s.date === dateISO);
+                if (!sh || (sh.isOffDay && !sh.absenceType)) { showAppToast('Ese día no tiene turno. Primero asigna el turno y luego la nota.'); return; }
+                if (brushNote) { sh.note = brushNote; showAppToast(`Nota agregada a ${empName}.`); }
+                else if (sh.note) { delete sh.note; showAppToast(`Nota quitada a ${empName}.`); }
+                else { showAppToast('Escribe la nota en la casilla "Nota del día".'); return; }
+                renderWeeklyRoster();
+                updateDashboardMetrics();
+                renderSelectedEmployeeLedger();
                 return;
             }
 
@@ -3259,7 +3325,9 @@
             if (ABSENCE_TYPES[appState.quickBrushMode]) {
                 const a = ABSENCE_TYPES[appState.quickBrushMode];
                 appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
-                appState.shifts.push(buildAbsenceShift(empId, dateISO, appState.quickBrushMode));
+                const abs = buildAbsenceShift(empId, dateISO, appState.quickBrushMode);
+                if (brushNote) abs.note = brushNote;
+                appState.shifts.push(abs);
                 showAppToast(`${a.label} asignado a ${empName}.`);
                 renderWeeklyRoster();
                 updateDashboardMetrics();
@@ -3273,9 +3341,11 @@
                 const isSunday = isSundayOrHolidayCO(dateISO);
                 const salary = emp ? emp.salary : appState.settings.smlmv2026;
                 appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
-                appState.shifts.push(buildShiftFromPreset(preset, empId, dateISO));
+                const nsh = buildShiftFromPreset(preset, empId, dateISO);
+                if (brushNote) nsh.note = brushNote;
+                appState.shifts.push(nsh);
 
-                showAppToast(`Turno ${presetDisplayName(preset)} asignado a ${empName}.`);
+                showAppToast(`Turno ${presetDisplayName(preset)} asignado a ${empName}${brushNote ? ' con nota' : ''}.`);
                 renderWeeklyRoster();
                 updateDashboardMetrics();
                 renderSelectedEmployeeLedger();
@@ -3329,6 +3399,7 @@
             }
             const formR = autoEndForm('roster');
             formR.refresh && formR.refresh();
+            syncColorPickers();
             renderRosterRepeatDays(empId, dateISO);
             // Enter en cualquier casilla guarda el turno (agiliza la carga).
             const modalEl = document.getElementById('modalRosterQuickAssign');
@@ -3349,7 +3420,7 @@
             container.innerHTML = '';
 
             appState.shiftPresets.forEach(preset => {
-                const theme = SHIFT_COLOR_THEMES[preset.color] || SHIFT_COLOR_THEMES.emerald;
+                const theme = rosterColorMode() === 'franja' ? shiftDisplayTheme(preset) : (SHIFT_COLOR_THEMES[preset.color] || SHIFT_COLOR_THEMES.emerald);
                 const btn = document.createElement('div');
                 btn.className = `p-2 rounded-lg border flex items-center justify-between text-left text-xs transition ${theme.bg} hover:shadow`;
                 btn.innerHTML = `
@@ -3372,8 +3443,11 @@
             const emp = appState.employees.find(e => e.id === empId);
             const isSunday = isSundayOrHolidayCO(dateISO);
             const salary = emp ? emp.salary : appState.settings.smlmv2026;
+            const fichaNote = (document.getElementById('rosterAssignFunction').value || '').trim();
             appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
-            appState.shifts.push(buildShiftFromPreset(preset, empId, dateISO));
+            const nsh = buildShiftFromPreset(preset, empId, dateISO);
+            if (fichaNote) nsh.note = fichaNote;
+            appState.shifts.push(nsh);
 
             closeModal('modalRosterQuickAssign');
             showAppToast(`Turno ${presetDisplayName(preset)} asignado.`);
@@ -3446,7 +3520,7 @@
                 endTime: end,
                 breakM: breakFinal,
                 limit,
-                color: selectedModalColorKey,
+                color: rosterColorMode() === 'franja' ? autoBandColorKey(start, isSplit) : selectedModalColorKey,
                 shiftTitle: (prevShift && !prevShift.isOffDay && prevShift.shiftTitle) || '',
                 functionTag: '',
                 isOffDay: false,
@@ -3543,6 +3617,7 @@
             }
             selectPresetColor(p.color || 'emerald');
             const f = autoEndForm('preset'); f.refresh && f.refresh();
+            syncColorPickers();
         }
 
         function resetPresetModalToNew() {
@@ -3554,6 +3629,7 @@
             document.getElementById('newPresetSplitFields').classList.add('hidden');
             document.getElementById('newPresetBreak').disabled = false;
             const f = autoEndForm('preset'); f.recompute && f.recompute();
+            syncColorPickers();
         }
 
         // Casilla "Turno partido" del modal: muestra las horas de salida/regreso
@@ -3575,7 +3651,7 @@
                     p.startTime = document.getElementById('newPresetStart').value;
                     p.endTime = document.getElementById('newPresetEnd').value;
                     p.isOvernight = document.getElementById('newPresetIsOvernight').checked;
-                    p.color = selectedPresetColorKey;
+                    p.color = rosterColorMode() === 'franja' ? autoBandColorKey(document.getElementById('newPresetStart').value, p.id === SPLIT_PRESET_ID || document.getElementById('newPresetIsSplit').checked) : selectedPresetColorKey;
                     p.limit = parseFloat(document.getElementById('newPresetLimit').value) || 8;
                     p.isSplit = p.id === SPLIT_PRESET_ID || document.getElementById('newPresetIsSplit').checked;
                     if (!p.isSplit) { delete p.splitOut; delete p.splitIn; }
@@ -3612,7 +3688,7 @@
                 endTime: end,
                 breakM: isSplit ? minutesBetween(splitOut, splitIn) : breakM,
                 limit: parseFloat(document.getElementById('newPresetLimit').value) || 8,
-                color: selectedPresetColorKey,
+                color: rosterColorMode() === 'franja' ? autoBandColorKey(start, document.getElementById('newPresetIsSplit').checked) : selectedPresetColorKey,
                 functionTag: '',
                 isOvernight
             };
