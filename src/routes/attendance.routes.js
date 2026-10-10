@@ -1226,8 +1226,8 @@ function todayBoard(req, res, query) {
     const s = shifts.get(`${emp.id}|${today}`);
     if (!s) continue;
     if (s.isOffDay) {
-      if (s.absenceType && ABSENCE_LABELS[s.absenceType]) {
-        absences.push({ id: emp.id, name: emp.name, department: emp.department || 'Sin área', type: s.absenceType, label: ABSENCE_LABELS[s.absenceType] });
+      if (s.absenceType) {
+        absences.push({ id: emp.id, name: emp.name, department: emp.department || 'Sin área', type: s.absenceType, label: ABSENCE_LABELS[s.absenceType] || s.shiftTitle || 'Inasistencia' });
       }
       continue;
     }
