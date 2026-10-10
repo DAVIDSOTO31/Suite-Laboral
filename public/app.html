@@ -355,7 +355,7 @@
                             </button>
                         </div>
 
-                        <button onclick="openModal('modalAddShift')" data-perm="shifts.edit" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm ml-auto lg:ml-0">
+                        <button onclick="openModal('modalAddShift'); autoEndForm('planilla').refresh()" data-perm="shifts.edit" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm ml-auto lg:ml-0">
                             <i class="fa-solid fa-calendar-plus"></i> Registrar Turno
                         </button>
                         <button onclick="openModal('modalManageDepts')" data-perm="settings.manage" class="bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm border border-slate-700" title="Reordenar, crear o renombrar áreas y departamentos">
@@ -2268,21 +2268,22 @@
                         <input type="time" id="modalShiftStartTime" value="08:00" class="w-full p-2 border rounded-lg">
                     </div>
                     <div>
-                        <label class="block font-semibold text-slate-700 mb-1">Hora Salida</label>
-                        <input type="time" id="modalShiftEndTime" value="15:20" class="w-full p-2 border rounded-lg">
+                        <label class="block font-semibold text-slate-700 mb-1">Jornada Diaria Ord. (hrs)</label>
+                        <input type="number" id="modalShiftDailyLimit" value="8" min="1" max="12" step="0.5" class="w-full p-2 border rounded-lg">
                     </div>
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="block font-semibold text-slate-700 mb-1">Descanso (min)</label>
-                        <input type="number" id="modalShiftBreak" value="20" class="w-full p-2 border rounded-lg">
+                        <input type="number" id="modalShiftBreak" value="20" min="0" step="5" class="w-full p-2 border rounded-lg">
                     </div>
                     <div>
-                        <label class="block font-semibold text-slate-700 mb-1">Jornada Diaria Ord. (hrs)</label>
-                        <input type="number" id="modalShiftDailyLimit" value="8" class="w-full p-2 border rounded-lg">
+                        <label class="block font-semibold text-slate-700 mb-1">Hora Salida <span class="font-normal text-slate-400">(automática)</span></label>
+                        <input type="time" id="modalShiftEndTime" value="16:20" class="w-full p-2 border rounded-lg">
                     </div>
                 </div>
+                <div id="modalShiftSummary" class="text-2xs rounded-lg px-2.5 py-2 bg-slate-50 border border-slate-200 text-slate-600"></div>
 
                 <div class="space-y-1.5 pt-1">
                     <label class="flex items-center space-x-2 text-xs font-medium text-slate-700 cursor-pointer">
@@ -2343,8 +2344,8 @@
                         <input type="time" id="rosterAssignStart" value="08:00" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
                     </div>
                     <div>
-                        <label class="block font-semibold text-slate-700 mb-1">Hora Salida</label>
-                        <input type="time" id="rosterAssignEnd" value="15:20" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                        <label class="block font-semibold text-slate-700 mb-1">Límite Diario Ord. (hrs)</label>
+                        <input type="number" id="rosterAssignLimit" value="8" min="1" max="12" step="0.5" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
                     </div>
                 </div>
 
@@ -2354,10 +2355,11 @@
                         <input type="number" id="rosterAssignBreak" value="20" min="0" step="5" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
                     </div>
                     <div>
-                        <label class="block font-semibold text-slate-700 mb-1">Límite Diario Ord. (hrs)</label>
-                        <input type="number" id="rosterAssignLimit" value="8" min="4" max="12" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                        <label class="block font-semibold text-slate-700 mb-1">Hora Salida <span class="font-normal text-slate-400">(automática)</span></label>
+                        <input type="time" id="rosterAssignEnd" value="16:20" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
                     </div>
                 </div>
+                <div id="rosterAssignSummary" class="text-2xs rounded-lg px-2.5 py-2 bg-slate-50 border border-slate-200 text-slate-600"></div>
 
                 <div class="bg-yellow-100 border border-yellow-400 rounded-lg p-2.5 space-y-2">
                     <label class="flex items-center space-x-2 text-xs font-semibold text-yellow-900 cursor-pointer">
@@ -2374,6 +2376,12 @@
                             <input type="time" id="rosterAssignSplitIn" value="14:00" onchange="toggleRosterSplitFields()" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
                         </div>
                     </div>
+                </div>
+
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Repetir este turno en otros días de la semana <span class="font-normal text-slate-400">(opcional)</span></label>
+                    <div id="rosterAssignRepeatDays" class="flex flex-wrap gap-1.5"></div>
+                    <p class="text-3xs text-slate-400 mt-1">Reemplaza lo que haya ese día. Las vacaciones e incapacidades no se tocan.</p>
                 </div>
 
                 <div>
@@ -2485,6 +2493,8 @@
                         <input type="text" id="newPresetFunction" placeholder="Ej. Cocina, Restaurante..." class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
                     </div>
                 </div>
+
+                <div id="newPresetSummary" class="text-2xs rounded-lg px-2.5 py-2 bg-slate-50 border border-slate-200 text-slate-600"></div>
 
                 <div>
                     <label class="block font-semibold text-slate-700 mb-1.5">Color del Turno</label>
@@ -2849,6 +2859,166 @@
             if (d < 0) d += 1440;
             return d;
         }
+        // -----------------------------------------------------------------
+        // SALIDA AUTOMÁTICA DEL TURNO
+        // Con la hora de entrada, el límite diario (jornada ordinaria) y el
+        // descanso, la hora de salida se calcula sola:
+        //   salida = entrada + jornada + descanso
+        // En turno partido: la etapa 2 dura lo que falte para completar la jornada.
+        // Si se necesitan horas extra, basta con mover la salida más tarde: el
+        // resumen muestra cuántas extras quedan programadas.
+        // -----------------------------------------------------------------
+        function clockToMin(hhmm) {
+            const [h, m] = String(hhmm || '').split(':').map(Number);
+            return (isNaN(h) || isNaN(m)) ? null : h * 60 + m;
+        }
+        function minToClock(min) {
+            const v = ((Math.round(min) % 1440) + 1440) % 1440;
+            return `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}`;
+        }
+        function hmLabel(min) {
+            const v = Math.round(Math.abs(min));
+            const h = Math.floor(v / 60), m = v % 60;
+            return m ? `${h}:${String(m).padStart(2, '0')} h` : `${h} h`;
+        }
+        // Calcula la salida ordinaria y el detalle del horario de un formulario.
+        function shiftPlanInfo({ start, end, breakM, limitH, isSplit, splitOut, splitIn }) {
+            const s = clockToMin(start);
+            const limitMin = Math.max(0, Math.round((Number(limitH) || 0) * 60));
+            if (s === null || !limitMin) return null;
+            let ordinaryEnd, scheduled = null, stage1 = null;
+            if (isSplit) {
+                const so = clockToMin(splitOut), si = clockToMin(splitIn);
+                if (so === null || si === null) return null;
+                stage1 = minutesBetween(start, splitOut);
+                const rest = limitMin - stage1;
+                ordinaryEnd = rest > 0 ? minToClock(si + rest) : splitIn;
+                if (clockToMin(end) !== null) scheduled = stage1 + minutesBetween(splitIn, end);
+            } else {
+                ordinaryEnd = minToClock(s + limitMin + (Number(breakM) || 0));
+                if (clockToMin(end) !== null) scheduled = minutesBetween(start, end) - (Number(breakM) || 0);
+            }
+            return { ordinaryEnd, limitMin, scheduled, stage1, crossesMidnight: clockToMin(end) !== null && clockToMin(end) <= s };
+        }
+        function renderShiftPlanSummary(box, info, isSplit) {
+            if (!box) return;
+            const BASE = 'text-2xs rounded-lg px-2.5 py-2 border ';
+            if (!info) { box.innerHTML = '<i class="fa-solid fa-circle-info"></i> Indica la hora de entrada y el límite diario para calcular la salida.'; box.className = BASE + 'bg-slate-50 border-slate-200 text-slate-600'; return; }
+            const diff = info.scheduled === null ? 0 : info.scheduled - info.limitMin;
+            let tone = 'bg-emerald-50 border-emerald-200 text-emerald-800';
+            let main = `<i class="fa-solid fa-circle-check"></i> Salida ordinaria: <strong>${info.ordinaryEnd}</strong> · Jornada de ${hmLabel(info.limitMin)}`;
+            if (isSplit && info.stage1 !== null && info.stage1 >= info.limitMin) {
+                tone = 'bg-amber-50 border-amber-300 text-amber-900';
+                main = `<i class="fa-solid fa-triangle-exclamation"></i> La etapa 1 ya cubre toda la jornada (${hmLabel(info.stage1)}). Revisa la hora en que sale.`;
+            } else if (diff >= 1) {
+                tone = 'bg-sky-50 border-sky-300 text-sky-900';
+                main += ` · <strong>+${hmLabel(diff)} extra programadas</strong>`;
+            } else if (diff <= -1) {
+                tone = 'bg-amber-50 border-amber-300 text-amber-900';
+                main = `<i class="fa-solid fa-triangle-exclamation"></i> Turno de ${hmLabel(info.scheduled)}: <strong>${hmLabel(-diff)} menos</strong> que la jornada de ${hmLabel(info.limitMin)} (salida ordinaria ${info.ordinaryEnd}).`;
+            }
+            if (info.crossesMidnight) main += ' · <i class="fa-solid fa-moon"></i> Cruza medianoche';
+            box.className = BASE + tone;
+            box.innerHTML = main + (diff >= 1 || diff <= -1 ? ` <button type="button" class="underline ml-1" data-reset-end>Usar salida ordinaria</button>` : '');
+        }
+        // Conecta un formulario de turno: al cambiar entrada, límite, descanso o
+        // las horas del turno partido, la salida se recalcula sola. Si el usuario
+        // cambia la salida a mano (por ejemplo para programar extras) se respeta.
+        function bindAutoShiftEnd(ids) {
+            const el = (k) => ids[k] ? document.getElementById(ids[k]) : null;
+            const form = { start: el('start'), end: el('end'), brk: el('brk'), limit: el('limit'), overnight: el('overnight'), isSplit: el('isSplit'), splitOut: el('splitOut'), splitIn: el('splitIn'), summary: el('summary') };
+            if (!form.start || !form.end || form.start.dataset.autoEndBound) return form;
+            form.start.dataset.autoEndBound = '1';
+            const read = () => ({
+                start: form.start.value, end: form.end.value, breakM: form.brk ? form.brk.value : 0, limitH: form.limit ? form.limit.value : 8,
+                isSplit: !!(form.isSplit && form.isSplit.checked), splitOut: form.splitOut ? form.splitOut.value : '', splitIn: form.splitIn ? form.splitIn.value : '',
+            });
+            const refresh = () => {
+                const v = read();
+                const info = shiftPlanInfo(v);
+                if (form.overnight && info) form.overnight.checked = info.crossesMidnight;
+                renderShiftPlanSummary(form.summary, info, v.isSplit);
+            };
+            // Solo se recalcula cuando de verdad cambió la entrada, el límite, el
+            // descanso o el turno partido (no al salir de la casilla), para no
+            // pisar una salida que el usuario ya escribió.
+            let lastBasis = null;
+            const basisOf = (v) => [v.start, v.breakM, v.limitH, v.isSplit, v.splitOut, v.splitIn].join('|');
+            const recompute = (force) => {
+                const v = read();
+                const basis = basisOf(v);
+                if (force !== true && basis === lastBasis) return;
+                lastBasis = basis;
+                const info = shiftPlanInfo({ ...v, end: '' });
+                if (info) form.end.value = info.ordinaryEnd;
+                refresh();
+            };
+            form.recompute = () => recompute(true);
+            form.refresh = () => { lastBasis = basisOf(read()); refresh(); };
+            [form.start, form.brk, form.limit, form.splitOut, form.splitIn, form.isSplit].filter(Boolean).forEach(x => {
+                x.addEventListener('input', () => recompute());
+                x.addEventListener('change', () => recompute());
+            });
+            form.end.addEventListener('input', refresh);
+            form.end.addEventListener('change', refresh);
+            if (form.summary) form.summary.addEventListener('click', (e) => { if (e.target.closest('[data-reset-end]')) recompute(true); });
+            return form;
+        }
+        const AUTO_END_FORMS = {};
+        function autoEndForm(key) {
+            const map = {
+                roster: { start: 'rosterAssignStart', end: 'rosterAssignEnd', brk: 'rosterAssignBreak', limit: 'rosterAssignLimit', overnight: 'rosterAssignIsOvernight', isSplit: 'rosterAssignIsSplit', splitOut: 'rosterAssignSplitOut', splitIn: 'rosterAssignSplitIn', summary: 'rosterAssignSummary' },
+                preset: { start: 'newPresetStart', end: 'newPresetEnd', brk: 'newPresetBreak', limit: 'newPresetLimit', overnight: 'newPresetIsOvernight', isSplit: 'newPresetIsSplit', splitOut: 'newPresetSplitOut', splitIn: 'newPresetSplitIn', summary: 'newPresetSummary' },
+                planilla: { start: 'modalShiftStartTime', end: 'modalShiftEndTime', brk: 'modalShiftBreak', limit: 'modalShiftDailyLimit', overnight: 'modalShiftIsOvernight', summary: 'modalShiftSummary' },
+            };
+            if (!AUTO_END_FORMS[key]) AUTO_END_FORMS[key] = bindAutoShiftEnd(map[key]);
+            return AUTO_END_FORMS[key];
+        }
+
+        // Último horario usado en la ficha del cuadro de turnos (solo en este
+        // navegador): al crear el siguiente turno ya viene precargado.
+        function loadLastRosterConfig() {
+            try { return JSON.parse(localStorage.getItem('rosterLastShiftConfig') || 'null'); } catch (e) { return null; }
+        }
+        function saveLastRosterConfig(cfg) {
+            try { localStorage.setItem('rosterLastShiftConfig', JSON.stringify(cfg)); } catch (e) { /* sin almacenamiento */ }
+        }
+
+        // Chips "Repetir en otros días de esta semana" de la ficha de asignación.
+        let rosterRepeatDates = new Set();
+        function renderRosterRepeatDays(empId, dateISO) {
+            const box = document.getElementById('rosterAssignRepeatDays');
+            if (!box) return;
+            rosterRepeatDates = new Set();
+            const monday = getMondayOfDate(new Date(dateISO + 'T00:00:00'));
+            const names = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+            box.innerHTML = names.map((n, i) => {
+                const d = formatDateISO(addDays(monday, i));
+                const current = d === dateISO;
+                const existing = appState.shifts.find(s => s.empId === empId && s.date === d);
+                const isAbs = !!(existing && existing.absenceType);
+                const label = `${n} ${Number(d.slice(8, 10))}`;
+                if (current) return `<span class="px-2 py-1 rounded-lg border text-2xs font-bold bg-sky-600 border-sky-600 text-white" title="Día que estás editando">${label}</span>`;
+                if (isAbs) return `<span class="px-2 py-1 rounded-lg border text-2xs font-semibold bg-slate-100 border-slate-200 text-slate-400 line-through" title="Tiene ${ABSENCE_TYPES[existing.absenceType] ? ABSENCE_TYPES[existing.absenceType].label.toLowerCase() : 'una ausencia'}; no se modifica">${label}</span>`;
+                return `<button type="button" data-repeat-date="${d}" onclick="toggleRosterRepeatDay('${d}')" title="${existing && !existing.isOffDay ? 'Ya tiene turno ' + escapeHtml(shiftTimeLabel(existing)) + ': se reemplaza' : existing ? 'Tiene descanso: se reemplaza' : 'Sin turno'}" class="px-2 py-1 rounded-lg border text-2xs font-semibold bg-white border-slate-300 text-slate-700 hover:bg-sky-50">${label}${existing ? ' •' : ''}</button>`;
+            }).join('') + `<button type="button" onclick="toggleRosterRepeatWeekdays()" class="px-2 py-1 rounded-lg text-2xs font-semibold text-sky-700 underline">Lun a Vie</button>`;
+        }
+        function toggleRosterRepeatDay(d) {
+            if (rosterRepeatDates.has(d)) rosterRepeatDates.delete(d); else rosterRepeatDates.add(d);
+            const b = document.querySelector(`[data-repeat-date="${d}"]`);
+            if (b) {
+                const on = rosterRepeatDates.has(d);
+                b.classList.toggle('bg-sky-100', on); b.classList.toggle('border-sky-500', on); b.classList.toggle('text-sky-900', on);
+                b.classList.toggle('bg-white', !on); b.classList.toggle('border-slate-300', !on);
+            }
+        }
+        function toggleRosterRepeatWeekdays() {
+            const btns = [...document.querySelectorAll('#rosterAssignRepeatDays [data-repeat-date]')];
+            const weekdays = btns.filter(b => { const wd = new Date(b.dataset.repeatDate + 'T00:00:00').getDay(); return wd >= 1 && wd <= 5; });
+            const allOn = weekdays.length && weekdays.every(b => rosterRepeatDates.has(b.dataset.repeatDate));
+            weekdays.forEach(b => { if (allOn === rosterRepeatDates.has(b.dataset.repeatDate)) toggleRosterRepeatDay(b.dataset.repeatDate); });
+        }
+
         // Texto del horario: "08:00-12:00 / 14:00-18:00" para turno partido.
         function shiftTimeLabel(x) {
             if (x && x.isSplit && x.splitOut && x.splitIn) return `${x.startTime}-${x.splitOut} / ${x.splitIn}-${x.endTime}`;
@@ -3074,16 +3244,38 @@
                 document.getElementById('rosterAssignIsOvernight').checked = existing.endTime < existing.startTime;
                 selectShiftColor(existing.color || 'emerald');
             } else {
-                document.getElementById('rosterAssignStart').value = "08:00";
-                document.getElementById('rosterAssignEnd').value = "15:20";
-                document.getElementById('rosterAssignBreak').value = "20";
-                document.getElementById('rosterAssignLimit').value = "8";
-                document.getElementById('rosterAssignFunction').value = "Operativo";
+                // Turno nuevo: se precarga el último horario usado (o 08:00, 8 h, 20 min)
+                // y la salida se calcula sola.
+                const last = loadLastRosterConfig() || {};
+                document.getElementById('rosterAssignStart').value = last.startTime || "08:00";
+                document.getElementById('rosterAssignBreak').value = last.breakM != null ? last.breakM : "20";
+                document.getElementById('rosterAssignLimit').value = last.limit || "8";
+                document.getElementById('rosterAssignFunction').value = last.functionTag || "Operativo";
                 document.getElementById('rosterAssignIsOvernight').checked = false;
-                selectShiftColor('sky');
+                document.getElementById('rosterAssignIsSplit').checked = !!last.isSplit;
+                if (last.isSplit) { document.getElementById('rosterAssignSplitOut').value = last.splitOut || '12:00'; document.getElementById('rosterAssignSplitIn').value = last.splitIn || '14:00'; }
+                toggleRosterSplitFields();
+                selectShiftColor(last.color || 'sky');
+                const f = autoEndForm('roster');
+                f.recompute && f.recompute();
+                if (last.endTime && last.ordinaryEnd && last.endTime !== last.ordinaryEnd && document.getElementById('rosterAssignEnd').value === last.ordinaryEnd) {
+                    document.getElementById('rosterAssignEnd').value = last.endTime; // mismas extras que el último turno
+                }
+            }
+            const formR = autoEndForm('roster');
+            formR.refresh && formR.refresh();
+            renderRosterRepeatDays(empId, dateISO);
+            // Enter en cualquier casilla guarda el turno (agiliza la carga).
+            const modalEl = document.getElementById('modalRosterQuickAssign');
+            if (!modalEl.dataset.enterBound) {
+                modalEl.dataset.enterBound = '1';
+                modalEl.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.type !== 'checkbox') { e.preventDefault(); saveRosterQuickAssignment(); }
+                });
             }
 
             openModal('modalRosterQuickAssign');
+            setTimeout(() => { const st = document.getElementById('rosterAssignStart'); if (st) st.focus(); }, 50);
         }
 
         function renderModalRosterPresets(empId, dateISO) {
@@ -3197,8 +3389,27 @@
             if (isSplit) Object.assign(newShift, { isSplit: true, splitOut, splitIn });
             appState.shifts.push(newShift);
 
+            // Repetir en otros días marcados de la misma semana (respeta
+            // vacaciones/incapacidades y la fecha de retiro del colaborador).
+            let repeated = 0, skipped = 0;
+            [...rosterRepeatDates].sort().forEach(d => {
+                if (d === dateISO) return;
+                const ex = appState.shifts.find(s => s.empId === empId && s.date === d);
+                if ((ex && ex.absenceType) || (emp.retiredAt && d > emp.retiredAt)) { skipped++; return; }
+                const sun = isSundayOrHolidayCO(d);
+                const r = calculateShift(start, end, breakFinal, limit, sun, isOvernight, emp.salary, empNightSurcharge(emp));
+                appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === d));
+                const copy = { ...newShift, date: d, res: r };
+                appState.shifts.push(copy);
+                repeated++;
+            });
+            rosterRepeatDates = new Set();
+
+            const info = shiftPlanInfo({ start, end, breakM: breakFinal, limitH: limit, isSplit, splitOut, splitIn });
+            saveLastRosterConfig({ startTime: start, endTime: end, ordinaryEnd: info ? info.ordinaryEnd : null, breakM: breakFinal, limit, functionTag, color: selectedModalColorKey, isSplit, splitOut, splitIn });
+
             closeModal('modalRosterQuickAssign');
-            showAppToast(`Turno asignado a ${emp.name}.`);
+            showAppToast(repeated ? `Turno asignado a ${emp.name} en ${repeated + 1} días${skipped ? ` (${skipped} día(s) con ausencia no se tocaron)` : ''}.` : `Turno asignado a ${emp.name}.`);
 
             renderWeeklyRoster();
             updateDashboardMetrics();
@@ -3264,6 +3475,7 @@
                 document.getElementById('newPresetSplitIn').value = p.splitIn || '14:00';
             }
             selectPresetColor(p.color || 'emerald');
+            const f = autoEndForm('preset'); f.refresh && f.refresh();
         }
 
         function resetPresetModalToNew() {
@@ -3274,6 +3486,7 @@
             document.getElementById('newPresetLimit').value = 8;
             document.getElementById('newPresetSplitFields').classList.add('hidden');
             document.getElementById('newPresetBreak').disabled = false;
+            const f = autoEndForm('preset'); f.recompute && f.recompute();
         }
 
         // Casilla "Turno partido" del modal: muestra las horas de salida/regreso
@@ -3282,6 +3495,8 @@
             const on = document.getElementById('newPresetIsSplit').checked;
             document.getElementById('newPresetSplitFields').classList.toggle('hidden', !on);
             document.getElementById('newPresetBreak').disabled = on;
+            if (on) document.getElementById('newPresetBreak').value = minutesBetween(document.getElementById('newPresetSplitOut').value, document.getElementById('newPresetSplitIn').value);
+            const f = autoEndForm('preset'); f.recompute && f.recompute();
         }
 
         function saveNewShiftPreset() {
