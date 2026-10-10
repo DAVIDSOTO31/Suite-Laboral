@@ -387,6 +387,14 @@
                         <div id="rosterBrushButtons" class="flex flex-wrap items-center gap-2 pt-1">
                             <!-- Injected dynamically by renderQuickBrushBar() -->
                         </div>
+                        <div class="flex flex-wrap items-center gap-2 pt-2 mt-1 border-t border-slate-100 text-2xs">
+                            <label for="rosterColorMode" class="font-bold text-slate-600">Colores del cuadro:</label>
+                            <select id="rosterColorMode" onchange="setRosterColorMode(this.value)" class="px-2 py-1 border border-slate-300 rounded-lg bg-white text-2xs">
+                                <option value="franja">Por franja (mañana / tarde / noche)</option>
+                                <option value="turno">Por turno (color de cada turno)</option>
+                            </select>
+                            <div id="rosterColorLegend" class="flex flex-wrap items-center gap-1.5"></div>
+                        </div>
                     </div>
 
                     <!-- Week Navigator Toolbar -->
@@ -2385,8 +2393,9 @@
                 </div>
 
                 <div>
-                    <label class="block font-semibold text-slate-700 mb-1">Función / Nota del Turno (texto libre)</label>
-                    <textarea id="rosterAssignFunction" rows="2" maxlength="200" placeholder="Ej. Cocina Caliente, Mesas, Recepción... o cualquier nota" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none resize-y"></textarea>
+                    <label class="block font-semibold text-slate-700 mb-1">Novedad o indicación para este día <span class="font-normal text-slate-400">(opcional)</span></label>
+                    <textarea id="rosterAssignFunction" rows="2" maxlength="200" placeholder="Ej. Apoya inventario en bodega, cubre a Juan en caja, capacitación a las 3 pm..." class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none resize-y"></textarea>
+                    <p class="text-3xs text-slate-400 mt-0.5">Se ve en el cuadro, en "Mi horario" del colaborador y en el aviso de cambios. Déjalo vacío si no hay nada especial.</p>
                     <datalist id="rosterFunctionSuggestions">
                         <option value="Cocina Caliente"></option>
                         <option value="Preparación / Mise en place"></option>
@@ -2403,7 +2412,7 @@
 
                 <!-- Color Palette Picker -->
                 <div>
-                    <label class="block font-semibold text-slate-700 mb-1.5">Color Identificador del Puesto / Función</label>
+                    <label class="block font-semibold text-slate-700 mb-1.5">Color del turno <span class="font-normal text-slate-400">(se usa cuando el cuadro está en "Colores por turno")</span></label>
                     <div id="rosterColorPalette" class="flex flex-wrap gap-2">
                     </div>
                 </div>
@@ -2447,8 +2456,8 @@
             <input type="hidden" id="editPresetId" value="">
             <div class="space-y-3 text-xs">
                 <div>
-                    <label class="block font-semibold text-slate-700 mb-1">Nombre del Turno</label>
-                    <input type="text" id="newPresetName" placeholder="Ej. Cocina Apertura, Bar Noche..." class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    <label class="block font-semibold text-slate-700 mb-1">Nombre del turno <span class="font-normal text-slate-400">(opcional — si lo dejas vacío se muestra el horario)</span></label>
+                    <input type="text" id="newPresetName" placeholder="Ej. Apertura (opcional)" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
@@ -2488,10 +2497,7 @@
                         <label class="block font-semibold text-slate-700 mb-1">Descanso (minutos)</label>
                         <input type="number" id="newPresetBreak" value="20" min="0" step="5" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
                     </div>
-                    <div>
-                        <label class="block font-semibold text-slate-700 mb-1">Función / Puesto</label>
-                        <input type="text" id="newPresetFunction" placeholder="Ej. Cocina, Restaurante..." class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    </div>
+                    <input type="hidden" id="newPresetFunction" value="">
                 </div>
 
                 <div id="newPresetSummary" class="text-2xs rounded-lg px-2.5 py-2 bg-slate-50 border border-slate-200 text-slate-600"></div>
@@ -2825,6 +2831,65 @@
             stone:   { bg: 'bg-stone-200 text-stone-900 border-stone-400', badgeBg: 'bg-stone-300 text-stone-900', icon: 'fa-mountain', text: 'Piedra', swatch: 'bg-stone-500' }
         };
 
+        // -----------------------------------------------------------------
+        // COLORES POR FRANJA
+        // Mañana: entra de 05:00 a 11:59 · Tarde: de 12:00 a 20:59 ·
+        // Noche: de 21:00 a 04:59. El turno partido, el descanso y las novedades
+        // (vacaciones, incapacidad, sin horario) conservan su propio color.
+        // -----------------------------------------------------------------
+        const SHIFT_BAND_THEMES = {
+            manana: { label: 'Mañana', range: '05:00 a 11:59', bg: 'bg-sky-100 text-sky-900 border-sky-300', badgeBg: 'bg-sky-200 text-sky-900', swatch: 'bg-sky-200 border-sky-400' },
+            tarde:  { label: 'Tarde', range: '12:00 a 20:59', bg: 'bg-violet-100 text-violet-900 border-violet-300', badgeBg: 'bg-violet-200 text-violet-900', swatch: 'bg-violet-200 border-violet-400' },
+            noche:  { label: 'Noche', range: '21:00 a 04:59', bg: 'bg-lime-700 text-white border-lime-800', badgeBg: 'bg-lime-900 text-lime-50', swatch: 'bg-lime-700 border-lime-800' },
+        };
+        function shiftBandKey(startTime) {
+            const m = clockToMin(startTime);
+            if (m === null) return 'manana';
+            if (m >= 21 * 60 || m < 5 * 60) return 'noche';
+            if (m >= 12 * 60) return 'tarde';
+            return 'manana';
+        }
+        function rosterColorMode() {
+            try { return localStorage.getItem('rosterColorMode') === 'turno' ? 'turno' : 'franja'; } catch (e) { return 'franja'; }
+        }
+        function setRosterColorMode(mode) {
+            try { localStorage.setItem('rosterColorMode', mode === 'turno' ? 'turno' : 'franja'); } catch (e) { /* sin almacenamiento */ }
+            renderWeeklyRoster();
+            if (typeof renderMyView === 'function' && !document.getElementById('view-mine').classList.contains('hidden')) renderMyView(false);
+        }
+        // Tema de color con el que se pinta un turno trabajado.
+        function shiftDisplayTheme(sh) {
+            if (sh && sh.isSplit) return SHIFT_COLOR_THEMES.vivid_yellow;
+            if (rosterColorMode() === 'franja') return SHIFT_BAND_THEMES[shiftBandKey(sh && sh.startTime)];
+            return SHIFT_COLOR_THEMES[(sh && sh.color) || 'emerald'] || SHIFT_COLOR_THEMES.emerald;
+        }
+        // Minutos de extras que quedaron programadas en el turno (0 si no hay).
+        function plannedExtraMinutes(sh) {
+            if (!sh || sh.isOffDay) return 0;
+            const info = shiftPlanInfo({ start: sh.startTime, end: sh.endTime, breakM: sh.breakM, limitH: sh.limit || 8, isSplit: !!sh.isSplit, splitOut: sh.splitOut, splitIn: sh.splitIn });
+            if (!info || info.scheduled === null) return 0;
+            const d = info.scheduled - info.limitMin;
+            return d >= 1 ? d : 0;
+        }
+        function renderRosterColorLegend() {
+            const sel = document.getElementById('rosterColorMode');
+            const box = document.getElementById('rosterColorLegend');
+            if (!sel || !box) return;
+            const mode = rosterColorMode();
+            sel.value = mode;
+            const chip = (cls, text, title) => `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${cls} font-semibold" title="${title || ''}">${text}</span>`;
+            box.innerHTML = (mode === 'franja'
+                ? Object.values(SHIFT_BAND_THEMES).map(t => chip(t.bg, t.label, 'Entrada de ' + t.range)).join('')
+                : '<span class="text-slate-400">Cada turno con el color que se le eligió</span>')
+                + chip(SHIFT_COLOR_THEMES.vivid_yellow.bg, 'Partido')
+                + chip('bg-rose-100 text-rose-700 border-rose-300', 'Descanso')
+                + Object.values(ABSENCE_TYPES).map(a => chip(SHIFT_COLOR_THEMES[a.color].bg, a.label)).join('')
+                + `<span class="inline-flex items-center gap-1 text-slate-500"><span class="px-1 rounded bg-orange-500 text-white font-bold">+2h</span> extras programadas</span>`
+                + `<span class="inline-flex items-center gap-1 text-slate-500"><i class="fa-solid fa-note-sticky text-amber-500"></i> nota del día</span>`;
+        }
+        // Nombre visible de un turno predeterminado: su nombre, o el horario si no tiene.
+        function presetDisplayName(p) { return (p && p.name && String(p.name).trim()) ? p.name : shiftTimeLabel(p); }
+
         // Colores disponibles en las paletas. Amarillo claro, naranja y gris se
         // reservan para Vacaciones, Incapacidad y Sin Horario.
         const PALETTE_COLOR_KEYS = ['emerald','green','lime','teal','cyan','sky','blue','indigo','violet','purple','fuchsia','pink','rose','red','amber','vivid_yellow','stone','slate'];
@@ -3045,7 +3110,7 @@
             const res = calculateShift(preset.startTime, preset.endTime, breakM, preset.limit || 8, isSunday, preset.isOvernight || false, salary, empNightSurcharge(emp));
             const shift = {
                 empId, date: dateISO, startTime: preset.startTime, endTime: preset.endTime, breakM,
-                limit: preset.limit || 8, color: preset.color, shiftTitle: preset.name, functionTag: preset.functionTag,
+                limit: preset.limit || 8, color: preset.color, shiftTitle: preset.name || '', functionTag: '',
                 isOffDay: false, res
             };
             if (preset.isSplit) Object.assign(shift, { isSplit: true, splitOut: preset.splitOut, splitIn: preset.splitIn });
@@ -3086,7 +3151,7 @@
             }
 
             renderQuickBrushBar();
-            showAppToast(`Turno "${p.name}" eliminado.`);
+            showAppToast(`Turno "${presetDisplayName(p)}" eliminado.`);
         }
 
         function resetDefaultPresets() {
@@ -3138,8 +3203,8 @@
                 btn.innerHTML = `
                     <button type="button" onclick="selectQuickBrush('${preset.id}')" class="px-2.5 py-1.5 flex items-center gap-1.5">
                         <i class="fa-solid ${theme.icon} text-2xs"></i>
-                        <span>${preset.name}</span>
-                        <span class="text-3xs font-mono font-normal opacity-80">(${shiftTimeLabel(preset).replace(/ - /g, '-')})</span>
+                        ${preset.name && String(preset.name).trim() ? `<span>${escapeHtml(preset.name)}</span>
+                        <span class="text-3xs font-mono font-normal opacity-80">(${shiftTimeLabel(preset).replace(/ - /g, '-')})</span>` : `<span class="font-mono">${shiftTimeLabel(preset).replace(/ - /g, '-')}</span>`}
                     </button>
                     <button type="button" onclick="openEditShiftPreset('${preset.id}', event)" title="Editar horario de este turno" class="pl-0.5 pr-1 py-1 text-slate-400 hover:text-sky-700 transition">
                         <i class="fa-solid fa-pen text-3xs"></i>
@@ -3210,7 +3275,7 @@
                 appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
                 appState.shifts.push(buildShiftFromPreset(preset, empId, dateISO));
 
-                showAppToast(`Turno "${preset.name}" asignado a ${empName}.`);
+                showAppToast(`Turno ${presetDisplayName(preset)} asignado a ${empName}.`);
                 renderWeeklyRoster();
                 updateDashboardMetrics();
                 renderSelectedEmployeeLedger();
@@ -3239,7 +3304,7 @@
                 document.getElementById('rosterAssignEnd').value = existing.endTime;
                 document.getElementById('rosterAssignBreak').value = existing.breakM;
                 document.getElementById('rosterAssignLimit').value = existing.limit;
-                document.getElementById('rosterAssignFunction').value = existing.functionTag || '';
+                document.getElementById('rosterAssignFunction').value = existing.note || '';
                 document.getElementById('rosterAssignIsSunday').checked = existing.res.isSunday;
                 document.getElementById('rosterAssignIsOvernight').checked = existing.endTime < existing.startTime;
                 selectShiftColor(existing.color || 'emerald');
@@ -3250,7 +3315,7 @@
                 document.getElementById('rosterAssignStart').value = last.startTime || "08:00";
                 document.getElementById('rosterAssignBreak').value = last.breakM != null ? last.breakM : "20";
                 document.getElementById('rosterAssignLimit').value = last.limit || "8";
-                document.getElementById('rosterAssignFunction').value = last.functionTag || "Operativo";
+                document.getElementById('rosterAssignFunction').value = ''; // la nota es de cada día
                 document.getElementById('rosterAssignIsOvernight').checked = false;
                 document.getElementById('rosterAssignIsSplit').checked = !!last.isSplit;
                 if (last.isSplit) { document.getElementById('rosterAssignSplitOut').value = last.splitOut || '12:00'; document.getElementById('rosterAssignSplitIn').value = last.splitIn || '14:00'; }
@@ -3289,8 +3354,8 @@
                 btn.className = `p-2 rounded-lg border flex items-center justify-between text-left text-xs transition ${theme.bg} hover:shadow`;
                 btn.innerHTML = `
                     <div onclick="quickApplyPresetAndClose('${preset.id}', ${empId}, '${dateISO}')" class="flex-1 cursor-pointer">
-                        <span class="font-bold block">${preset.name} (${shiftTimeLabel(preset)})</span>
-                        <span class="text-3xs opacity-80 block">${preset.functionTag} • ${preset.breakM}m desc.</span>
+                        <span class="font-bold block">${preset.name && String(preset.name).trim() ? `${escapeHtml(preset.name)} (${shiftTimeLabel(preset)})` : shiftTimeLabel(preset)}</span>
+                        <span class="text-3xs opacity-80 block">${preset.limit || 8} h • ${preset.breakM}m desc.</span>
                     </div>
                     ${preset.id === SPLIT_PRESET_ID ? '' : `<button type="button" onclick="deleteShiftPreset('${preset.id}', event); renderModalRosterPresets(${empId}, '${dateISO}');" title="Eliminar preset" class="p-1 text-slate-400 hover:text-rose-600 transition">
                         <i class="fa-solid fa-trash-can text-3xs"></i>
@@ -3311,7 +3376,7 @@
             appState.shifts.push(buildShiftFromPreset(preset, empId, dateISO));
 
             closeModal('modalRosterQuickAssign');
-            showAppToast(`Turno "${preset.name}" asignado.`);
+            showAppToast(`Turno ${presetDisplayName(preset)} asignado.`);
             renderWeeklyRoster();
             updateDashboardMetrics();
             renderSelectedEmployeeLedger();
@@ -3358,7 +3423,8 @@
             const limit = parseFloat(document.getElementById('rosterAssignLimit').value) || 8;
             const isSunday = document.getElementById('rosterAssignIsSunday').checked;
             const isOvernight = document.getElementById('rosterAssignIsOvernight').checked;
-            const functionTag = document.getElementById('rosterAssignFunction').value.trim() || 'General';
+            const note = document.getElementById('rosterAssignFunction').value.trim();
+            const prevShift = appState.shifts.find(s => s.empId === empId && s.date === dateISO);
             const isSplit = document.getElementById('rosterAssignIsSplit').checked;
             const splitOut = document.getElementById('rosterAssignSplitOut').value;
             const splitIn = document.getElementById('rosterAssignSplitIn').value;
@@ -3381,11 +3447,12 @@
                 breakM: breakFinal,
                 limit,
                 color: selectedModalColorKey,
-                shiftTitle: functionTag,
-                functionTag,
+                shiftTitle: (prevShift && !prevShift.isOffDay && prevShift.shiftTitle) || '',
+                functionTag: '',
                 isOffDay: false,
                 res
             };
+            if (note) newShift.note = note;
             if (isSplit) Object.assign(newShift, { isSplit: true, splitOut, splitIn });
             appState.shifts.push(newShift);
 
@@ -3406,7 +3473,7 @@
             rosterRepeatDates = new Set();
 
             const info = shiftPlanInfo({ start, end, breakM: breakFinal, limitH: limit, isSplit, splitOut, splitIn });
-            saveLastRosterConfig({ startTime: start, endTime: end, ordinaryEnd: info ? info.ordinaryEnd : null, breakM: breakFinal, limit, functionTag, color: selectedModalColorKey, isSplit, splitOut, splitIn });
+            saveLastRosterConfig({ startTime: start, endTime: end, ordinaryEnd: info ? info.ordinaryEnd : null, breakM: breakFinal, limit, color: selectedModalColorKey, isSplit, splitOut, splitIn });
 
             closeModal('modalRosterQuickAssign');
             showAppToast(repeated ? `Turno asignado a ${emp.name} en ${repeated + 1} días${skipped ? ` (${skipped} día(s) con ausencia no se tocaron)` : ''}.` : `Turno asignado a ${emp.name}.`);
@@ -3504,12 +3571,9 @@
             if (editId) {
                 const p = appState.shiftPresets.find(item => item.id === editId);
                 if (p) {
-                    const name = document.getElementById('newPresetName').value.trim();
-                    if (!name) { showAppToast('Por favor ingrese un nombre para el turno.'); return; }
-                    p.name = name;
+                    p.name = document.getElementById('newPresetName').value.trim();
                     p.startTime = document.getElementById('newPresetStart').value;
                     p.endTime = document.getElementById('newPresetEnd').value;
-                    p.functionTag = document.getElementById('newPresetFunction').value.trim() || p.functionTag;
                     p.isOvernight = document.getElementById('newPresetIsOvernight').checked;
                     p.color = selectedPresetColorKey;
                     p.limit = parseFloat(document.getElementById('newPresetLimit').value) || 8;
@@ -3527,7 +3591,7 @@
                     closeModal('modalAddPreset');
                     resetPresetModalToNew();
                     document.getElementById('newPresetName').value = '';
-                    showAppToast(`Turno "${p.name}" actualizado.`);
+                    showAppToast(`Turno ${presetDisplayName(p)} actualizado.`);
                 }
                 return;
             }
@@ -3535,13 +3599,7 @@
             const start = document.getElementById('newPresetStart').value;
             const end = document.getElementById('newPresetEnd').value;
             const breakM = parseFloat(document.getElementById('newPresetBreak').value) || 0;
-            const functionTag = document.getElementById('newPresetFunction').value.trim() || 'Operativo';
             const isOvernight = document.getElementById('newPresetIsOvernight').checked;
-
-            if (!name) {
-                showAppToast('Por favor ingrese un nombre para el turno predeterminado.');
-                return;
-            }
 
             const id = 'preset_' + Date.now();
             const isSplit = document.getElementById('newPresetIsSplit').checked;
@@ -3555,7 +3613,7 @@
                 breakM: isSplit ? minutesBetween(splitOut, splitIn) : breakM,
                 limit: parseFloat(document.getElementById('newPresetLimit').value) || 8,
                 color: selectedPresetColorKey,
-                functionTag,
+                functionTag: '',
                 isOvernight
             };
             if (isSplit) Object.assign(newPreset, { isSplit: true, splitOut, splitIn });
@@ -3564,7 +3622,7 @@
             saveShiftPresets();
             renderQuickBrushBar();
             closeModal('modalAddPreset');
-            showAppToast(`Turno predeterminado "${name}" guardado.`);
+            showAppToast(`Turno predeterminado ${presetDisplayName(newPreset)} guardado.`);
 
             document.getElementById('newPresetName').value = '';
             resetPresetModalToNew();
@@ -4012,6 +4070,7 @@
         }
 
         function renderWeeklyRoster() {
+            try { renderRosterColorLegend(); } catch (e) { /* leyenda opcional */ }
             const mondayCheck = appState.rosterCurrentMonday;
             if (mondayCheck && !shiftsLoaded(formatDateISO(mondayCheck))) {
                 // Semana anterior a la ventana cargada: se trae del servidor y se vuelve a pintar.
@@ -4183,15 +4242,18 @@
                             dailyCoverageCounters[dIdx]++;
                             empWeeklyHours += shift.res.totalHours;
 
-                            const userColorKey = shift.color || 'emerald';
-                            const theme = SHIFT_COLOR_THEMES[userColorKey] || SHIFT_COLOR_THEMES.emerald;
-                            const funcBadge = shift.functionTag 
-                                ? `<span class="text-[9px] px-1 rounded ${theme.badgeBg} font-semibold tracking-tight whitespace-nowrap overflow-hidden text-ellipsis min-w-0" title="Función: ${escapeHtml(shift.functionTag)}">${escapeHtml(shift.functionTag)}</span>` 
-                                : '';
+                            const theme = shiftDisplayTheme(shift);
+                            // Ya no se muestra el nombre del turno: solo la nota del día (si la hay)
+                            // y una marca naranja cuando tiene horas extra programadas.
+                            const extraMin = plannedExtraMinutes(shift);
+                            const extraBadge = extraMin ? `<span class="text-[9px] px-1 rounded bg-orange-500 text-white font-bold shrink-0" title="${hmLabel(extraMin)} extra programadas">+${hmLabel(extraMin).replace(' h', 'h')}</span>` : '';
+                            const funcBadge = (shift.note
+                                ? `<span class="text-[9px] px-1 rounded ${theme.badgeBg} font-semibold tracking-tight whitespace-nowrap overflow-hidden text-ellipsis min-w-0" title="Nota del día: ${escapeHtml(shift.note)}"><i class="fa-solid fa-note-sticky"></i> ${escapeHtml(shift.note)}</span>`
+                                : '') + extraBadge;
 
                             return `
                                 <td class="p-1 border-r border-slate-200 text-center align-middle">
-                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${escapeHtml(shiftTimeLabel(shift))} · ${shift.res.totalHours.toFixed(2)}h${shift.functionTag ? ' · ' + escapeHtml(shift.functionTag) : ''} — Clic para editar" class="px-1 py-0.5 rounded-md border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs text-center">
+                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${escapeHtml(shiftTimeLabel(shift))} · ${shift.res.totalHours.toFixed(2)}h${extraMin ? ' · ' + hmLabel(extraMin) + ' extra programadas' : ''}${shift.note ? ' · Nota: ' + escapeHtml(shift.note) : ''} — Clic para editar" class="px-1 py-0.5 rounded-md border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs text-center">
                                         ${shift.isSplit && shift.splitOut && shift.splitIn ? `
                                         <div class="text-3xs font-black leading-tight">${shift.startTime}-${shift.splitOut} /</div>
                                         <div class="text-3xs font-black leading-tight">${shift.splitIn}-${shift.endTime} <span class="font-bold font-mono text-[9px] opacity-80">${shift.res.totalHours.toFixed(1)}h</span></div>
@@ -4209,11 +4271,11 @@
                             const theme = SHIFT_COLOR_THEMES[a.color];
                             return `
                                 <td class="p-1 border-r border-slate-200 text-center align-middle">
-                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${a.label}: sin marcación este día${shift.functionTag && shift.functionTag !== a.label ? ' · ' + escapeHtml(shift.functionTag) : ''}. Clic para cambiar" class="px-1 py-1 rounded-md border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs flex flex-col items-center justify-center">
+                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${a.label}: sin marcación este día${shift.note ? ' · Nota: ' + escapeHtml(shift.note) : ''}. Clic para cambiar" class="px-1 py-1 rounded-md border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs flex flex-col items-center justify-center">
                                         <div class="font-extrabold text-3xs uppercase leading-tight">
                                             <span>${a.label}</span>
                                         </div>
-                                        ${shift.functionTag && shift.functionTag !== a.label ? `<span class="text-4xs font-semibold opacity-80 line-clamp-1 break-all leading-tight">${escapeHtml(shift.functionTag)}</span>` : ''}
+                                        ${shift.note ? `<span class="text-4xs font-semibold opacity-80 line-clamp-1 break-all leading-tight"><i class="fa-solid fa-note-sticky"></i> ${escapeHtml(shift.note)}</span>` : ''}
                                     </div>
                                 </td>
                             `;
@@ -6126,6 +6188,7 @@
             const res = calculateShift(sh.startTime, sh.endTime, Number(sh.breakM) || 0, Number(sh.limit) || 8, isSundayOrHolidayCO(dateISO), overnight, emp.salary, empNightSurcharge(emp));
             const copy = { ...sh, empId: emp.id, date: dateISO, res };
             delete copy.id;
+            delete copy.note; // la nota/indicación es solo para ese día
             return copy;
         }
         async function submitCopyWeek() {
@@ -6157,7 +6220,7 @@
         // ---- Rotaciones ----
         let rotationDraft = { id: '', name: '', days: ['descanso', 'descanso', 'descanso', 'descanso', 'descanso', 'descanso', 'descanso'] };
         function rotationOptionHtml(selected) {
-            const opts = appState.shiftPresets.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === selected ? 'selected' : ''}>${escapeHtml(p.name)} (${escapeHtml(shiftTimeLabel(p).replace(/ - /g, '-'))})</option>`).join('');
+            const opts = appState.shiftPresets.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === selected ? 'selected' : ''}>${p.name && String(p.name).trim() ? escapeHtml(p.name) + ' (' + escapeHtml(shiftTimeLabel(p).replace(/ - /g, '-')) + ')' : escapeHtml(shiftTimeLabel(p).replace(/ - /g, '-'))}</option>`).join('');
             return `<option value="descanso" ${selected === 'descanso' ? 'selected' : ''}>Descanso</option>${opts}`;
         }
         function renderRotationDays() {
@@ -7759,10 +7822,10 @@
                     cls = SHIFT_COLOR_THEMES[a.color].bg;
                     body = `<div class="font-extrabold uppercase text-xs">${a.label}</div>`;
                 } else if (sh && !sh.isOffDay) {
-                    const theme = SHIFT_COLOR_THEMES[sh.color] || SHIFT_COLOR_THEMES.emerald;
+                    const theme = shiftDisplayTheme(sh);
                     cls = theme.bg;
                     body = `<div class="font-black text-sm leading-tight">${shiftTimeLabel(sh)}</div>
-                            ${sh.functionTag ? `<div class="text-3xs font-semibold mt-1 break-words">${escapeHtml(sh.functionTag)}</div>` : ''}`;
+                            ${sh.note ? `<div class="text-3xs font-semibold mt-1 break-words"><i class="fa-solid fa-note-sticky"></i> ${escapeHtml(sh.note)}</div>` : ''}`;
                 } else {
                     cls = 'bg-rose-50 text-rose-700 border-rose-200';
                     body = `<div class="font-extrabold uppercase text-xs">Descanso</div>`;
