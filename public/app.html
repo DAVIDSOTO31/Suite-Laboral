@@ -69,6 +69,13 @@
         /* Escala tipográfica ejecutiva: ningún texto por debajo de 10-11 px */
         .text-4xs { font-size: 10px; line-height: 13px; }
         .text-3xs { font-size: 11px; line-height: 15px; }
+        /* Copiar turnos con click sostenido y arrastre en el cuadro */
+        #rosterTableBody td[data-rc-emp] { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+        .rc-drag-source { outline: 3px solid #0284c7; outline-offset: -3px; border-radius: 8px; opacity: .75; }
+        .rc-drag-target { outline: 3px dashed #16a34a; outline-offset: -3px; border-radius: 8px; background: rgba(22,163,74,.08); }
+        .rc-drag-blocked { outline: 3px dashed #e11d48; outline-offset: -3px; border-radius: 8px; }
+        .rc-drag-ghost { position: fixed; z-index: 9999; pointer-events: none; transform: translate(12px, 12px); }
+        body.rc-dragging, body.rc-dragging * { cursor: copy !important; }
         .text-2xs { font-size: 12px; line-height: 16px; }
         /* Cifras (horas, valores) en Inter con números tabulares, más formal
            que la letra de máquina de escribir. Los tokens siguen en monoespaciada. */
@@ -2895,7 +2902,8 @@
                 + chip('bg-rose-100 text-rose-700 border-rose-300', 'Descanso')
                 + Object.values(ABSENCE_TYPES).map(a => chip(SHIFT_COLOR_THEMES[a.color].bg, a.label)).join('')
                 + `<span class="inline-flex items-center gap-1 text-slate-500"><span class="px-1 rounded bg-orange-500 text-white font-bold">+2h</span> extras programadas</span>`
-                + `<span class="inline-flex items-center gap-1 text-slate-500"><i class="fa-solid fa-note-sticky text-amber-500"></i> nota del día</span>`;
+                + `<span class="inline-flex items-center gap-1 text-slate-500"><i class="fa-solid fa-note-sticky text-amber-500"></i> nota del día</span>`
+                + (CAN('shifts.edit') ? `<span class="inline-flex items-center gap-1 text-sky-700 font-semibold"><i class="fa-solid fa-hand-pointer"></i> Mantén presionado un turno y arrástralo para copiarlo</span>` : '');
         }
         // Con "Colores por franja" activo, el color de un turno se asigna solo
         // según su hora de entrada (el turno partido queda en amarillo vivo).
@@ -3274,6 +3282,159 @@
             renderQuickBrushBar();
             updateBrushNoteHint();
         }
+
+        // -----------------------------------------------------------------
+        // COPIAR TURNOS CON CLICK SOSTENIDO
+        // Mantener presionado un turno ~0,5 s lo "levanta"; al arrastrarlo y
+        // soltarlo sobre otras celdas se copia allí (el original no cambia).
+        // En una misma fila se llena todo el tramo recorrido (ej. martes a
+        // viernes). No reemplaza vacaciones/incapacidad ni días después del
+        // retiro. Soltar fuera del cuadro o presionar Esc cancela.
+        // -----------------------------------------------------------------
+        const RC_HOLD_MS = 450;
+        let rcHold = null;     // { timer, x, y, td }
+        let rcDrag = null;     // { sh, srcTd, ghost, anchorTd, targets: [] }
+        let rcSuppressClickUntil = 0;
+        let rcUndo = null;
+        function rcCellInfo(td) {
+            return td ? { empId: Number(td.dataset.rcEmp), date: td.dataset.rcDate } : null;
+        }
+        function rcWorkedShift(td) {
+            const c = rcCellInfo(td);
+            if (!c) return null;
+            const sh = appState.shifts.find(s => Number(s.empId) === c.empId && s.date === c.date);
+            return sh && !sh.isOffDay ? sh : null;
+        }
+        function rcCanDrop(td) {
+            const c = rcCellInfo(td);
+            const emp = appState.employees.find(e => Number(e.id) === c.empId);
+            if (!emp) return false;
+            if (emp.retiredAt && c.date > emp.retiredAt) return false;
+            const ex = appState.shifts.find(s => Number(s.empId) === c.empId && s.date === c.date);
+            return !(ex && ex.absenceType);
+        }
+        function rcClearMarks() {
+            document.querySelectorAll('.rc-drag-target, .rc-drag-blocked').forEach(el => el.classList.remove('rc-drag-target', 'rc-drag-blocked'));
+        }
+        function rcCancelHold() { if (rcHold) { clearTimeout(rcHold.timer); rcHold = null; } }
+        function rcEndDrag() {
+            if (!rcDrag) return;
+            rcClearMarks();
+            if (rcDrag.srcTd) rcDrag.srcTd.classList.remove('rc-drag-source');
+            if (rcDrag.ghost) rcDrag.ghost.remove();
+            document.body.classList.remove('rc-dragging');
+            rcDrag = null;
+        }
+        function rcStartDrag(td, x, y) {
+            const sh = rcWorkedShift(td);
+            if (!sh) return;
+            const ghost = document.createElement('div');
+            ghost.className = 'rc-drag-ghost px-2 py-1 rounded-lg border shadow-xl text-3xs font-black ' + shiftDisplayTheme(sh).bg;
+            ghost.innerHTML = `<i class="fa-solid fa-copy"></i> ${escapeHtml(shiftTimeLabel(sh))}`;
+            ghost.style.left = x + 'px'; ghost.style.top = y + 'px';
+            document.body.appendChild(ghost);
+            td.classList.add('rc-drag-source');
+            document.body.classList.add('rc-dragging');
+            rcDrag = { sh, srcTd: td, ghost, anchorTd: null, targets: [] };
+            rcSuppressClickUntil = Date.now() + 100000; // mientras arrastra, ningún clic dispara la ficha
+            if (navigator.vibrate) { try { navigator.vibrate(30); } catch (e) { /* sin vibración */ } }
+        }
+        function rcUpdateTargets(x, y) {
+            const el = document.elementFromPoint(x, y);
+            const td = el ? el.closest('#rosterTableBody td[data-rc-emp]') : null;
+            if (!td) return;
+            if (!rcDrag.anchorTd || rcDrag.anchorTd.parentElement !== td.parentElement) rcDrag.anchorTd = td; // otra fila: empieza tramo nuevo
+            const cells = [...td.parentElement.querySelectorAll('td[data-rc-emp]')];
+            const a = cells.indexOf(rcDrag.anchorTd), b = cells.indexOf(td);
+            const range = cells.slice(Math.min(a, b), Math.max(a, b) + 1).filter(c => c !== rcDrag.srcTd);
+            rcClearMarks();
+            rcDrag.targets = range;
+            range.forEach(c => c.classList.add(rcCanDrop(c) ? 'rc-drag-target' : 'rc-drag-blocked'));
+        }
+        function rcAutoScroll(y) {
+            const edge = 70;
+            if (y < edge) window.scrollBy(0, -14); else if (y > window.innerHeight - edge) window.scrollBy(0, 14);
+        }
+        function rcApplyDrop() {
+            const src = rcDrag.sh;
+            const changes = [];
+            let skipped = 0;
+            rcDrag.targets.forEach(td => {
+                const c = rcCellInfo(td);
+                if (!rcCanDrop(td)) { skipped++; return; }
+                const emp = appState.employees.find(e => Number(e.id) === c.empId);
+                const prev = appState.shifts.find(s => Number(s.empId) === c.empId && s.date === c.date) || null;
+                const copy = cloneShiftToDate(src, emp, c.date);
+                copy.empId = emp.id;
+                appState.shifts = appState.shifts.filter(s => !(Number(s.empId) === c.empId && s.date === c.date));
+                appState.shifts.push(copy);
+                changes.push({ empId: emp.id, date: c.date, prev });
+            });
+            if (!changes.length) { if (skipped) showAppToast('No se copió: esos días tienen vacaciones/incapacidad o son posteriores al retiro.'); return; }
+            rcUndo = changes;
+            renderWeeklyRoster();
+            updateDashboardMetrics();
+            renderSelectedEmployeeLedger();
+            rcShowUndoBar(`Turno ${shiftTimeLabel(src)} copiado en ${changes.length} día(s)${skipped ? ` · ${skipped} omitido(s) por ausencia o retiro` : ''}.`);
+        }
+        function rcShowUndoBar(text) {
+            let bar = document.getElementById('rcUndoBar');
+            if (!bar) {
+                bar = document.createElement('div');
+                bar.id = 'rcUndoBar';
+                bar.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-xs font-semibold pl-4 pr-2 py-2 rounded-xl shadow-2xl flex items-center gap-3 border border-slate-700';
+                document.body.appendChild(bar);
+            }
+            bar.innerHTML = `<span><i class="fa-solid fa-copy text-sky-400"></i> ${escapeHtml(text)}</span><button type="button" onclick="rcUndoLast()" class="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-amber-950 font-bold">Deshacer</button>`;
+            bar.classList.remove('hidden');
+            clearTimeout(bar._t);
+            bar._t = setTimeout(() => bar.classList.add('hidden'), 9000);
+        }
+        function rcUndoLast() {
+            if (!rcUndo) return;
+            rcUndo.forEach(ch => {
+                appState.shifts = appState.shifts.filter(s => !(Number(s.empId) === Number(ch.empId) && s.date === ch.date));
+                if (ch.prev) appState.shifts.push(ch.prev);
+            });
+            rcUndo = null;
+            const bar = document.getElementById('rcUndoBar'); if (bar) bar.classList.add('hidden');
+            renderWeeklyRoster();
+            updateDashboardMetrics();
+            renderSelectedEmployeeLedger();
+            showAppToast('Copia deshecha.');
+        }
+        document.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0 && e.pointerType === 'mouse') return;
+            const td = e.target.closest && e.target.closest('#rosterTableBody td[data-rc-emp]');
+            if (!td || !CAN('shifts.edit') || !rcWorkedShift(td)) return;
+            rcCancelHold();
+            rcHold = { x: e.clientX, y: e.clientY, td, timer: setTimeout(() => { const h = rcHold; rcHold = null; if (h) rcStartDrag(h.td, h.x, h.y); }, RC_HOLD_MS) };
+        });
+        document.addEventListener('pointermove', (e) => {
+            if (rcHold && Math.hypot(e.clientX - rcHold.x, e.clientY - rcHold.y) > 8) rcCancelHold(); // se movió antes de tiempo: es scroll o clic normal
+            if (!rcDrag) return;
+            e.preventDefault();
+            rcDrag.ghost.style.left = e.clientX + 'px'; rcDrag.ghost.style.top = e.clientY + 'px';
+            rcUpdateTargets(e.clientX, e.clientY);
+            rcAutoScroll(e.clientY);
+        }, { passive: false });
+        document.addEventListener('touchmove', (e) => { if (rcDrag) e.preventDefault(); }, { passive: false });
+        document.addEventListener('pointerup', (e) => {
+            rcCancelHold();
+            if (!rcDrag) return;
+            const el = document.elementFromPoint(e.clientX, e.clientY);
+            const overCell = el && el.closest('#rosterTableBody td[data-rc-emp]');
+            if (overCell && rcDrag.targets.length) rcApplyDrop();
+            else if (rcDrag.targets.length) showAppToast('Copia cancelada (soltaste fuera del cuadro).');
+            rcEndDrag();
+            rcSuppressClickUntil = Date.now() + 350;
+        });
+        document.addEventListener('pointercancel', () => { rcCancelHold(); rcEndDrag(); rcSuppressClickUntil = Date.now() + 350; });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && rcDrag) { rcEndDrag(); rcSuppressClickUntil = Date.now() + 350; showAppToast('Copia cancelada.'); } });
+        document.addEventListener('contextmenu', (e) => { if (rcDrag || rcHold) e.preventDefault(); });
+        document.addEventListener('click', (e) => {
+            if (Date.now() < rcSuppressClickUntil && e.target.closest && e.target.closest('#rosterTableBody')) { e.stopPropagation(); e.preventDefault(); }
+        }, true);
 
         function handleRosterCellClick(empId, dateISO, empName, dateFormatted) {
             if (!CAN('shifts.edit')) return;
@@ -4328,7 +4489,7 @@
                                 : '') + extraBadge;
 
                             return `
-                                <td class="p-1 border-r border-slate-200 text-center align-middle">
+                                <td data-rc-emp="${emp.id}" data-rc-date="${d.dateISO}" class="p-1 border-r border-slate-200 text-center align-middle">
                                     <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${escapeHtml(shiftTimeLabel(shift))} · ${shift.res.totalHours.toFixed(2)}h${extraMin ? ' · ' + hmLabel(extraMin) + ' extra programadas' : ''}${shift.note ? ' · Nota: ' + escapeHtml(shift.note) : ''} — Clic para editar" class="px-1 py-0.5 rounded-md border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs text-center">
                                         ${shift.isSplit && shift.splitOut && shift.splitIn ? `
                                         <div class="text-3xs font-black leading-tight">${shift.startTime}-${shift.splitOut} /</div>
@@ -4346,7 +4507,7 @@
                             const a = ABSENCE_TYPES[shift.absenceType];
                             const theme = SHIFT_COLOR_THEMES[a.color];
                             return `
-                                <td class="p-1 border-r border-slate-200 text-center align-middle">
+                                <td data-rc-emp="${emp.id}" data-rc-date="${d.dateISO}" class="p-1 border-r border-slate-200 text-center align-middle">
                                     <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${a.label}: sin marcación este día${shift.note ? ' · Nota: ' + escapeHtml(shift.note) : ''}. Clic para cambiar" class="px-1 py-1 rounded-md border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs flex flex-col items-center justify-center">
                                         <div class="font-extrabold text-3xs uppercase leading-tight">
                                             <span>${a.label}</span>
@@ -4357,7 +4518,7 @@
                             `;
                         } else {
                             return `
-                                <td class="p-1 border-r border-slate-200 text-center align-middle">
+                                <td data-rc-emp="${emp.id}" data-rc-date="${d.dateISO}" class="p-1 border-r border-slate-200 text-center align-middle">
                                     <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="Día de descanso (día libre). Clic para asignar turno o cambiar estado" class="px-1 py-1 rounded-md border border-rose-300 bg-rose-100 hover:bg-rose-200 text-rose-700 cursor-pointer transition-all hover:scale-105 shadow-xs text-center font-extrabold text-3xs uppercase leading-tight">
                                         Descanso
                                     </div>
