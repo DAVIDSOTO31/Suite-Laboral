@@ -62,7 +62,8 @@ function shiftSummary(sh) {
   const time = sh.isSplit && sh.splitOut && sh.splitIn
     ? `${sh.startTime}-${sh.splitOut} / ${sh.splitIn}-${sh.endTime}`
     : `${sh.startTime} - ${sh.endTime}`;
-  return sh.functionTag ? `${time} (${sh.functionTag})` : time;
+  // La nota/indicación del día (si hay) acompaña el horario en el historial y en los avisos.
+  return sh.note ? `${time} · Nota: ${sh.note}` : time;
 }
 const DAY_NAMES_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 function dayLabel(iso) {
@@ -217,7 +218,7 @@ async function replaceShiftPresets(req, res) {
   const orgId = resolveOrgId(req, body);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   const list = Array.isArray(body.shiftPresets) ? body.shiftPresets : [];
-  const presetText = (p) => `${p.name} (${p.isSplit && p.splitOut ? `${p.startTime}-${p.splitOut} / ${p.splitIn}-${p.endTime}` : `${p.startTime}-${p.endTime}`})`;
+  const presetText = (p) => { const t = p.isSplit && p.splitOut ? `${p.startTime}-${p.splitOut} / ${p.splitIn}-${p.endTime}` : `${p.startTime}-${p.endTime}`; return p.name && String(p.name).trim() ? `${p.name} (${t})` : t; };
   const beforePresets = new Map(db.prepare('SELECT id, data_json FROM shift_presets WHERE organization_id = ?').all(orgId).map(r => { try { return [String(r.id), JSON.parse(r.data_json)]; } catch { return [String(r.id), {}]; } }));
   db.prepare('DELETE FROM shift_presets WHERE organization_id = ?').run(orgId);
   const insert = db.prepare('INSERT INTO shift_presets (id, organization_id, data_json) VALUES (?, ?, ?)');
