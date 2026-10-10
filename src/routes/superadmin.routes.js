@@ -213,9 +213,15 @@ function listRolesForOrg(req, res, query) {
 }
 
 // GET /api/superadmin/audit?from=&to=&organization_id=&userId=&category=&q=
-// Igual que la auditoria de cada organizacion: cada registro llega con su
-// descripcion en español (que hizo, sobre quien y con que detalle), quien lo
-// hizo (correo y rol) y a que organizacion pertenece.
+// Privacidad (Ley 1581): la plataforma es ENCARGADA de los datos de cada
+// organizacion, asi que el Super Admin solo ve en detalle:
+//   - las acciones de la plataforma y de cuentas Super Admin, y
+//   - los eventos de seguridad (inicios de sesion, intentos fallidos,
+//     contrasenas, invitaciones aceptadas).
+// De la actividad interna de cada organizacion solo recibe un RESUMEN de uso
+// (cantidad de acciones por tipo, usuarios activos y ultimo uso), sin datos
+// personales. El detalle completo lo ve el administrador de cada organizacion.
+const SECURITY_ACTIONS = new Set(['auth.login', 'auth.logout', 'auth.login_failed', 'auth.password_reset_requested', 'auth.password_reset_completed', 'auth.invite_accepted']);
 function listAuditLogs(req, res, query) {
   const ISO = /^\d{4}-\d{2}-\d{2}$/;
   const from = ISO.test(query.from || '') ? query.from : addDaysISO(todayISOInBogota(), -30);
@@ -224,9 +230,7 @@ function listAuditLogs(req, res, query) {
   const params = [from, to];
   if (query.organization_id === 'plataforma') sql += ' AND organization_id IS NULL';
   else if (query.organization_id) { sql += ' AND organization_id = ?'; params.push(query.organization_id); }
-  if (query.userId) { sql += ' AND user_id = ?'; params.push(query.userId); }
-  if (query.action) { sql += ' AND action LIKE ?'; params.push(`%${query.action}%`); }
-  sql += ' ORDER BY created_at DESC LIMIT 3000';
+  sql += ' ORDER BY created_at DESC LIMIT 20000';
   const rows = db.prepare(sql).all(...params);
 
   const ROLE_ES = { org_admin: 'Administrador', supervisor: 'Supervisor', empleado: 'Empleado', super_admin: 'Super Admin' };
@@ -234,28 +238,42 @@ function listAuditLogs(req, res, query) {
       (SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id LIMIT 1) AS role
     FROM users u`).all().map(u => [u.id, u]));
   const orgs = new Map(db.prepare('SELECT id, name FROM organizations').all().map(o => [o.id, o.name]));
-  const empByOrg = new Map();
-  const employeesOf = (orgId) => {
-    if (!orgId) return new Map();
-    if (!empByOrg.has(orgId)) empByOrg.set(orgId, new Map(db.prepare('SELECT id, name FROM employees WHERE organization_id = ?').all(orgId).map(e => [String(e.id), e.name])));
-    return empByOrg.get(orgId);
-  };
-  let logs = rows.map(r => {
-    const metadata = r.metadata_json ? (() => { try { return JSON.parse(r.metadata_json); } catch { return null; } })() : null;
-    const d = describeAudit({ ...r, metadata }, { users, employees: employeesOf(r.organization_id), orgs });
+
+  const logs = [];
+  const usage = new Map(); // resumen por organizacion (sin datos personales)
+  for (const r of rows) {
     const u = r.user_id ? users.get(r.user_id) : null;
-    const role = u ? (u.is_super_admin ? 'Super Admin' : (ROLE_ES[u.role] || u.role || '')) : '';
-    return {
-      id: r.id, at: r.created_at, created_at: r.created_at, action: r.action,
-      organization_id: r.organization_id, orgName: r.organization_id ? (orgs.get(r.organization_id) || (metadata && metadata.name) || 'Organización eliminada') : 'Plataforma',
-      user_id: r.user_id, user: u ? u.email : (d.actorFallback || 'Sistema'), role,
-      category: d.category, title: d.title, text: d.text, details: d.details || [], ip: r.ip,
-    };
-  });
-  if (query.category) logs = logs.filter(l => l.category === query.category);
-  if (query.q) { const q = String(query.q).toLowerCase(); logs = logs.filter(l => (l.text + ' ' + l.details.join(' ') + ' ' + l.user + ' ' + l.orgName).toLowerCase().includes(q)); }
+    const isPlatform = !r.organization_id || (u && u.is_super_admin);
+    const isSecurity = SECURITY_ACTIONS.has(r.action);
+    const metadata = r.metadata_json ? (() => { try { return JSON.parse(r.metadata_json); } catch { return null; } })() : null;
+    if (isPlatform || isSecurity) {
+      if (query.userId && r.user_id !== query.userId) continue;
+      const d = describeAudit({ ...r, metadata }, { users, employees: new Map(), orgs });
+      const role = u ? (u.is_super_admin ? 'Super Admin' : (ROLE_ES[u.role] || u.role || '')) : '';
+      logs.push({
+        id: r.id, at: r.created_at, created_at: r.created_at, action: r.action,
+        organization_id: r.organization_id, orgName: r.organization_id ? (orgs.get(r.organization_id) || (metadata && metadata.name) || 'Organización eliminada') : 'Plataforma',
+        user_id: r.user_id, user: u ? u.email : (d.actorFallback || 'Sistema'), role,
+        category: d.category, title: d.title, text: d.text, details: d.details || [], ip: r.ip,
+      });
+    } else {
+      // Actividad interna: solo se cuenta.
+      const cat = describeAudit({ ...r, metadata }, {}).category;
+      let o = usage.get(r.organization_id);
+      if (!o) { o = { organizationId: r.organization_id, orgName: orgs.get(r.organization_id) || 'Organización eliminada', total: 0, byCategory: {}, users: new Set(), lastAt: null }; usage.set(r.organization_id, o); }
+      o.total++;
+      o.byCategory[cat] = (o.byCategory[cat] || 0) + 1;
+      if (r.user_id) o.users.add(r.user_id);
+      if (!o.lastAt || r.created_at > o.lastAt) o.lastAt = r.created_at;
+    }
+  }
+  let detailed = logs;
+  if (query.category) detailed = detailed.filter(l => l.category === query.category);
+  if (query.q) { const q = String(query.q).toLowerCase(); detailed = detailed.filter(l => (l.text + ' ' + l.details.join(' ') + ' ' + l.user + ' ' + l.orgName).toLowerCase().includes(q)); }
+  const usageList = [...usage.values()].map(o => ({ organizationId: o.organizationId, orgName: o.orgName, total: o.total, byCategory: o.byCategory, activeUsers: o.users.size, lastAt: o.lastAt }))
+    .sort((a, b) => b.total - a.total);
   sendJson(res, 200, {
-    from, to, logs: logs.slice(0, 1500), truncated: logs.length > 1500,
+    from, to, logs: detailed.slice(0, 1500), truncated: detailed.length > 1500, usage: usageList,
     users: [...users.values()].map(u => ({ id: u.id, email: u.email, organizationId: u.organization_id, role: u.is_super_admin ? 'Super Admin' : (ROLE_ES[u.role] || u.role || '') })),
   });
 }
