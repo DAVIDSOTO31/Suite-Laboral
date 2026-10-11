@@ -7022,11 +7022,25 @@
                 doc.setFont('helvetica', style); doc.setFontSize(size); doc.setTextColor(...color); doc.text(String(str), x, y, opts);
             };
             // Tabla simple con salto de página y encabezado repetido.
-            const table = (cols, rows, totalRow) => {
+            // groups (opcional): franjas de título sobre el encabezado,
+            // [{ label, span: nº de columnas, fill: [r,g,b] }].
+            const table = (cols, rows, totalRow, groups) => {
                 const totalW = cols.reduce((a, c) => a + c.w, 0);
                 const scale = (W - 2 * M) / totalW;
                 cols.forEach(c => { c.ww = c.w * scale; });
                 const head = () => {
+                    if (groups) {
+                        let gx = M, ci = 0;
+                        groups.forEach(g => {
+                            const gw = cols.slice(ci, ci + g.span).reduce((a, c) => a + c.ww, 0);
+                            doc.setFillColor(...g.fill); doc.rect(gx, y - 4, gw, 5.5, 'F');
+                            doc.setDrawColor(255, 255, 255); doc.setLineWidth(0.6); doc.line(gx + gw, y - 4, gx + gw, y + 1.5); doc.setLineWidth(0.2);
+                            doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(255, 255, 255);
+                            doc.text(g.label, gx + gw / 2, y - 0.2, { align: 'center' });
+                            gx += gw; ci += g.span;
+                        });
+                        y += 5.5;
+                    }
                     doc.setFillColor(15, 23, 42); doc.rect(M, y - 4, W - 2 * M, 8, 'F');
                     let x = M;
                     cols.forEach(c => {
@@ -7035,7 +7049,7 @@
                         doc.text(lines, c.align === 'right' ? x + c.ww - 1 : x + 1, y - (lines.length > 1 ? 1.2 : 0), { align: c.align === 'right' ? 'right' : 'left' });
                         x += c.ww;
                     });
-                    y += 6;
+                    y += 7.5;
                 };
                 head();
                 const drawRow = (vals, bold, fill) => {
@@ -7043,7 +7057,7 @@
                     if (fill) { doc.setFillColor(...fill); doc.rect(M, y - 4, W - 2 * M, 6, 'F'); }
                     let x = M;
                     cols.forEach((c, i) => {
-                        doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(7.5);
+                        doc.setFont('helvetica', bold || c.bold ? 'bold' : 'normal'); doc.setFontSize(7.5);
                         const v = vals[i] == null ? '' : String(vals[i]);
                         doc.setTextColor(...(c.color && c.color(vals[i]) ? c.color(vals[i]) : [30, 41, 59]));
                         const clipped = doc.splitTextToSize(v, c.ww - 2)[0] || '';
@@ -7069,8 +7083,15 @@
 
             // ---- Encabezado ----
             const title = type === 'extras' ? 'Cierre de periodo - Horas extras' : 'Cierre de periodo - Recargos nocturnos' + (closure.snapshot.includeSundayHoliday ? ' y dominicales/festivos' : '');
-            text(title, M, 15, 'bold', [15, 23, 42]); y += 6;
-            text(org, M, 10, 'normal', [71, 85, 105]); y += 7;
+            text(title, M, 15, 'bold', [15, 23, 42]);
+            if (closure.number) {
+                doc.setFillColor(15, 23, 42); doc.roundedRect(W - M - 52, y - 6, 52, 13, 2, 2, 'F');
+                text('CIERRE N°', W - M - 26, 7, 'bold', [148, 163, 184], { align: 'center' });
+                y += 5; text(closure.number, W - M - 26, 11, 'bold', [255, 255, 255], { align: 'center' }); y -= 5;
+            }
+            y += 6;
+            text(org, M, 10, 'bold', [51, 65, 85]); y += 5;
+            text(appState.orgNit ? `NIT ${appState.orgNit}` : 'NIT sin registrar', M, 8.5, 'normal', [100, 116, 139]); y += 7;
             kv([
                 ['Periodo liquidado:', `del ${pdfDate(closure.from)} al ${pdfDate(closure.to)}`],
                 ['Estado:', closure.status === 'cerrado' ? 'Cerrado (valores congelados)' : 'Reabierto'],
@@ -7106,33 +7127,85 @@
             } else {
                 const sum = (f) => emps.reduce((a, e) => a + (Number(e[f]) || 0), 0);
                 const debtors = emps.filter(e => (e.carryOut || 0) < 0);
-                kv([['Saldo anterior tomado de:', closure.previous ? `cierre de extras del ${pdfDate(closure.previous.from)} al ${pdfDate(closure.previous.to)}` : 'No había saldo anterior']]);
-                section('Resumen');
-                kv([
-                    ['Extra diurna pagada:', `${pdfHM(sum('hed'))} h  ·  ${pdfMoney(sum('hedPay'))}`],
-                    ['Extra nocturna pagada:', `${pdfHM(sum('hen'))} h  ·  ${pdfMoney(sum('henPay'))}  (descuento por deuda diurna: ${pdfMoney(sum('offsetValue'))})`],
-                    ['Total pagado en el cierre:', pdfMoney(sum('hedPay') + sum('henPay'))],
-                    ['Tiempo pendiente por compensar:', debtors.length ? `${pdfHM(sum('carryOut'))} h en ${debtors.length} colaborador(es) (pasa al periodo que inicia el ${pdfDate(nextDayISO(closure.to))})` : 'Ninguno'],
-                ]);
+                // Horas SIEMPRE en horas con decimales (minutos ÷ 60), con coma decimal.
+                // Los ceros se muestran como "—" para que resalten las cifras con valor.
+                const hNum = (v) => (Number(v) || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/^[−‐-]/, '-');
+                const hD = (v) => (Math.abs(Number(v) || 0) < 0.005 ? '—' : hNum(v));
+                const mD = (v) => (Math.round(Number(v) || 0) === 0 ? '—' : pdfMoney(v));
+                const prevTxt = closure.previous
+                    ? `${closure.previous.number ? `cierre N° ${closure.previous.number}, ` : 'cierre de extras '}del ${pdfDate(closure.previous.from)} al ${pdfDate(closure.previous.to)}`
+                    : 'No había saldo anterior';
+                kv([['Saldo anterior tomado de:', prevTxt]]);
+
+                // ---- Resumen para la empresa (consolidado de todos los colaboradores) ----
+                const totalPay = sum('hedPay') + sum('henPay');
+                const paid = emps.filter(e => (e.hedPay || 0) + (e.henPay || 0) > 0).length;
+                section('Resumen del cierre (todos los colaboradores)');
+                ensure(34);
+                const gap = 4, cardH = 27, top = y - 4;
+                const bigW = 104, smallW = (W - 2 * M - bigW - 3 * gap) / 3;
+                const card = (x, w, fill, border) => { doc.setFillColor(...fill); doc.setDrawColor(...border); doc.roundedRect(x, top, w, cardH, 2, 2, 'FD'); };
+                const at = (str, x, dy, size, style, color, opts) => { const yy = y; y = top + dy; text(str, x, size, style, color, opts); y = yy; };
+                // 1) Total a pagar
+                card(M, bigW, [236, 253, 245], [16, 185, 129]);
+                at('TOTAL A PAGAR POR LA EMPRESA', M + 4, 6, 7.5, 'bold', [6, 95, 70]);
+                at(pdfMoney(totalPay), M + 4, 15, 17, 'bold', [6, 78, 59]);
+                doc.setFont('helvetica', 'italic'); doc.setFontSize(6.8);
+                const words = doc.splitTextToSize(`Son: ${moneyInWords(totalPay)}`, bigW - 8);
+                doc.setTextColor(71, 85, 105); doc.text(words.slice(0, 2), M + 4, top + 20);
+                // 2) Colaboradores
+                let cx = M + bigW + gap;
+                card(cx, smallW, [248, 250, 252], [203, 213, 225]);
+                at('COLABORADORES LIQUIDADOS', cx + 4, 6, 7, 'bold', [71, 85, 105]);
+                at(String(emps.length), cx + 4, 15, 15, 'bold', [15, 23, 42]);
+                at(`${paid} con extras a pagar`, cx + 4, 21.5, 7, 'normal', [100, 116, 139]);
+                // 3) Horas pagadas
+                cx += smallW + gap;
+                card(cx, smallW, [248, 250, 252], [203, 213, 225]);
+                at('HORAS EXTRA PAGADAS', cx + 4, 6, 7, 'bold', [71, 85, 105]);
+                at(`${hNum(sum('hed') + sum('hen'))} h`, cx + 4, 15, 15, 'bold', [15, 23, 42]);
+                at(`Diurnas ${hNum(sum('hed'))} h · Nocturnas ${hNum(sum('hen'))} h`, cx + 4, 21.5, 7, 'normal', [100, 116, 139]);
+                // 4) Tiempo que pasa al siguiente periodo
+                cx += smallW + gap;
+                const owes = debtors.length > 0;
+                card(cx, smallW, owes ? [255, 241, 242] : [248, 250, 252], owes ? [251, 113, 133] : [203, 213, 225]);
+                at('PASA AL SIGUIENTE PERIODO', cx + 4, 6, 7, 'bold', owes ? [190, 18, 60] : [71, 85, 105]);
+                at(owes ? `${hNum(sum('carryOut'))} h` : 'Ninguno', cx + 4, 15, 15, 'bold', owes ? [190, 18, 60] : [15, 23, 42]);
+                at(owes ? `${debtors.length} colaborador(es) deben tiempo` : 'Nadie quedó debiendo tiempo', cx + 4, 21.5, 7, 'normal', owes ? [190, 18, 60] : [100, 116, 139]);
+                y = top + cardH + 7;
+                text(`Extra diurna ${pdfMoney(sum('hedPay'))}  +  Extra nocturna ${pdfMoney(sum('henPay'))}` +
+                    (sum('offsetValue') ? `  (ya descontados ${pdfMoney(sum('offsetValue'))} por deuda de tiempo diurno)` : ''), M, 8, 'normal', [71, 85, 105]);
+                y += 4;
+
                 section('Detalle por colaborador');
+                const pctHed = Math.round((1 + (Number(appState.settings.percHED) || 0)) * 100), pctHen = Math.round((1 + (Number(appState.settings.percHEN) || 0)) * 100);
                 const red = (v) => (String(v).startsWith('-') ? [190, 18, 60] : null);
                 const empDocX = (id) => docLabel(appState.employees.find(x => Number(x.id) === Number(id)));
                 table([
-                    { h: 'Colaborador', w: 32 }, { h: 'Documento', w: 22 }, { h: 'Área', w: 16 },
-                    { h: 'Diurna de los días', w: 14, align: 'right', color: red }, { h: 'Saldo anterior', w: 13, align: 'right', color: red },
-                    { h: 'Diurna pagada (h)', w: 13, align: 'right' }, { h: 'Valor hora diurna', w: 16, align: 'right' }, { h: 'Valor diurna', w: 17, align: 'right' },
-                    { h: 'Nocturna (h)', w: 12, align: 'right' }, { h: 'Valor hora nocturna', w: 16, align: 'right' }, { h: 'Valor nocturna', w: 17, align: 'right' },
-                    { h: 'Descuento deuda diurna', w: 17, align: 'right', color: (v) => (v && v !== '$0' ? [190, 18, 60] : null) },
-                    { h: 'Nocturna pagada', w: 17, align: 'right' }, { h: 'Total pagado', w: 17, align: 'right' },
-                    { h: 'Queda debiendo (h)', w: 14, align: 'right', color: red },
+                    { h: 'Colaborador', w: 32 }, { h: 'Documento', w: 21 }, { h: 'Área', w: 17 },
+                    { h: 'Horas de los días', w: 14, align: 'right', color: red }, { h: 'Saldo anterior', w: 14, align: 'right', color: red },
+                    { h: 'Horas pagadas', w: 13, align: 'right' }, { h: `Valor hora (${pctHed}%)`, w: 16, align: 'right' }, { h: 'Valor diurna', w: 17, align: 'right' },
+                    { h: 'Horas', w: 11, align: 'right' }, { h: `Valor hora (${pctHen}%)`, w: 16, align: 'right' }, { h: 'Valor bruto', w: 17, align: 'right' },
+                    { h: 'Descuento deuda diurna', w: 17, align: 'right', color: red },
+                    { h: 'Valor nocturna', w: 17, align: 'right' },
+                    { h: 'Total a pagar', w: 18, align: 'right', bold: true }, { h: 'Pasa al sig. periodo (h)', w: 15, align: 'right', color: red },
                 ], emps.map(e => {
                     const u = conceptUnitRates(e, closure.to);
                     const henGross = e.henPayGross != null ? e.henPayGross : e.henPay;
-                    return [e.name, empDocX(e.employeeId), e.department || '', pdfHM(e.hedDays), pdfHM(e.carryIn), pdfHM(e.hed), pdfMoney(u.hed), pdfMoney(e.hedPay),
-                        pdfHM(e.hen), pdfMoney(u.hen), pdfMoney(henGross), e.offsetValue ? '-' + pdfMoney(e.offsetValue) : '$0', pdfMoney(e.henPay), pdfMoney((e.hedPay || 0) + (e.henPay || 0)), pdfHM(e.carryOut)];
+                    return [e.name, empDocX(e.employeeId) , e.department || '', hD(e.hedDays), hD(e.carryIn), hD(e.hed), pdfMoney(u.hed), mD(e.hedPay),
+                        hD(e.hen), pdfMoney(u.hen), mD(henGross), e.offsetValue ? '-' + pdfMoney(e.offsetValue) : '—', mD(e.henPay), mD((e.hedPay || 0) + (e.henPay || 0)), hD(e.carryOut)];
                 }),
-                ['TOTAL', '', '', pdfHM(sum('hedDays')), pdfHM(sum('carryIn')), pdfHM(sum('hed')), '', pdfMoney(sum('hedPay')),
-                    pdfHM(sum('hen')), '', pdfMoney(emps.reduce((a, e) => a + (e.henPayGross != null ? e.henPayGross : (e.henPay || 0)), 0)), sum('offsetValue') ? '-' + pdfMoney(sum('offsetValue')) : '$0', pdfMoney(sum('henPay')), pdfMoney(sum('hedPay') + sum('henPay')), pdfHM(sum('carryOut'))]);
+                ['TOTAL', '', '', hD(sum('hedDays')), hD(sum('carryIn')), hD(sum('hed')), '', mD(sum('hedPay')),
+                    hD(sum('hen')), '', mD(emps.reduce((a, e) => a + (e.henPayGross != null ? e.henPayGross : (e.henPay || 0)), 0)), sum('offsetValue') ? '-' + pdfMoney(sum('offsetValue')) : '—', mD(sum('henPay')), pdfMoney(totalPay), hD(sum('carryOut'))],
+                [
+                    { label: 'COLABORADOR', span: 3, fill: [71, 85, 105] },
+                    { label: 'EXTRAS DIURNAS', span: 5, fill: [2, 132, 199] },
+                    { label: 'EXTRAS NOCTURNAS', span: 5, fill: [67, 56, 202] },
+                    { label: 'RESULTADO', span: 2, fill: [5, 150, 105] },
+                ]);
+                ensure(5);
+                text('Horas expresadas en horas con decimales (minutos ÷ 60). Ejemplo: 1 h 18 min = 1,30 h. Los valores se calculan con los minutos exactos.', M, 7, 'italic', [100, 116, 139]);
+                y += 4;
 
                 section('Tiempo adeudado al empleador que pasa al siguiente periodo');
                 if (!debtors.length) {
@@ -7150,22 +7223,23 @@
                             check = got === undefined
                                 ? `NO aparece en el cierre del ${pdfDate(nxt.from)} al ${pdfDate(nxt.to)} - REVISAR`
                                 : (Math.abs(got - e.carryOut) < 0.01
-                                    ? `Coincide: recibido ${pdfHM(got)} en el cierre del ${pdfDate(nxt.from)} al ${pdfDate(nxt.to)}`
-                                    : `NO coincide: recibido ${pdfHM(got)} en el cierre del ${pdfDate(nxt.from)} al ${pdfDate(nxt.to)} - REVISAR`);
+                                    ? `Coincide: recibido ${hNum(got)} h en el cierre del ${pdfDate(nxt.from)} al ${pdfDate(nxt.to)}`
+                                    : `NO coincide: recibido ${hNum(got)} h en el cierre del ${pdfDate(nxt.from)} al ${pdfDate(nxt.to)} - REVISAR`);
                         }
-                        return [e.name, empDocX(e.employeeId), e.department || '', pdfHM(e.carryOut), pdfDate(nextDayISO(closure.to)), check];
-                    }), ['TOTAL', '', '', pdfHM(sum('carryOut')), '', '']);
+                        return [e.name, empDocX(e.employeeId) , e.department || '', hNum(e.carryOut), pdfDate(nextDayISO(closure.to)), check];
+                    }), ['TOTAL', '', '', hNum(sum('carryOut')), '', '']);
                 }
             }
             // ---- Saldo inicial (Dia 0) incluido en este cierre ----
             const withOpen = type === 'extras'
                 ? emps.filter(e => e.openHed || e.openHen)
                 : emps.filter(e => e.openHon || e.openDom);
+            const hDec = (v) => (Number(v) || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             if (withOpen.length) {
                 section('Saldo inicial (Día 0) incluido en este cierre');
                 if (type === 'extras') {
                     table([{ h: 'Colaborador', w: 60 }, { h: 'Documento', w: 34 }, { h: 'Área', w: 40 }, { h: 'Extra diurna inicial (horas)', w: 36, align: 'right' }, { h: 'Extra nocturna inicial (horas)', w: 36, align: 'right' }],
-                        withOpen.map(e => [e.name, docLabel(appState.employees.find(x => Number(x.id) === Number(e.employeeId))), e.department || '', pdfHM(e.openHed), pdfHM(e.openHen)]));
+                        withOpen.map(e => [e.name, docLabel(appState.employees.find(x => Number(x.id) === Number(e.employeeId))), e.department || '', hDec(e.openHed), hDec(e.openHen)]));
                 } else {
                     table([{ h: 'Colaborador', w: 60 }, { h: 'Documento', w: 34 }, { h: 'Área', w: 40 }, { h: 'Recargo nocturno inicial (horas)', w: 36, align: 'right' }, { h: 'Dominical inicial (horas)', w: 36, align: 'right' }],
                         withOpen.map(e => [e.name, docLabel(appState.employees.find(x => Number(x.id) === Number(e.employeeId))), e.department || '', pdfHM(e.openHon), pdfHM(e.openDom)]));
