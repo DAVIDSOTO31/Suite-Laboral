@@ -791,6 +791,8 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_shifts_org_date ON shifts(organization_i
 const orgSetRet = db.prepare('PRAGMA table_info(org_settings)').all().map(c => c.name);
 if (!orgSetRet.includes('shift_retention_years')) db.exec('ALTER TABLE org_settings ADD COLUMN shift_retention_years INTEGER NULL');
 if (!orgSetRet.includes('shift_purge_info')) db.exec('ALTER TABLE org_settings ADD COLUMN shift_purge_info TEXT NULL');
+// Metas de los Indicadores (semaforo), en JSON. NULL = metas por defecto.
+if (!orgSetRet.includes('indicator_goals')) db.exec('ALTER TABLE org_settings ADD COLUMN indicator_goals TEXT NULL');
 
 module.exports = {
   db,
