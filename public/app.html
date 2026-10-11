@@ -1089,6 +1089,7 @@
                         </div>
                         <p id="indPeriodNote" class="text-2xs text-slate-500 -mt-2">-</p>
                         <div id="indCards" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
+                        <div id="indCardDetail"></div>
 
                         <div>
                             <h4 class="font-bold text-slate-700 text-sm mb-2">Por área</h4>
@@ -1102,7 +1103,7 @@
                                         <th class="text-center px-3 py-2">Puntualidad</th>
                                         <th class="text-center px-3 py-2">Tiempo perdido</th>
                                         <th class="text-right px-3 py-2">Costo perdido</th>
-                                        <th class="text-center px-3 py-2">Horas extra</th>
+                                        <th class="text-center px-3 py-2">Horas extra netas</th>
                                         <th class="text-center px-3 py-2">Incapacidad</th>
                                         <th class="text-center px-3 py-2">Sin cerrar</th>
                                         <th class="text-center px-3 py-2">Manuales</th>
@@ -1155,7 +1156,7 @@
                             </div>
                             <div id="indTrendTableBox" class="hidden mt-3 overflow-x-auto border border-slate-200 rounded-lg">
                                 <table class="w-full text-xs">
-                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr><th class="text-left px-3 py-2">Mes</th><th class="text-center px-3 py-2">Turnos evaluados</th><th class="text-center px-3 py-2">Ausentismo</th><th class="text-center px-3 py-2">Puntualidad</th><th class="text-center px-3 py-2">Horas extra</th><th class="text-center px-3 py-2">Días de incapacidad</th><th class="text-right px-3 py-2">Costo incapacidad</th></tr></thead>
+                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr><th class="text-left px-3 py-2">Mes</th><th class="text-center px-3 py-2">Turnos evaluados</th><th class="text-center px-3 py-2">Ausentismo</th><th class="text-center px-3 py-2">Puntualidad</th><th class="text-center px-3 py-2">Horas extra netas</th><th class="text-center px-3 py-2">Días de incapacidad</th><th class="text-right px-3 py-2">Costo incapacidad</th></tr></thead>
                                     <tbody id="indTrendBody"></tbody>
                                 </table>
                             </div>
@@ -9480,6 +9481,10 @@
         const indCharts = {};
         const fmtPct = (v) => v == null ? '—' : `${Number(v).toLocaleString('es-CO', { maximumFractionDigits: 1 })} %`;
         const fmtMins = (m) => formatHM((Number(m) || 0) / 60);
+        const fmtMinsS = (m) => formatHMSigned((Number(m) || 0) / 60); // con signo (extras netas pueden quedar negativas)
+        // Tarjeta de Indicadores abierta (detalle desplegado debajo de las tarjetas).
+        let indSelectedCard = null;
+        function toggleIndCard(key) { indSelectedCard = indSelectedCard === key ? null : key; if (lastIndicators) renderIndicators(lastIndicators); }
         function indApplyPreset() {
             const preset = document.getElementById('indPreset').value;
             const today = bogotaTodayISO();
@@ -9527,13 +9532,20 @@
         function renderIndicators(d) {
             const t = d.total, p = d.previous;
             document.getElementById('indPeriodNote').innerHTML = `Periodo: <strong>${pdfDate(d.from)} – ${pdfDate(d.to)}</strong>${d.area ? ` · Área: <strong>${escapeHtml(d.area)}</strong>` : ''} · Comparado con: ${pdfDate(d.prevFrom)} – ${pdfDate(d.prevTo)}${d.dayZero ? ` · No incluye días hasta el Día 0 (${pdfDate(d.dayZero)})` : ''}`;
-            const card = (title, icon, value, sub, delta) => `
-                <div class="border border-slate-200 rounded-lg p-3 bg-white">
-                    <p class="text-2xs font-bold text-slate-500 uppercase flex items-center gap-1.5"><i class="fa-solid ${icon} text-slate-400"></i> ${title}</p>
+            // Cada tarjeta es un botón: al hacer clic se despliega su detalle.
+            const cardKeys = ['ausentismo', 'puntualidad', 'perdido', 'extras', 'sinCerrar', 'manuales'];
+            let cardIdx = 0;
+            const card = (title, icon, value, sub, delta) => {
+                const key = cardKeys[cardIdx++];
+                const sel = indSelectedCard === key;
+                return `
+                <button type="button" onclick="toggleIndCard('${key}')" aria-expanded="${sel}" title="Clic para ver el detalle" class="text-left border rounded-lg p-3 bg-white transition hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-sky-400 ${sel ? 'border-sky-500 ring-2 ring-sky-500 shadow-md' : 'border-slate-200'}">
+                    <p class="text-2xs font-bold text-slate-500 uppercase flex items-center gap-1.5"><i class="fa-solid ${icon} text-slate-400"></i> ${title} <i class="fa-solid ${sel ? 'fa-chevron-up' : 'fa-chevron-down'} ml-auto text-slate-400"></i></p>
                     <p class="text-3xl font-black text-slate-800 leading-tight mt-1">${value}</p>
                     <p class="text-2xs text-slate-500">${sub}</p>
                     <p class="text-2xs mt-1.5">${delta}</p>
-                </div>`;
+                </button>`;
+            };
             const minsFmt = (m) => fmtMins(m);
             const hFmt = (m) => fmtMins(m);
             document.getElementById('indCards').innerHTML = [
@@ -9544,11 +9556,11 @@
                     `${t.entradas - t.tarde} de ${t.entradas} entrada(s) a tiempo · ${t.tarde} tarde (${minsFmt(t.minutosRetraso)})`,
                     indDelta(t.puntualidad, p.puntualidad, 'up', fmtPct, ' pts')),
                 card('Tiempo perdido', 'fa-hourglass-half', minsFmt(t.minutosPerdidos),
-                    `≈ <strong>${pdfMoney(t.costoPerdido)}</strong> · retrasos, exceso de almuerzo y salidas anticipadas`,
+                    `≈ <strong>${pdfMoney(t.costoPerdido)}</strong> · retrasos ${minsFmt(t.minutosRetraso)} + exceso de almuerzo ${minsFmt(t.minutosAlmuerzo || 0)} (tiempo no recuperable)`,
                     indDelta(t.minutosPerdidos, p.minutosPerdidos, 'down', minsFmt, ' min')),
-                card('Horas extra', 'fa-business-time', hFmt(t.extraTotalMin),
-                    `Diurnas ${hFmt(t.extraDiurnaMin)} · Nocturnas ${hFmt(t.extraNocturnaMin)}`,
-                    indDelta(t.extraTotalMin, p.extraTotalMin, 'none', hFmt, ' min')),
+                card('Horas extra (netas)', 'fa-business-time', fmtMinsS(t.extraTotalMin),
+                    `Lo que realmente se paga: generadas ${hFmt(t.extraGeneradaMin || 0)} − salidas anticipadas ${hFmt(t.descuentoSalidaMin || 0)} · Diurnas ${fmtMinsS(t.extraDiurnaMin)} · Nocturnas ${hFmt(t.extraNocturnaMin)}`,
+                    indDelta(t.extraTotalMin, p.extraTotalMin, 'none', fmtMinsS, ' min')),
                 card('Turnos sin cerrar', 'fa-door-open', String(t.sinCerrar),
                     'Marcaron entrada pero no la salida',
                     indDelta(t.sinCerrar, p.sinCerrar, 'down', (v) => String(v), '')),
@@ -9556,6 +9568,7 @@
                     'Hechas a mano (suite o kiosco), no por rostro',
                     indDelta(t.manuales, p.manuales, 'down', (v) => String(v), '')),
             ].join('');
+            renderIndCardDetail(d);
 
             const areaRow = (a, total) => `
                 <tr class="border-t ${total ? 'border-t-2 border-slate-200 bg-slate-50 font-semibold' : 'border-slate-100'}">
@@ -9566,7 +9579,7 @@
                     <td class="px-3 py-2 text-center">${fmtPct(a.puntualidad)}</td>
                     <td class="px-3 py-2 text-center">${fmtMins(a.minutosPerdidos)}</td>
                     <td class="px-3 py-2 text-right">${pdfMoney(a.costoPerdido)}</td>
-                    <td class="px-3 py-2 text-center">${fmtMins(a.extraTotalMin)}</td>
+                    <td class="px-3 py-2 text-center">${fmtMinsS(a.extraTotalMin)}</td>
                     <td class="px-3 py-2 text-center">${a.incapacidadDias ? `${a.incapacidadDias} d <span class="block text-3xs text-slate-500">${pdfMoney(a.incapacidadCosto)}</span>` : '<span class="text-slate-300">0</span>'}</td>
                     <td class="px-3 py-2 text-center">${a.sinCerrar}</td>
                     <td class="px-3 py-2 text-center">${a.manuales}</td>
@@ -9576,11 +9589,11 @@
                 : '<tr><td colspan="11" class="px-3 py-6 text-center text-slate-400">No hay turnos terminados en este periodo.</td></tr>';
 
             const monthLabel = (m) => { const [y, mm] = m.split('-'); return `${MONTHS_ES[Number(mm) - 1].slice(0, 3)} ${y.slice(2)}`; };
-            document.getElementById('indTrendBody').innerHTML = d.trend.map(m => `<tr class="border-t border-slate-100"><td class="px-3 py-1.5">${monthLabel(m.month)}</td><td class="px-3 py-1.5 text-center">${m.programados}</td><td class="px-3 py-1.5 text-center">${fmtPct(m.ausentismo)}</td><td class="px-3 py-1.5 text-center">${fmtPct(m.puntualidad)}</td><td class="px-3 py-1.5 text-center">${formatHM(m.extraHoras)}</td><td class="px-3 py-1.5 text-center">${m.incapacidadDias}</td><td class="px-3 py-1.5 text-right">${pdfMoney(m.incapacidadCosto)}</td></tr>`).join('');
+            document.getElementById('indTrendBody').innerHTML = d.trend.map(m => `<tr class="border-t border-slate-100"><td class="px-3 py-1.5">${monthLabel(m.month)}</td><td class="px-3 py-1.5 text-center">${m.programados}</td><td class="px-3 py-1.5 text-center">${fmtPct(m.ausentismo)}</td><td class="px-3 py-1.5 text-center">${fmtPct(m.puntualidad)}</td><td class="px-3 py-1.5 text-center">${formatHMSigned(m.extraHoras)}</td><td class="px-3 py-1.5 text-center">${m.incapacidadDias}</td><td class="px-3 py-1.5 text-right">${pdfMoney(m.incapacidadCosto)}</td></tr>`).join('');
             const labels = d.trend.map(m => monthLabel(m.month));
             indDrawChart('indChartAus', 'line', labels, d.trend.map(m => m.ausentismo), (v) => fmtPct(v));
             indDrawChart('indChartPun', 'line', labels, d.trend.map(m => m.puntualidad), (v) => fmtPct(v));
-            indDrawChart('indChartExt', 'bar', labels, d.trend.map(m => m.extraHoras), (v) => formatHM(v));
+            indDrawChart('indChartExt', 'bar', labels, d.trend.map(m => m.extraHoras), (v) => formatHMSigned(v));
             indDrawChart('indChartInc', 'bar', labels, d.trend.map(m => m.incapacidadDias), (v) => `${v} día(s)`);
             renderIncapacities(d);
 
@@ -9594,6 +9607,40 @@
                     <td class="px-3 py-2 text-center ${r.pendiente ? 'font-semibold text-slate-700' : 'text-slate-300'}">${r.pendiente || 0}</td>
                     <td class="px-3 py-2 text-center ${r.justificada ? 'font-semibold text-emerald-700' : 'text-slate-300'}">${r.justificada || 0}</td>
                 </tr>`).join('') : '<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">Ningún colaborador tuvo novedades en este periodo.</td></tr>';
+        }
+        // ---- Detalle de cada tarjeta de Indicadores ----
+        function renderIndCardDetail(d) {
+            const box = document.getElementById('indCardDetail');
+            if (!box) return;
+            const det = d.details || {};
+            if (!indSelectedCard) { box.innerHTML = ''; return; }
+            const EST = { pendiente: ['Pendiente', 'bg-slate-100 text-slate-600'], justificada: ['Justificada', 'bg-emerald-100 text-emerald-800'], injustificada: ['Injustificada', 'bg-rose-100 text-rose-800'] };
+            const est = (e) => { const x = EST[e] || EST.pendiente; return `<span class="px-2 py-0.5 rounded-full text-3xs font-bold ${x[1]}">${x[0]}</span>`; };
+            const who = (r) => `<button type="button" onclick="indOpenEmployee(${r.employeeId})" class="font-semibold text-sky-700 hover:underline text-left">${escapeHtml(r.name)}</button>`;
+            const cfg = {
+                ausentismo: { title: 'Ausencias del periodo', hint: 'Turnos terminados sin marcación de entrada. El estado viene de la alerta "No se presentó".',
+                    head: ['Colaborador', 'Área', 'Fecha', 'Turno', 'Estado'], rows: (det.ausencias || []).map(r => [who(r), escapeHtml(r.area), pdfDate(r.date), escapeHtml(r.turno), est(r.estado)]) },
+                puntualidad: { title: 'Llegadas tarde del periodo', hint: 'Cada día con minutos de retraso en la entrada.',
+                    head: ['Colaborador', 'Área', 'Fecha', 'Hora programada', 'Hora de llegada', 'Retraso'], rows: (det.tardes || []).map(r => [who(r), escapeHtml(r.area), pdfDate(r.date), escapeHtml(r.programada), escapeHtml(r.real || '-'), `<strong>${fmtMins(r.min)}</strong>`]) },
+                perdido: { title: 'Tiempo perdido por colaborador', hint: 'Solo retrasos y exceso de almuerzo (tiempo que no se recupera). La salida anticipada se descuenta de las horas extra.',
+                    head: ['Colaborador', 'Área', 'Días', 'Retrasos', 'Exceso de almuerzo', 'Total', 'Costo aprox.'], rows: (det.perdido || []).map(r => [who(r), escapeHtml(r.area), r.dias, fmtMins(r.retraso), fmtMins(r.almuerzo), `<strong>${fmtMins(r.total)}</strong>`, pdfMoney(r.costo)]) },
+                extras: { title: 'Horas extra por colaborador', hint: 'Netas = extras generadas menos el tiempo descontado por salidas anticipadas (lo que realmente paga la empresa). Solo días con turno cerrado.',
+                    head: ['Colaborador', 'Área', 'Generadas', 'Salidas anticipadas', 'Diurnas netas', 'Nocturnas', 'Netas'], rows: (det.extras || []).map(r => [who(r), escapeHtml(r.area), fmtMins(r.generada), r.salida ? `<span class="text-rose-700">− ${fmtMins(r.salida)}</span>` : '-', fmtMinsS(r.diurna), fmtMins(r.nocturna), `<strong class="${r.neto < 0 ? 'text-rose-700' : ''}">${fmtMinsS(r.neto)}</strong>`]) },
+                sinCerrar: { title: 'Turnos sin cerrar', hint: 'Marcaron entrada pero no la salida.',
+                    head: ['Colaborador', 'Área', 'Fecha', 'Estado'], rows: (det.sinCerrar || []).map(r => [who(r), escapeHtml(r.area), pdfDate(r.date), est(r.estado)]) },
+                manuales: { title: 'Marcaciones manuales', hint: 'Hechas a mano (suite o "Selección manual" del kiosco).',
+                    head: ['Colaborador', 'Área', 'Fecha', 'Estado'], rows: (det.manuales || []).map(r => [who(r), escapeHtml(r.area), pdfDate(r.date), est(r.estado)]) },
+            }[indSelectedCard];
+            if (!cfg) { box.innerHTML = ''; return; }
+            box.innerHTML = `<div class="border border-sky-200 rounded-lg overflow-hidden bg-white">
+                <div class="bg-sky-50 px-3 py-2 flex items-start justify-between gap-2">
+                    <div><p class="font-bold text-sky-900 text-sm">${cfg.title} <span class="text-sky-700 font-semibold">(${cfg.rows.length})</span></p><p class="text-2xs text-sky-800">${cfg.hint}</p></div>
+                    <button type="button" onclick="toggleIndCard('${indSelectedCard}')" class="text-sky-700 hover:text-sky-900 p-1" aria-label="Cerrar detalle"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                ${cfg.rows.length ? `<div class="overflow-x-auto max-h-[420px] overflow-y-auto"><table class="w-full text-xs"><thead class="bg-slate-50 text-slate-500 uppercase text-[11px] sticky top-0"><tr>${cfg.head.map((h, i) => `<th class="${i < 2 ? 'text-left' : 'text-center'} px-3 py-2">${h}</th>`).join('')}</tr></thead>
+                    <tbody>${cfg.rows.map(r => `<tr class="border-t border-slate-100">${r.map((c, i) => `<td class="px-3 py-1.5 ${i < 2 ? 'text-left' : 'text-center'}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+                : '<p class="px-3 py-5 text-center text-slate-400 text-xs">No hay registros en este periodo.</p>'}
+            </div>`;
         }
         // ---- Incapacidades (dentro de Indicadores) ----
         let indIncSortKey = 'dias';
@@ -9672,8 +9719,8 @@
         }
         function indAreaSheetRows(d) {
             const row = (a, name) => [name, a.programados, a.asistidos, a.ausencias, a.ausenciasJustificadas, a.ausentismo, a.ausentismoInjustificado,
-                a.entradas, a.tarde, a.puntualidad, a.minutosRetraso, a.minutosPerdidos, a.costoPerdido,
-                Math.round(a.extraDiurnaMin / 6) / 10, Math.round(a.extraNocturnaMin / 6) / 10, a.incapacidadDias || 0, a.incapacidadCosto || 0, a.sinCerrar, a.manuales];
+                a.entradas, a.tarde, a.puntualidad, a.minutosRetraso, a.minutosAlmuerzo || 0, a.minutosPerdidos, a.costoPerdido,
+                Math.round((a.extraGeneradaMin || 0) / 6) / 10, Math.round((a.descuentoSalidaMin || 0) / 6) / 10, Math.round(a.extraDiurnaMin / 6) / 10, Math.round(a.extraNocturnaMin / 6) / 10, Math.round(a.extraTotalMin / 6) / 10, a.incapacidadDias || 0, a.incapacidadCosto || 0, a.sinCerrar, a.manuales];
             return d.areas.map(a => row(a, a.name)).concat([row(d.total, 'TOTAL')]);
         }
         async function exportIndicatorsXLSX() {
@@ -9684,7 +9731,7 @@
                 const wb = XLSX.utils.book_new();
                 const empById0 = (id) => { const e = appState.employees.find(x => Number(x.id) === Number(id)); return e ? docLabel(e) : ''; };
                 const head = ['Área', 'Turnos evaluados', 'Asistidos', 'Ausencias', 'Ausencias justificadas', 'Ausentismo %', 'Ausentismo injustificado %',
-                    'Entradas', 'Llegadas tarde', 'Puntualidad %', 'Min. de retraso', 'Min. perdidos', 'Costo perdido ($)', 'Horas extra diurnas', 'Horas extra nocturnas', 'Días de incapacidad', 'Costo incapacidad ($)', 'Turnos sin cerrar', 'Marcaciones manuales'];
+                    'Entradas', 'Llegadas tarde', 'Puntualidad %', 'Min. de retraso', 'Min. exceso de almuerzo', 'Min. perdidos (retraso + almuerzo)', 'Costo perdido ($)', 'Horas extra generadas', 'Horas descontadas por salida anticipada', 'Horas extra diurnas netas', 'Horas extra nocturnas', 'Horas extra netas', 'Días de incapacidad', 'Costo incapacidad ($)', 'Turnos sin cerrar', 'Marcaciones manuales'];
                 const info = [[`Indicadores de asistencia · ${appState.orgName || ''}`], [`Periodo: ${pdfDate(d.from)} al ${pdfDate(d.to)}${d.area ? ' · Área: ' + d.area : ''}`], []];
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...info, head, ...indAreaSheetRows(d)]), 'Por área');
                 const inc = d.incapacities || { total: {}, employees: [] };
@@ -9742,8 +9789,8 @@
             table([{ h: 'Indicador', w: 50 }, { h: 'Valor', w: 35 }, { h: 'Detalle', w: 110 }, { h: 'Periodo anterior', w: 45 }], [
                 ['Tasa de ausentismo', fmtPct(t.ausentismo), `${t.ausencias} ausencia(s) de ${t.programados} turno(s); injustificado ${fmtPct(t.ausentismoInjustificado)}`, fmtPct(p.ausentismo)],
                 ['Índice de puntualidad', fmtPct(t.puntualidad), `${t.entradas - t.tarde} de ${t.entradas} entradas a tiempo; ${t.tarde} tarde (${fmtMins(t.minutosRetraso)})`, fmtPct(p.puntualidad)],
-                ['Tiempo perdido', fmtMins(t.minutosPerdidos), `Costo aproximado ${pdfMoney(t.costoPerdido)}`, fmtMins(p.minutosPerdidos)],
-                ['Horas extra', fmtMins(t.extraTotalMin), `Diurnas ${fmtMins(t.extraDiurnaMin)}; nocturnas ${fmtMins(t.extraNocturnaMin)}`, fmtMins(p.extraTotalMin)],
+                ['Tiempo perdido', fmtMins(t.minutosPerdidos), `Retrasos ${fmtMins(t.minutosRetraso)} + exceso de almuerzo ${fmtMins(t.minutosAlmuerzo || 0)}; costo aprox. ${pdfMoney(t.costoPerdido)}`, fmtMins(p.minutosPerdidos)],
+                ['Horas extra (netas)', fmtMinsS(t.extraTotalMin), `Generadas ${fmtMins(t.extraGeneradaMin || 0)} menos salidas anticipadas ${fmtMins(t.descuentoSalidaMin || 0)}; diurnas ${fmtMinsS(t.extraDiurnaMin)}, nocturnas ${fmtMins(t.extraNocturnaMin)}`, fmtMinsS(p.extraTotalMin)],
                 ['Turnos sin cerrar', String(t.sinCerrar), 'Marcaron entrada pero no la salida', String(p.sinCerrar)],
                 ['Marcaciones manuales', String(t.manuales), 'Hechas a mano (suite o kiosco)', String(p.manuales)],
                 ['Incapacidades', `${(d.incapacities && d.incapacities.total.dias) || 0} día(s)`, `${(d.incapacities && d.incapacities.total.episodios) || 0} incapacidad(es); costo en salario ${pdfMoney(d.incapacities && d.incapacities.total.costoSalario)}`, `${(d.incapacities && d.incapacities.previous.dias) || 0} día(s)`],
