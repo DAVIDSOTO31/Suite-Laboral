@@ -869,6 +869,16 @@ async function resetPayrollAdjustments(req, res) {
 // CIERRES DE PERIODO (recargos y horas extras por separado)
 // ---------------------------------------------------------------------------
 const CLOSURE_TYPES = ['recargos', 'extras'];
+// Numero consecutivo del cierre dentro de la organizacion y por tipo, en orden
+// de creacion (HE-0001 extras, RN-0001 recargos). Los cierres reabiertos
+// conservan su numero; volver a cerrar crea un numero nuevo.
+function closureNumber(id) {
+  const r = db.prepare(`SELECT c.closure_type AS t, (SELECT COUNT(*) FROM payroll_closures x
+      WHERE x.organization_id = c.organization_id AND x.closure_type = c.closure_type AND x.rowid <= c.rowid) AS n
+    FROM payroll_closures c WHERE c.id = ?`).get(id);
+  if (!r) return null;
+  return `${r.t === 'extras' ? 'HE' : 'RN'}-${String(r.n).padStart(4, '0')}`;
+}
 function closureView(c) {
   // Extras: de que cierre viene el saldo anterior y en que cierre se aplico
   // el saldo que deja este periodo (para verificar el traslado en el PDF).
@@ -876,7 +886,7 @@ function closureView(c) {
   if (c.closure_type === 'extras') {
     if (c.previous_closure_id) {
       const p = db.prepare('SELECT period_start, period_end, status FROM payroll_closures WHERE id = ?').get(c.previous_closure_id);
-      if (p) previous = { from: p.period_start, to: p.period_end, status: p.status };
+      if (p) previous = { from: p.period_start, to: p.period_end, status: p.status, number: closureNumber(c.previous_closure_id) };
     }
     const n = db.prepare(`SELECT period_start, period_end, snapshot_json FROM payroll_closures
       WHERE previous_closure_id = ? AND status = 'cerrado' ORDER BY closed_at DESC LIMIT 1`).get(c.id);
@@ -890,6 +900,7 @@ function closureView(c) {
   return {
     previous, next,
     id: c.id, type: c.closure_type, from: c.period_start, to: c.period_end, status: c.status,
+    number: closureNumber(c.id),
     pendingDays: c.pending_days, closedAt: c.closed_at, closedBy: c.closed_by_email || null,
     reopenedAt: c.reopened_at, reopenedBy: c.reopened_by_email || null, reopenReason: c.reopen_reason,
     snapshot: JSON.parse(c.snapshot_json || '{}'),
