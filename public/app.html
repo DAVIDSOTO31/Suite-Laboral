@@ -6883,6 +6883,14 @@
             openModal('modalPayslip');
         }
 
+        // "2026-10-06 10:01:50" -> "6 de octubre de 2026, 10:01 a. m." (sin cambiar zona horaria).
+        function closedAtText(s) {
+            const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+            if (!m) return s || '-';
+            const MES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+            const h = Number(m[4]), h12 = h % 12 === 0 ? 12 : h % 12;
+            return `${Number(m[3])} de ${MES[Number(m[2]) - 1]} de ${m[1]}, ${h12}:${m[5]} ${h < 12 ? 'a. m.' : 'p. m.'}`;
+        }
         async function generatePayslips() {
             const sel = document.getElementById('payslipEmp');
             const type = sel.dataset.type;
@@ -6910,6 +6918,10 @@
                     ? docLabel({ documentType: e.documentType, documentNumber: e.documentNumber })
                     : (docLabel(cur) || 'Sin registrar');
                 const hourly = e.hourlyRate || ((cur.salary || appState.settings.smlmv2026) / legalMonthlyDividerForDate(closure.to));
+                // Extras: horas en decimales (minutos ÷ 60), igual que el PDF del cierre.
+                const fH = type === 'extras'
+                    ? (v) => (Number(v) || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/^[−‐-]/, '-')
+                    : pdfHM;
                 let y = M;
                 // Encabezado
                 doc.setFillColor(15, 23, 42); doc.rect(0, 0, W, 30, 'F');
@@ -6917,7 +6929,7 @@
                 T(appState.orgNit ? `NIT: ${appState.orgNit}` : 'NIT: sin registrar', M, 20, 9, 'normal', [203, 213, 225]);
                 T(type === 'extras' ? 'COLILLA DE PAGO - HORAS EXTRAS' : 'COLILLA DE PAGO - RECARGOS', W - M, 13, 11, 'bold', [255, 255, 255], { align: 'right' });
                 T(`Periodo: ${pdfDate(closure.from)} al ${pdfDate(closure.to)}`, W - M, 20, 9, 'normal', [203, 213, 225], { align: 'right' });
-                T(`Cierre aprobado el ${closure.closedAt || '-'} (hora Colombia)`, W - M, 25.5, 7.5, 'normal', [148, 163, 184], { align: 'right' });
+                T(`${closure.number ? `Cierre N° ${closure.number} · ` : ''}Aprobado el ${closedAtText(closure.closedAt)} (hora Colombia)`, W - M, 25.5, 7.5, 'normal', [148, 163, 184], { align: 'right' });
                 y = 40;
                 // Datos del colaborador
                 doc.setDrawColor(203, 213, 225); doc.setFillColor(248, 250, 252); doc.rect(M, y - 5, W - 2 * M, 22, 'FD');
@@ -6929,18 +6941,21 @@
                 // Conceptos
                 const u = conceptUnitRates(e, closure.to);
                 const lines = []; // [concepto, horas, valor hora, valor]
+                // Solo se muestran los conceptos con horas o valor (los que quedan en cero se ocultan).
+                const nz = (...v) => v.some(x => Math.abs(Number(x) || 0) >= 0.005);
                 if (type === 'extras') {
-                    if (e.hedDays) lines.push(['Extra diurna de los días trabajados', pdfHM(e.hedDays) + ' h', '', '']);
-                    if (e.carryIn) lines.push(['Saldo anterior (tiempo pendiente por compensar)', pdfHM(e.carryIn) + ' h', '', '']);
-                    if (e.openHed) lines.push(['Saldo inicial (Día 0) - extra diurna', pdfHM(e.openHed) + ' h', '', '']);
-                    lines.push(['Hora extra diurna pagada (125%)', pdfHM(e.hed) + ' h', pdfMoney(u.hed), pdfMoney(e.hedPay)]);
+                    if (nz(e.hedDays)) lines.push(['Extra diurna de los días trabajados', fH(e.hedDays) + ' h', '', '']);
+                    if (nz(e.carryIn)) lines.push(['Saldo anterior (tiempo pendiente por compensar)', fH(e.carryIn) + ' h', '', '']);
+                    if (nz(e.openHed)) lines.push(['Saldo inicial (Día 0) - extra diurna', fH(e.openHed) + ' h', '', '']);
+                    if (nz(e.hed, e.hedPay)) lines.push([`Hora extra diurna pagada (${Math.round((1 + (Number(appState.settings.percHED) || 0)) * 100)}%)`, fH(e.hed) + ' h', pdfMoney(u.hed), pdfMoney(e.hedPay)]);
                     const henGross = e.henPayGross != null ? e.henPayGross : e.henPay;
-                    lines.push(['Hora extra nocturna (175%)' + (e.openHen ? ` (incluye saldo inicial ${pdfHM(e.openHen)} h)` : ''), pdfHM(e.hen) + ' h', pdfMoney(u.hen), pdfMoney(henGross)]);
-                    if (e.offsetValue) lines.push([`Descuento por tiempo diurno adeudado (${pdfHM(e.offsetHours)} h)`, pdfHM(-(e.offsetHours || 0)) + ' h', pdfMoney(u.hed), '-' + pdfMoney(e.offsetValue)]);
+                    if (nz(e.hen, henGross)) lines.push([`Hora extra nocturna (${Math.round((1 + (Number(appState.settings.percHEN) || 0)) * 100)}%)` + (e.openHen ? ` (incluye saldo inicial ${fH(e.openHen)} h)` : ''), fH(e.hen) + ' h', pdfMoney(u.hen), pdfMoney(henGross)]);
+                    if (e.offsetValue) lines.push([`Descuento por tiempo diurno adeudado (${fH(e.offsetHours)} h)`, fH(-(e.offsetHours || 0)) + ' h', pdfMoney(u.hed), '-' + pdfMoney(e.offsetValue)]);
                 } else {
-                    lines.push(['Recargo nocturno ordinario (35%)' + (e.openHon ? ` (incluye saldo inicial ${pdfHM(e.openHon)} h)` : ''), pdfHM(e.hon) + ' h', pdfMoney(u.hon), pdfMoney(e.honPay)]);
-                    if (e.domHours || e.domPay) lines.push(['Recargo dominical / festivo' + (e.openDom ? ` (incluye saldo inicial ${pdfHM(e.openDom)} h)` : ''), pdfHM(e.domHours) + ' h', pdfMoney(u.dom), pdfMoney(e.domPay)]);
+                    if (nz(e.hon, e.honPay)) lines.push(['Recargo nocturno ordinario (35%)' + (e.openHon ? ` (incluye saldo inicial ${pdfHM(e.openHon)} h)` : ''), pdfHM(e.hon) + ' h', pdfMoney(u.hon), pdfMoney(e.honPay)]);
+                    if (nz(e.domHours, e.domPay)) lines.push(['Recargo dominical / festivo' + (e.openDom ? ` (incluye saldo inicial ${pdfHM(e.openDom)} h)` : ''), pdfHM(e.domHours) + ' h', pdfMoney(u.dom), pdfMoney(e.domPay)]);
                 }
+                if (!lines.length) lines.push([type === 'extras' ? 'Sin horas extra en este periodo' : 'Sin recargos en este periodo', '', '', '']);
                 const total = type === 'extras' ? (e.hedPay || 0) + (e.henPay || 0) : (e.honPay || 0) + (e.domPay || 0);
                 doc.setFillColor(15, 23, 42); doc.rect(M, y - 4.5, W - 2 * M, 7, 'F');
                 T('Concepto', M + 3, y, 8, 'bold', [255, 255, 255]); T('Horas', M + 106, y, 8, 'bold', [255, 255, 255], { align: 'right' });
@@ -6963,19 +6978,21 @@
                 y += 8;
                 if (type === 'extras' && (e.carryOut || 0) < 0) {
                     doc.setFillColor(255, 241, 242); doc.rect(M, y - 4.5, W - 2 * M, 12, 'F');
-                    T(`Tiempo pendiente por compensar: ${pdfHM(e.carryOut)} h`, M + 3, y, 9, 'bold', [190, 18, 60]);
+                    T(`Tiempo pendiente por compensar: ${fH(e.carryOut)} h`, M + 3, y, 9, 'bold', [190, 18, 60]);
                     T(`Pasa como saldo al periodo que inicia el ${pdfDate(nextDayISO(closure.to))}.`, M + 3, y + 5, 8, 'normal', [190, 18, 60]);
                     y += 16;
                 }
                 T('Valores tomados del cierre aprobado del periodo, según las marcaciones de asistencia registradas.', M, y, 7.5, 'normal', [100, 116, 139]);
-                // Firmas
+                // Firma del colaborador (nombre y documento ya diligenciados).
                 const fy = Math.max(y + 35, H - 55);
-                doc.setDrawColor(100, 116, 139);
-                doc.line(M, fy, M + 75, fy); doc.line(W - M - 75, fy, W - M, fy);
-                T('Firma del colaborador', M, fy + 5, 8.5, 'bold');
-                T(`${e.name} · ${docTxt}`, M, fy + 10, 7.5, 'normal', [71, 85, 105]);
-                T('Firma autorizada', W - M - 75, fy + 5, 8.5, 'bold');
-                T(org, W - M - 75, fy + 10, 7.5, 'normal', [71, 85, 105]);
+                const fx = (W - 90) / 2;
+                doc.setDrawColor(71, 85, 105); doc.setLineWidth(0.3);
+                doc.line(fx, fy, fx + 90, fy); doc.setLineWidth(0.2);
+                T(e.name, W / 2, fy + 5.5, 9.5, 'bold', [15, 23, 42], { align: 'center' });
+                const docRaw = docTxt === 'Sin registrar' ? '' : docTxt;
+                const ccTxt = docRaw ? docRaw.replace(/^CC /, 'C.C. ') : 'C.C. ______________________';
+                T(ccTxt, W / 2, fy + 10.5, 9, 'normal', [51, 65, 85], { align: 'center' });
+                T('Firma del colaborador', W / 2, fy + 15.5, 7.5, 'normal', [100, 116, 139], { align: 'center' });
                 T(`Generado el ${bogotaNowText()} (hora Colombia)`, M, H - 10, 7, 'normal', [148, 163, 184]);
                 T(`${idx + 1} / ${list.length}`, W - M, H - 10, 7, 'normal', [148, 163, 184], { align: 'right' });
             });
