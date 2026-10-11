@@ -150,13 +150,13 @@ route('GET', '/api/attendance/novedades', [requirePermission('attendance.view_al
 route('POST', '/api/attendance/alerts/:id/manage', [requirePermission('attendance.view_alerts')], (req, res, params) => attendance.manageAlert(req, res, params));
 route('GET', '/api/attendance/alerts/:id/attachment', [requirePermission('attendance.view_alerts')], (req, res, params) => attendance.getAlertAttachment(req, res, params));
 // Indicadores de asistencia (gerencia) y resumen diario por correo.
-// Centro de notificaciones (campana) y avisos al celular: solo Administrador.
-route('GET', '/api/notifications', [requirePermission('settings.manage')], (req, res) => notifications.listNotifications(req, res));
-route('POST', '/api/notifications/seen', [requirePermission('settings.manage')], (req, res) => notifications.markSeen(req, res));
-route('GET', '/api/push/key', [requirePermission('settings.manage')], (req, res) => notifications.publicKey(req, res));
-route('POST', '/api/push/subscribe', [requirePermission('settings.manage')], (req, res) => notifications.subscribe(req, res));
-route('POST', '/api/push/unsubscribe', [requirePermission('settings.manage')], (req, res) => notifications.unsubscribe(req, res));
-route('POST', '/api/push/test', [requirePermission('settings.manage')], (req, res) => notifications.sendTest(req, res));
+// Centro de notificaciones (campana) y avisos al celular: Administrador y Supervisor.
+route('GET', '/api/notifications', [requirePermission('attendance.view_alerts')], (req, res) => notifications.listNotifications(req, res));
+route('POST', '/api/notifications/seen', [requirePermission('attendance.view_alerts')], (req, res) => notifications.markSeen(req, res));
+route('GET', '/api/push/key', [requirePermission('attendance.view_alerts')], (req, res) => notifications.publicKey(req, res));
+route('POST', '/api/push/subscribe', [requirePermission('attendance.view_alerts')], (req, res) => notifications.subscribe(req, res));
+route('POST', '/api/push/unsubscribe', [requirePermission('attendance.view_alerts')], (req, res) => notifications.unsubscribe(req, res));
+route('POST', '/api/push/test', [requirePermission('attendance.view_alerts')], (req, res) => notifications.sendTest(req, res));
 route('GET', '/api/attendance/indicators', [requirePermission('attendance.view_alerts')], (req, res, params, query) => attendance.indicators(req, res, query));
 route('GET', '/api/attendance/indicator-goals', [requirePermission('attendance.view')], (req, res, params, query) => attendance.getIndicatorGoalsRoute(req, res, query));
 route('PUT', '/api/attendance/indicator-goals', [requirePermission('settings.manage')], (req, res) => attendance.saveIndicatorGoals(req, res));

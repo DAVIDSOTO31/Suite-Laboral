@@ -1,6 +1,6 @@
 'use strict';
 // ===========================================================================
-// CENTRO DE NOTIFICACIONES (campana) -- solo Administrador (settings.manage).
+// CENTRO DE NOTIFICACIONES (campana) -- Administrador y Supervisor (attendance.view_alerts).
 // Muestra las alertas de Asistencia de los ultimos dias y administra los
 // avisos al celular (Web Push) de cada dispositivo del administrador.
 // ===========================================================================

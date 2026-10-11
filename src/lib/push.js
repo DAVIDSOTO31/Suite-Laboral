@@ -6,8 +6,8 @@
 //   VAPID (RFC 8292, ES256) se hacen con node:crypto.
 // - Las claves VAPID se crean solas la primera vez y se guardan en la base de
 //   datos (tabla push_kv), asi sobreviven reinicios y respaldos.
-// - Solo reciben avisos los usuarios con permiso "settings.manage"
-//   (Administrador) que activaron los avisos en su dispositivo.
+// - Reciben avisos los usuarios con permiso "attendance.view_alerts"
+//   (Administrador y Supervisor) que activaron los avisos en su dispositivo.
 // - Horario de silencio (hora Colombia): de 23:00 a 05:30 no se envian avisos;
 //   al terminar el silencio llega UN resumen de lo ocurrido en la noche.
 // - Las alertas que llegan casi al mismo tiempo se agrupan en un solo aviso.
@@ -140,14 +140,14 @@ async function sendToSubscription(sub, payloadObj) {
   }
 }
 
-// Administradores (permiso settings.manage) activos de la organizacion.
+// Administradores y Supervisores (permiso attendance.view_alerts) activos de la organizacion.
 function adminUserIds(orgId) {
   return db.prepare(`
     SELECT DISTINCT u.id FROM users u
     JOIN user_roles ur ON ur.user_id = u.id
     JOIN role_permissions rp ON rp.role_id = ur.role_id
     JOIN permissions p ON p.id = rp.permission_id
-    WHERE u.organization_id = ? AND u.status = 'active' AND p.code = 'settings.manage'
+    WHERE u.organization_id = ? AND u.status = 'active' AND p.code = 'attendance.view_alerts'
   `).all(orgId).map(r => r.id);
 }
 async function sendToOrgAdmins(orgId, payloadObj) {

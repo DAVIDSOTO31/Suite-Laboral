@@ -213,7 +213,7 @@
                 <div class="h-7 w-px bg-slate-800 mx-0.5 hidden sm:block"></div>
 
                 <!-- Centro de notificaciones: alertas de Asistencia (solo Administrador) -->
-                <button type="button" id="notifBellBtn" onclick="toggleNotifPanel(event)" data-perm="settings.manage" title="Notificaciones" aria-label="Notificaciones" aria-haspopup="true" aria-expanded="false"
+                <button type="button" id="notifBellBtn" onclick="toggleNotifPanel(event)" data-perm="attendance.view_alerts" title="Notificaciones" aria-label="Notificaciones" aria-haspopup="true" aria-expanded="false"
                     class="relative w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 border border-sky-400/40 shadow-md shadow-sky-900/40 flex items-center justify-center hover:border-sky-300 hover:shadow-sky-500/30 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-sky-400 transition shrink-0">
                     <svg id="notifBellIcon" class="w-7 h-7" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                         <defs>
@@ -8089,7 +8089,7 @@
 
         // =================================================================
         // CENTRO DE NOTIFICACIONES (campana) + avisos al celular (Web Push).
-        // Solo Administrador. Muestra las alertas de Asistencia y, si se
+        // Administrador y Supervisor. Muestra las alertas de Asistencia y, si se
         // activan, las envía al celular aunque la suite esté cerrada.
         // =================================================================
         const NOTIF_TYPE_UI = {
@@ -8109,7 +8109,7 @@
         const notifStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
 
         function initNotificationCenter() {
-            if (!CAN('settings.manage')) return;
+            if (!CAN('attendance.view_alerts')) return;
             loadNotifications();
             if (!notifTimer) notifTimer = setInterval(() => { if (document.visibilityState === 'visible') loadNotifications(); }, 30000);
             document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadNotifications(); });
@@ -8139,7 +8139,7 @@
         }
 
         async function loadNotifications() {
-            if (!CAN('settings.manage')) return;
+            if (!CAN('attendance.view_alerts')) return;
             try {
                 notifData = await apiFetch('/api/notifications');
             } catch (e) { return; }
@@ -8341,7 +8341,7 @@
         }
         // Al tocar un aviso del celular la suite abre con #alerta=<id> o #alertas.
         async function handleNotifHash(hash) {
-            if (!hash || !CAN('settings.manage')) return;
+            if (!hash || !CAN('attendance.view_alerts')) return;
             if (!hash.startsWith('#alerta=') && hash !== '#alertas') return;
             history.replaceState(null, '', location.pathname + location.search);
             if (hash === '#alertas') { if (!(notifData.items || []).length) await loadNotifications(); openAllNotifAlerts(); return; }
