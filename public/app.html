@@ -107,6 +107,16 @@
             .print-only { display: block !important; }
             body { background-color: #ffffff; }
         }
+        /* ---- Centro de notificaciones (campana) ---- */
+        @keyframes notifBellSwing { 0%,100% { transform: rotate(0); } 15% { transform: rotate(14deg); } 30% { transform: rotate(-12deg); } 45% { transform: rotate(8deg); } 60% { transform: rotate(-5deg); } 75% { transform: rotate(2deg); } }
+        .notif-bell-swing { animation: notifBellSwing 1.1s ease-in-out; transform-origin: 50% 12%; }
+        @keyframes notifBadgePop { 0% { transform: scale(.4); } 70% { transform: scale(1.15); } 100% { transform: scale(1); } }
+        .notif-badge-pop { animation: notifBadgePop .35s ease-out; }
+        .notif-badge { position: absolute; top: -7px; right: -7px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 9999px;
+            background: linear-gradient(135deg, #f43f5e, #e11d48); color: #fff; font-size: 11px; font-weight: 800; line-height: 20px; text-align: center;
+            box-shadow: 0 0 0 2px #020617, 0 2px 6px rgba(225, 29, 72, .45); pointer-events: none; }
+        .notif-badge.hidden { display: none; }
+        #notifPanel .notif-list::-webkit-scrollbar { width: 6px; } #notifPanel .notif-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
     </style>
 </head>
 <body class="min-h-screen flex flex-col antialiased selection:bg-sky-200 selection:text-sky-900">
@@ -202,6 +212,27 @@
 
                 <div class="h-7 w-px bg-slate-800 mx-0.5 hidden sm:block"></div>
 
+                <!-- Centro de notificaciones: alertas de Asistencia (solo Administrador) -->
+                <button type="button" id="notifBellBtn" onclick="toggleNotifPanel(event)" data-perm="attendance.view_alerts" title="Notificaciones" aria-label="Notificaciones" aria-haspopup="true" aria-expanded="false"
+                    class="relative w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 border border-sky-400/40 shadow-md shadow-sky-900/40 flex items-center justify-center hover:border-sky-300 hover:shadow-sky-500/30 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-sky-400 transition shrink-0">
+                    <svg id="notifBellIcon" class="w-7 h-7" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <defs>
+                            <linearGradient id="bellBody" x1="10" y1="6" x2="38" y2="40" gradientUnits="userSpaceOnUse">
+                                <stop offset="0" stop-color="#bae6fd"/><stop offset="0.45" stop-color="#38bdf8"/><stop offset="1" stop-color="#1d4ed8"/>
+                            </linearGradient>
+                            <linearGradient id="bellGold" x1="18" y1="36" x2="30" y2="45" gradientUnits="userSpaceOnUse">
+                                <stop offset="0" stop-color="#fde68a"/><stop offset="1" stop-color="#f59e0b"/>
+                            </linearGradient>
+                        </defs>
+                        <circle cx="24" cy="6.2" r="2.6" fill="url(#bellGold)"/>
+                        <path d="M24 8.5c-7.2 0-12.2 5.6-12.2 12.6v6.6c0 1.6-.6 3.2-1.7 4.4l-1.7 1.9c-1 1.1-.2 2.9 1.3 2.9h28.6c1.5 0 2.3-1.8 1.3-2.9l-1.7-1.9c-1.1-1.2-1.7-2.8-1.7-4.4v-6.6c0-7-5-12.6-12.2-12.6Z" fill="url(#bellBody)"/>
+                        <path d="M15.6 21.2c0-4.3 2.7-8 6.6-9.1" stroke="#ffffff" stroke-opacity=".75" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M9.6 34.9h28.8" stroke="#0c4a6e" stroke-opacity=".35" stroke-width="1.2"/>
+                        <path d="M19.4 37.6a4.6 4.6 0 0 0 9.2 0Z" fill="url(#bellGold)"/>
+                    </svg>
+                    <span id="notifBadge" class="notif-badge hidden"></span>
+                </button>
+
                 <button onclick="openModal('modalSettings')" data-perm="settings.manage" title="Ajustes Normativos CST" class="px-2.5 sm:px-3 py-2 rounded-xl text-slate-300 hover:text-white bg-slate-800/70 hover:bg-slate-800 border border-slate-700/70 transition text-xs font-semibold flex items-center gap-1.5 shadow-sm">
                     <i class="fa-solid fa-scale-balanced text-sky-400"></i>
                     <span class="hidden md:inline">Parámetros CST</span>
@@ -211,6 +242,25 @@
 
         </div>
     </header>
+
+    <div id="notifPanel" class="hidden fixed z-50 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col" role="dialog" aria-label="Notificaciones">
+        <div class="bg-gradient-to-r from-slate-950 via-slate-900 to-sky-950 text-white px-4 py-3 flex items-center justify-between gap-2">
+            <div>
+                <p class="font-extrabold text-sm flex items-center gap-2"><i class="fa-solid fa-bell text-sky-300"></i> Notificaciones</p>
+                <p class="text-[11px] text-sky-200/80" id="notifSubtitle">Alertas de Asistencia</p>
+            </div>
+            <div class="flex items-center gap-1">
+                <button type="button" onclick="markAllNotifSeen()" id="notifMarkAllBtn" class="text-[11px] font-semibold text-sky-200 hover:text-white px-2 py-1 rounded-lg hover:bg-white/10"><i class="fa-solid fa-check-double"></i> Marcar vistas</button>
+                <button type="button" onclick="closeNotifPanel()" class="text-slate-300 hover:text-white p-1.5 rounded-lg hover:bg-white/10" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+        </div>
+        <div id="notifPushBox" class="px-4 py-2.5 border-b border-slate-100 bg-sky-50/60 text-xs"></div>
+        <div id="notifList" class="notif-list overflow-y-auto flex-1"></div>
+        <div class="border-t border-slate-100 px-4 py-2 flex items-center justify-between text-xs bg-slate-50">
+            <span class="text-slate-500" id="notifFootNote">Últimos 14 días</span>
+            <button type="button" onclick="openAllNotifAlerts()" class="font-semibold text-sky-700 hover:underline">Ver todas en Alertas <i class="fa-solid fa-arrow-right"></i></button>
+        </div>
+    </div>
 
     <div class="flex-1 flex overflow-hidden">
         
@@ -8030,10 +8080,274 @@
             runLiveSimulation();
 
             BOOTSTRAPPED = true; // a partir de aquí, las mutaciones sí se sincronizan al servidor
+            initNotificationCenter();
 
             if (data.isEmpty && CAN('settings.manage')) {
                 showAppToast('Esta organización aún no tiene datos. Usa "Restaurar Datos y Orden de Áreas" para cargar un ejemplo.');
             }
+        }
+
+        // =================================================================
+        // CENTRO DE NOTIFICACIONES (campana) + avisos al celular (Web Push).
+        // Administrador y Supervisor. Muestra las alertas de Asistencia y, si se
+        // activan, las envía al celular aunque la suite esté cerrada.
+        // =================================================================
+        const NOTIF_TYPE_UI = {
+            llegada_tarde: { icon: 'fa-clock', cls: 'bg-rose-100 text-rose-700' },
+            exceso_almuerzo: { icon: 'fa-utensils', cls: 'bg-orange-100 text-orange-700' },
+            salida_anticipada: { icon: 'fa-person-walking-arrow-right', cls: 'bg-amber-100 text-amber-800' },
+            inasistencia: { icon: 'fa-user-xmark', cls: 'bg-slate-800 text-white' },
+            turno_sin_cerrar: { icon: 'fa-door-open', cls: 'bg-yellow-100 text-yellow-800' },
+            marcacion_manual: { icon: 'fa-hand-pointer', cls: 'bg-violet-100 text-violet-700' },
+            etapa_extendida: { icon: 'fa-arrows-left-right', cls: 'bg-cyan-100 text-cyan-800' },
+        };
+        let notifData = { items: [], unread: 0 };
+        let notifTimer = null;
+        let notifLastUnread = 0;
+        const notifSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+        const notifIsIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        const notifStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+        function initNotificationCenter() {
+            if (!CAN('attendance.view_alerts')) return;
+            loadNotifications();
+            if (!notifTimer) notifTimer = setInterval(() => { if (document.visibilityState === 'visible') loadNotifications(); }, 30000);
+            document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadNotifications(); });
+            document.addEventListener('click', (e) => {
+                const panel = document.getElementById('notifPanel');
+                if (!panel || panel.classList.contains('hidden')) return;
+                if (panel.contains(e.target) || document.getElementById('notifBellBtn').contains(e.target)) return;
+                closeNotifPanel();
+            });
+            window.addEventListener('resize', () => { if (!document.getElementById('notifPanel').classList.contains('hidden')) positionNotifPanel(); });
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.addEventListener('message', (e) => {
+                    if (!e.data) return;
+                    if (e.data.type === 'suite-push') loadNotifications();
+                    if (e.data.type === 'suite-open') { try { handleNotifHash(new URL(e.data.url).hash); } catch (err) {} }
+                });
+                // Si ya estaban activados, se mantiene la suscripción al día (el navegador puede renovarla).
+                if (notifSupported() && Notification.permission === 'granted') {
+                    navigator.serviceWorker.register('/suite-sw.js', { scope: '/app' }).then(async (reg) => {
+                        const sub = await reg.pushManager.getSubscription();
+                        if (sub) apiFetch('/api/push/subscribe', { method: 'POST', body: JSON.stringify(sub.toJSON()) }).catch(() => {});
+                    }).catch(() => {});
+                }
+            }
+            window.addEventListener('hashchange', () => handleNotifHash(location.hash));
+            handleNotifHash(location.hash);
+        }
+
+        async function loadNotifications() {
+            if (!CAN('attendance.view_alerts')) return;
+            try {
+                notifData = await apiFetch('/api/notifications');
+            } catch (e) { return; }
+            const badge = document.getElementById('notifBadge');
+            const n = notifData.unread || 0;
+            if (badge) {
+                badge.textContent = n > 99 ? '99+' : String(n);
+                badge.classList.toggle('hidden', n === 0);
+                if (n > notifLastUnread) {
+                    badge.classList.remove('notif-badge-pop'); void badge.offsetWidth; badge.classList.add('notif-badge-pop');
+                    const icon = document.getElementById('notifBellIcon');
+                    if (icon) { icon.classList.remove('notif-bell-swing'); void icon.offsetWidth; icon.classList.add('notif-bell-swing'); }
+                }
+            }
+            const btn = document.getElementById('notifBellBtn');
+            if (btn) btn.title = n ? `Notificaciones: ${n} nueva${n === 1 ? '' : 's'}` : 'Notificaciones';
+            notifLastUnread = n;
+            try { if ('setAppBadge' in navigator) { n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } } catch (e) {}
+            if (!document.getElementById('notifPanel').classList.contains('hidden')) renderNotifList();
+        }
+
+        function positionNotifPanel() {
+            const panel = document.getElementById('notifPanel');
+            const r = document.getElementById('notifBellBtn').getBoundingClientRect();
+            const w = Math.min(400, window.innerWidth - 16);
+            panel.style.width = w + 'px';
+            panel.style.top = (r.bottom + 8) + 'px';
+            panel.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+            panel.style.maxHeight = Math.max(260, window.innerHeight - r.bottom - 20) + 'px';
+        }
+        function toggleNotifPanel(ev) {
+            if (ev) ev.stopPropagation();
+            const panel = document.getElementById('notifPanel');
+            if (!panel.classList.contains('hidden')) { closeNotifPanel(); return; }
+            panel.classList.remove('hidden');
+            document.getElementById('notifBellBtn').setAttribute('aria-expanded', 'true');
+            positionNotifPanel();
+            renderNotifList();
+            renderNotifPushBox();
+            loadNotifications();
+        }
+        function closeNotifPanel() {
+            document.getElementById('notifPanel').classList.add('hidden');
+            document.getElementById('notifBellBtn').setAttribute('aria-expanded', 'false');
+        }
+
+        function notifAgo(createdAt) {
+            // createdAt viene en hora Colombia ("AAAA-MM-DD HH:MM:SS"); notifData.now también.
+            const toMs = (t) => Date.parse(String(t).replace(' ', 'T') + 'Z');
+            const diff = Math.max(0, Math.round((toMs(notifData.now || createdAt) - toMs(createdAt)) / 60000));
+            if (diff < 1) return 'Ahora';
+            if (diff < 60) return `Hace ${diff} min`;
+            const h = Math.floor(diff / 60);
+            if (h < 24) return `Hace ${h} h`;
+            const [y, m, d] = createdAt.slice(0, 10).split('-');
+            return `${d}/${m} · ${createdAt.slice(11, 16)}`;
+        }
+        function renderNotifList() {
+            const list = document.getElementById('notifList');
+            const items = notifData.items || [];
+            const n = notifData.unread || 0;
+            document.getElementById('notifSubtitle').textContent = n ? `${n} nueva${n === 1 ? '' : 's'} · Alertas de Asistencia` : 'Alertas de Asistencia · todo al día';
+            document.getElementById('notifMarkAllBtn').classList.toggle('invisible', n === 0);
+            if (!items.length) {
+                list.innerHTML = `<div class="px-6 py-10 text-center"><div class="mx-auto w-12 h-12 rounded-2xl bg-sky-50 text-sky-500 flex items-center justify-center text-xl mb-2"><i class="fa-regular fa-bell"></i></div>
+                    <p class="text-sm font-semibold text-slate-700">Sin alertas recientes</p><p class="text-xs text-slate-500">Aquí aparecerán las llegadas tarde, ausencias y demás novedades.</p></div>`;
+                return;
+            }
+            const EST = { justificada: ['Justificada', 'text-emerald-700'], injustificada: ['Injustificada', 'text-rose-700'], pendiente: ['Pendiente', 'text-slate-500'] };
+            list.innerHTML = items.map(it => {
+                const ui = NOTIF_TYPE_UI[it.type] || { icon: 'fa-bell', cls: 'bg-slate-100 text-slate-600' };
+                const est = EST[it.mgmt] || EST.pendiente;
+                return `<button type="button" onclick="openNotif('${escapeHtml(it.id)}')" class="w-full text-left px-4 py-3 flex gap-3 border-b border-slate-100 hover:bg-sky-50/70 transition ${it.unread ? 'bg-sky-50/40' : ''}">
+                    <span class="w-9 h-9 rounded-xl ${ui.cls} flex items-center justify-center shrink-0 text-sm"><i class="fa-solid ${ui.icon}"></i></span>
+                    <span class="flex-1 min-w-0">
+                        <span class="flex items-center gap-1.5"><span class="text-[11px] font-bold uppercase tracking-wide text-slate-500">${escapeHtml(it.label)}</span>${it.unread ? '<span class="w-2 h-2 rounded-full bg-sky-500 inline-block" title="Nueva"></span>' : ''}<span class="ml-auto text-[11px] text-slate-400 whitespace-nowrap">${escapeHtml(notifAgo(it.createdAt))}</span></span>
+                        <span class="block text-sm font-bold text-slate-800 truncate">${escapeHtml(it.employeeName)} <span class="font-normal text-slate-500 text-xs">· ${escapeHtml(it.department)}</span></span>
+                        <span class="block text-xs text-slate-600 leading-snug">${escapeHtml(it.text)}</span>
+                        <span class="block text-[11px] ${est[1]} font-semibold mt-0.5">${est[0]}</span>
+                    </span>
+                </button>`;
+            }).join('');
+        }
+
+        async function renderNotifPushBox() {
+            const box = document.getElementById('notifPushBox');
+            const quiet = 'Silencio de 11:00 p. m. a 5:30 a. m. (al terminar llega un resumen).';
+            if (!notifSupported()) {
+                box.innerHTML = notifIsIOS() && !notifStandalone()
+                    ? `<p class="text-slate-700"><i class="fa-solid fa-mobile-screen text-sky-600"></i> <strong>Avisos al celular:</strong> abre la suite desde su <strong>ícono en la pantalla de inicio</strong> del iPhone para poder activarlos (requiere iOS 16.4 o superior).</p>`
+                    : `<p class="text-slate-600"><i class="fa-solid fa-circle-info text-slate-400"></i> Este navegador no permite avisos al celular. Las alertas se ven aquí en la campana.</p>`;
+                return;
+            }
+            if (Notification.permission === 'denied') {
+                box.innerHTML = `<p class="text-rose-700"><i class="fa-solid fa-bell-slash"></i> Los avisos están <strong>bloqueados</strong> en este dispositivo. Actívalos en los ajustes del celular o del navegador (Notificaciones) y vuelve a intentarlo.</p>`;
+                return;
+            }
+            let sub = null;
+            try { const reg = await navigator.serviceWorker.getRegistration('/app'); sub = reg ? await reg.pushManager.getSubscription() : null; } catch (e) {}
+            if (sub && Notification.permission === 'granted') {
+                box.innerHTML = `<div class="flex items-center justify-between gap-2">
+                    <p class="text-emerald-800"><i class="fa-solid fa-circle-check text-emerald-600"></i> <strong>Avisos activos</strong> en este dispositivo.<span class="block text-[11px] text-slate-500">${quiet}</span></p>
+                    <span class="flex flex-col gap-1 shrink-0">
+                        <button type="button" onclick="testPushNotif()" class="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 font-semibold text-slate-700">Probar</button>
+                        <button type="button" onclick="disablePushNotif()" class="px-2.5 py-1 rounded-lg text-slate-500 hover:text-rose-700 font-semibold">Desactivar</button>
+                    </span></div>`;
+            } else {
+                box.innerHTML = `<div class="flex items-center justify-between gap-2">
+                    <p class="text-slate-700"><strong>Recibe estas alertas en tu celular</strong> al instante, aunque la suite esté cerrada.<span class="block text-[11px] text-slate-500">${quiet}</span></p>
+                    <button type="button" onclick="enablePushNotif()" id="notifEnableBtn" class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-sky-600 to-blue-700 hover:from-sky-700 hover:to-blue-800 text-white font-bold shadow shrink-0"><i class="fa-solid fa-bell"></i> Activar</button></div>`;
+            }
+        }
+        function notifKeyToBytes(b64) {
+            const pad = '='.repeat((4 - b64.length % 4) % 4);
+            const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+            return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+        }
+        async function notifActiveRegistration() {
+            const reg = await navigator.serviceWorker.register('/suite-sw.js', { scope: '/app' });
+            if (reg.active) return reg;
+            await new Promise((resolve) => {
+                const w = reg.installing || reg.waiting;
+                if (!w) return resolve();
+                w.addEventListener('statechange', () => { if (w.state === 'activated') resolve(); });
+                setTimeout(resolve, 8000);
+            });
+            return reg;
+        }
+        async function enablePushNotif() {
+            const btn = document.getElementById('notifEnableBtn');
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Activando…'; }
+            try {
+                // El permiso se pide primero (iPhone exige que sea justo después del toque).
+                const perm = await Notification.requestPermission();
+                if (perm !== 'granted') { showAppToast('No se dio permiso para los avisos.'); return; }
+                const [reg, keyRes] = await Promise.all([notifActiveRegistration(), apiFetch('/api/push/key')]);
+                let sub = await reg.pushManager.getSubscription();
+                if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: notifKeyToBytes(keyRes.publicKey) });
+                await apiFetch('/api/push/subscribe', { method: 'POST', body: JSON.stringify(sub.toJSON()) });
+                showAppToast('Avisos activados en este dispositivo.');
+                testPushNotif(true);
+            } catch (e) {
+                showAppToast('No se pudieron activar los avisos: ' + e.message);
+            } finally { renderNotifPushBox(); }
+        }
+        async function disablePushNotif() {
+            try {
+                const reg = await navigator.serviceWorker.getRegistration('/app');
+                const sub = reg ? await reg.pushManager.getSubscription() : null;
+                if (sub) {
+                    await apiFetch('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => {});
+                    await sub.unsubscribe();
+                }
+                showAppToast('Avisos desactivados en este dispositivo.');
+            } catch (e) { showAppToast(e.message); }
+            renderNotifPushBox();
+        }
+        async function testPushNotif(silentOk) {
+            try {
+                const reg = await navigator.serviceWorker.getRegistration('/app');
+                const sub = reg ? await reg.pushManager.getSubscription() : null;
+                if (!sub) { showAppToast('Primero activa los avisos en este dispositivo.'); return; }
+                await apiFetch('/api/push/test', { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }) });
+                if (!silentOk) showAppToast('Aviso de prueba enviado. Debe llegarte en unos segundos.');
+            } catch (e) { showAppToast(e.message); }
+        }
+
+        async function markAllNotifSeen() {
+            try { await apiFetch('/api/notifications/seen', { method: 'POST', body: '{}' }); } catch (e) { showAppToast(e.message); return; }
+            await loadNotifications();
+            renderNotifList();
+        }
+        // Abre una alerta en Asistencia → Alertas (filtrada por colaborador, fecha y tipo).
+        function openNotif(id) {
+            const it = (notifData.items || []).find(x => x.id === id);
+            closeNotifPanel();
+            if (!it) { openAllNotifAlerts(); return; }
+            switchView('attendance');
+            document.getElementById('attAlertsFrom').value = it.date;
+            document.getElementById('attAlertsTo').value = it.date;
+            document.getElementById('attAlertsType').value = it.type;
+            document.getElementById('attAlertsStatus').value = '';
+            const sel = document.getElementById('attAlertsEmployee');
+            if (![...sel.options].some(o => o.value === String(it.employeeId))) sel.add(new Option(it.employeeName, String(it.employeeId)));
+            sel.value = String(it.employeeId);
+            attendanceSetSubTab('alerts');
+        }
+        function openAllNotifAlerts() {
+            closeNotifPanel();
+            switchView('attendance');
+            const today = bogotaTodayISO();
+            const from = (notifData.items && notifData.items.length) ? notifData.items[notifData.items.length - 1].date : today;
+            document.getElementById('attAlertsFrom').value = from < today ? from : today;
+            document.getElementById('attAlertsTo').value = today;
+            document.getElementById('attAlertsType').value = '';
+            document.getElementById('attAlertsStatus').value = '';
+            document.getElementById('attAlertsEmployee').value = '';
+            attendanceSetSubTab('alerts');
+        }
+        // Al tocar un aviso del celular la suite abre con #alerta=<id> o #alertas.
+        async function handleNotifHash(hash) {
+            if (!hash || !CAN('attendance.view_alerts')) return;
+            if (!hash.startsWith('#alerta=') && hash !== '#alertas') return;
+            history.replaceState(null, '', location.pathname + location.search);
+            if (hash === '#alertas') { if (!(notifData.items || []).length) await loadNotifications(); openAllNotifAlerts(); return; }
+            const id = decodeURIComponent(hash.slice('#alerta='.length));
+            if (!(notifData.items || []).some(x => x.id === id)) await loadNotifications();
+            openNotif(id);
         }
 
         async function appLogout() {

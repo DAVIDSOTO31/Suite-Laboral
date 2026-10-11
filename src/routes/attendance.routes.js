@@ -9,6 +9,7 @@ const { logAction } = require('../lib/audit');
 const { randomToken, sha256Hex } = require('../lib/crypto');
 const rules = require('../lib/attendance-rules');
 const bogota = require('../lib/bogota-time');
+const push = require('../lib/push');
 
 function resolveOrgId(req, extra) {
   if (req.user.organizationId) return req.user.organizationId;
@@ -112,10 +113,14 @@ function upsertAttendanceDay(orgId, employeeId, shiftDateISO, shift, patch) {
 }
 
 function insertAlert(orgId, employeeId, shiftDateISO, alertType, scheduledTime, actualTime, diffMinutes, metadata) {
+  const alertId = uid('alert');
   db.prepare(`
     INSERT INTO attendance_alerts (id, organization_id, employee_id, shift_date, alert_type, scheduled_time, actual_time, diff_minutes, metadata_json, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-5 hours'))
-  `).run(uid('alert'), orgId, employeeId, shiftDateISO, alertType, scheduledTime || null, actualTime || null, diffMinutes == null ? null : Math.round(diffMinutes), JSON.stringify(metadata || {}));
+  `).run(alertId, orgId, employeeId, shiftDateISO, alertType, scheduledTime || null, actualTime || null, diffMinutes == null ? null : Math.round(diffMinutes), JSON.stringify(metadata || {}));
+  // Centro de notificaciones: aviso al celular del administrador (agrupado y
+  // respetando el horario de silencio). Nunca debe afectar la marcacion.
+  try { push.onAlertCreated(orgId, alertId, alertType, shiftDateISO); } catch (e) { console.error('[avisos]', e.message); }
 }
 
 function hhmmFromAbsMinutes(now) {
@@ -1155,13 +1160,13 @@ function scanMissingMarks(orgId, force = false) {
   }
 }
 
-// Revision periodica (cada 5 minutos) para todas las organizaciones activas,
-// asi las alertas aparecen aunque nadie abra el modulo.
+// Revision periodica (cada minuto) para todas las organizaciones activas,
+// asi las alertas aparecen -- y avisan al celular -- aunque nadie abra el modulo.
 const scanTimer = setInterval(() => {
   try {
     for (const o of db.prepare('SELECT DISTINCT organization_id AS id FROM employees').all()) scanMissingMarks(o.id, true);
   } catch { /* nada */ }
-}, 5 * 60 * 1000);
+}, 60 * 1000);
 if (scanTimer.unref) scanTimer.unref();
 
 // ---------------------------------------------------------------------------
