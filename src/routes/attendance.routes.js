@@ -1362,7 +1362,7 @@ function novedadesSummary(req, res, query) {
   const by = new Map(employees.map(e => [e.id, {
     employeeId: e.id, name: e.name, role: e.role, department: e.department || 'Sin área',
     llegada_tarde: 0, exceso_almuerzo: 0, salida_anticipada: 0, inasistencia: 0, turno_sin_cerrar: 0, marcacion_manual: 0, etapa_extendida: 0,
-    minutesLate: 0, total: 0, pendiente: 0, justificada: 0, injustificada: 0,
+    minutesLate: 0, minutesLunch: 0, total: 0, pendiente: 0, justificada: 0, injustificada: 0,
   }]));
   for (const r of rows) {
     const o = by.get(r.employee_id);
@@ -1371,6 +1371,7 @@ function novedadesSummary(req, res, query) {
     o.total++;
     o[r.mgmt_status] = (o[r.mgmt_status] || 0) + 1;
     if (r.alert_type === 'llegada_tarde') o.minutesLate += Math.max(0, r.diff_minutes || 0);
+    if (r.alert_type === 'exceso_almuerzo') o.minutesLunch += Math.max(0, r.diff_minutes || 0);
   }
   const list = [...by.values()].filter(o => o.total > 0).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'es'));
   sendJson(res, 200, { from, to, rows: list });
