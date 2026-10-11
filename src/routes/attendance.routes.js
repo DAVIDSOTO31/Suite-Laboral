@@ -1410,7 +1410,7 @@ function loadIndicatorData(orgId, from, to) {
     } catch { /* fila invalida */ }
   }
   const days = new Map(db.prepare(`SELECT employee_id, shift_date, status, entrada_real, salida_real, retraso_min, exceso_almuerzo_min,
-      salida_anticipada_min, hed_min, hen_min FROM attendance_days WHERE organization_id = ? AND shift_date BETWEEN ? AND ?`)
+      salida_anticipada_min, hed_min, hen_min, hon_min FROM attendance_days WHERE organization_id = ? AND shift_date BETWEEN ? AND ?`)
     .all(orgId, from, to).map(d => [`${d.employee_id}|${d.shift_date}`, d]));
   const alerts = db.prepare(`SELECT a.employee_id, a.shift_date, a.alert_type, COALESCE(m.status, 'pendiente') AS mgmt
       FROM attendance_alerts a LEFT JOIN alert_management m ON m.alert_id = a.id
@@ -1455,7 +1455,9 @@ function buildIncapacityEpisodes(incapDays, workKeys) {
 function emptyBucket(name) {
   return { name, programados: 0, asistidos: 0, ausencias: 0, ausenciasJustificadas: 0, entradas: 0, tarde: 0,
     minutosRetraso: 0, minutosAlmuerzo: 0, minutosPerdidos: 0, costoPerdido: 0, extraDiurnaMin: 0, extraNocturnaMin: 0,
-    extraGeneradaMin: 0, descuentoSalidaMin: 0, valorExtras: 0, sinCerrar: 0, manuales: 0 };
+    extraGeneradaMin: 0, descuentoSalidaMin: 0, valorExtras: 0, sinCerrar: 0, manuales: 0,
+    // Costo de extras y recargos (dias con turno cerrado, marcaciones reales).
+    recargoNocturnoMin: 0, costoRecargo: 0, costoExtraDiurna: 0, costoExtraNocturna: 0, costoSalida: 0, costoTotal: 0 };
 }
 function finishBucket(b) {
   const pct = (n, d) => d ? Math.round((n / d) * 1000) / 10 : null;
@@ -1464,6 +1466,10 @@ function finishBucket(b) {
   b.puntualidad = pct(b.entradas - b.tarde, b.entradas);
   b.costoPerdido = Math.round(b.costoPerdido);
   b.valorExtras = Math.round(b.valorExtras);
+  for (const k of ['costoRecargo', 'costoExtraDiurna', 'costoExtraNocturna', 'costoSalida']) b[k] = Math.round(b[k]);
+  // Total = recargo nocturno + extra diurna NETA (ya descontadas las salidas
+  // anticipadas, puede ser negativa) + extra nocturna. Puede quedar negativo.
+  b.costoTotal = b.costoRecargo + b.costoExtraDiurna + b.costoExtraNocturna;
   // Horas extra NETAS: lo que realmente paga la empresa (extras generadas menos
   // el tiempo descontado por salidas anticipadas).
   b.extraTotalMin = b.extraDiurnaMin + b.extraNocturnaMin;
@@ -1475,7 +1481,7 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
   const today = bogota.todayISOInBogota(now);
   // Detalle de cada indicador (solo para el periodo consultado): se muestra al
   // hacer clic en la tarjeta correspondiente.
-  const det = withDetails ? { ausencias: [], tardes: [], perdido: new Map(), extras: new Map(), sinCerrar: [], manuales: [] } : null;
+  const det = withDetails ? { ausencias: [], tardes: [], perdido: new Map(), extras: new Map(), costo: new Map(), sinCerrar: [], manuales: [] } : null;
   const empRow = (map, emp, init) => { if (!map.has(emp.id)) map.set(emp.id, { employeeId: emp.id, name: emp.name, area: emp.department, ...init }); return map.get(emp.id); };
   const mgmtOf = new Map(data.alerts.map(a => [`${a.employee_id}|${a.shift_date}|${a.alert_type}`, a.mgmt]));
   const total = emptyBucket('Total');
@@ -1534,10 +1540,20 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
     // diurna y x 175 % la extra nocturna (sin dominicales/festivos).
     const vm = (Number(emp.salary) || 0) / monthlyDividerForDate(d.shift_date) / 60;
     const valor = hed * vm * 1.25 + hen * vm * 1.75;
+    // Recargo nocturno ordinario (35 %): hon_min ya viene en 0 para quien no
+    // tiene recargo nocturno activado en su ficha.
+    const hon = Math.max(0, d.hon_min || 0);
+    const cRec = hon * vm * 0.35, cHed = hed * vm * 1.25, cHen = hen * vm * 1.75, cSal = salida * vm * 1.25;
     for (const b of bucketsFor(emp)) {
       b.extraDiurnaMin += hed; b.extraNocturnaMin += hen;
       b.descuentoSalidaMin += salida; b.extraGeneradaMin += hed + hen + salida;
       b.valorExtras += valor;
+      b.recargoNocturnoMin += hon; b.costoRecargo += cRec; b.costoExtraDiurna += cHed; b.costoExtraNocturna += cHen; b.costoSalida += cSal;
+    }
+    if (det && (hon || hed || hen || salida)) {
+      const c = empRow(det.costo, emp, { dias: 0, recargoMin: 0, costoRecargo: 0, diurnaMin: 0, costoDiurna: 0, salidaMin: 0, costoSalida: 0, nocturnaMin: 0, costoNocturna: 0, total: 0, salario: Number(emp.salary) || 0 });
+      c.dias++; c.recargoMin += hon; c.costoRecargo += cRec; c.diurnaMin += hed; c.costoDiurna += cHed;
+      c.salidaMin += salida; c.costoSalida += cSal; c.nocturnaMin += hen; c.costoNocturna += cHen; c.total += cRec + cHed + cHen;
     }
     if (det && (hed || hen || salida)) {
       const r = empRow(det.extras, emp, { diurna: 0, nocturna: 0, generada: 0, salida: 0, neto: 0, valor: 0 });
@@ -1565,6 +1581,9 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
       tardes: det.tardes.sort(byDate).slice(0, 3000),
       perdido: [...det.perdido.values()].map(r => ({ ...r, costo: Math.round(r.costo) })).sort((x, y) => y.total - x.total),
       extras: [...det.extras.values()].map(r => ({ ...r, valor: Math.round(r.valor) })).sort((x, y) => y.neto - x.neto),
+      costo: [...det.costo.values()].map(r => ({ ...r, costoRecargo: Math.round(r.costoRecargo), costoDiurna: Math.round(r.costoDiurna),
+        costoSalida: Math.round(r.costoSalida), costoNocturna: Math.round(r.costoNocturna), total: Math.round(r.costoRecargo) + Math.round(r.costoDiurna) + Math.round(r.costoNocturna) }))
+        .sort((x, y) => y.total - x.total || x.name.localeCompare(y.name, 'es')),
       sinCerrar: det.sinCerrar.sort(byDate).slice(0, 3000),
       manuales: det.manuales.sort(byDate).slice(0, 3000),
     };
@@ -1619,9 +1638,10 @@ function computeIncapacities(data, from, to, area, now) {
 // entonces esa tarjeta no se colorea.
 //   ausentismoMax (%), puntualidadMin (%), perdidoMaxPorTurno (min por turno
 //   asistido), extrasValorMaxMes ($ por mes, se prorratea segun los dias del
-//   periodo), sinCerrarMaxPct (% de turnos asistidos), manualesMaxPct (%).
+//   periodo), costoMaxMes (costo de extras y recargos, $ por mes, tambien
+//   prorrateado), sinCerrarMaxPct (% de turnos asistidos), manualesMaxPct (%).
 // ---------------------------------------------------------------------------
-const DEFAULT_INDICATOR_GOALS = { ausentismoMax: 3, puntualidadMin: 95, perdidoMaxPorTurno: 5, extrasValorMaxMes: null, sinCerrarMaxPct: 2, manualesMaxPct: 5 };
+const DEFAULT_INDICATOR_GOALS = { ausentismoMax: 3, puntualidadMin: 95, perdidoMaxPorTurno: 5, extrasValorMaxMes: null, costoMaxMes: null, sinCerrarMaxPct: 2, manualesMaxPct: 5 };
 function getIndicatorGoals(orgId) {
   const r = db.prepare('SELECT indicator_goals FROM org_settings WHERE organization_id = ?').get(orgId);
   let g = {};
@@ -1638,7 +1658,7 @@ async function saveIndicatorGoals(req, res) {
   try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
   const orgId = resolveOrgId(req, body);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
-  const LIMITS = { ausentismoMax: [0, 100], puntualidadMin: [0, 100], perdidoMaxPorTurno: [0, 480], extrasValorMaxMes: [0, 10000000000], sinCerrarMaxPct: [0, 100], manualesMaxPct: [0, 100] };
+  const LIMITS = { ausentismoMax: [0, 100], puntualidadMin: [0, 100], perdidoMaxPorTurno: [0, 480], extrasValorMaxMes: [0, 10000000000], costoMaxMes: [0, 10000000000], sinCerrarMaxPct: [0, 100], manualesMaxPct: [0, 100] };
   const g = {};
   for (const [k, [lo, hi]] of Object.entries(LIMITS)) {
     const v = body[k];
@@ -1701,6 +1721,7 @@ function indicators(req, res, query) {
     const t = computeIndicators(data, m.from, m.to, area, now).total;
     const inc = computeIncapacities(data, m.from, m.to, area, now).total;
     return { month: m.label, ausentismo: t.ausentismo, puntualidad: t.puntualidad, extraHoras: Math.round(t.extraTotalMin / 6) / 10, extraValor: t.valorExtras, programados: t.programados,
+      costoTotal: t.costoTotal, costoRecargo: t.costoRecargo, costoExtraDiurna: t.costoExtraDiurna, costoExtraNocturna: t.costoExtraNocturna,
       incapacidadDias: inc.dias, incapacidadCosto: inc.costoSalario };
   });
 
