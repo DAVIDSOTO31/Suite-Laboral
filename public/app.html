@@ -116,6 +116,12 @@
             background: linear-gradient(135deg, #f43f5e, #e11d48); color: #fff; font-size: 11px; font-weight: 800; line-height: 20px; text-align: center;
             box-shadow: 0 0 0 2px #020617, 0 2px 6px rgba(225, 29, 72, .45); pointer-events: none; }
         .notif-badge.hidden { display: none; }
+        /* Recuadro del logo de la organización (encabezado): amplio y sin recortar el logo */
+        .org-logo-tile { width: 76px; height: 44px; }
+        .org-logo-tile.has-logo { background: #ffffff; padding: 3px 5px; border-color: rgba(125, 211, 252, .7); }
+        @media (min-width: 640px) { .org-logo-tile { width: 96px; height: 50px; } }
+        .org-logo-tile img { width: 100%; height: 100%; object-fit: contain; }
+        .org-logo-tile .org-logo-overlay { opacity: 0; } .group:hover .org-logo-tile .org-logo-overlay { opacity: 1; }
         #notifPanel .notif-list::-webkit-scrollbar { width: 6px; } #notifPanel .notif-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
     </style>
 </head>
@@ -180,13 +186,13 @@
             <!-- Corporate Brand Banner & Actions Container -->
             <div class="flex items-center gap-2 sm:gap-3 ml-auto shrink-0 max-w-full">
                 
-                <div class="flex items-center gap-2 bg-gradient-to-r from-slate-900/95 via-sky-950/90 to-slate-900/95 hover:from-slate-900 hover:to-sky-900 py-1.5 px-2.5 sm:px-3 rounded-xl border border-sky-400/40 shadow-md group transition-all w-auto max-w-[195px] sm:max-w-[230px] md:max-w-[260px] overflow-hidden">
+                <div class="flex items-center gap-2 bg-gradient-to-r from-slate-900/95 via-sky-950/90 to-slate-900/95 hover:from-slate-900 hover:to-sky-900 py-1.5 px-2.5 sm:px-3 rounded-xl border border-sky-400/40 shadow-md group transition-all w-auto max-w-[235px] sm:max-w-[300px] md:max-w-[340px] overflow-hidden">
                     <input type="file" id="companyLogoFileInput" accept="image/*" class="hidden" onchange="handleLogoUpload(event)">
                     
-                    <div onclick="triggerLogoUpload()" title="Haga clic para cambiar el logo corporativo" class="relative w-8 h-8 rounded-lg bg-slate-950 border border-sky-400/50 flex items-center justify-center text-sky-300 font-bold text-xs overflow-hidden cursor-pointer shrink-0 hover:border-sky-300 transition group-hover:scale-105 shadow-inner">
-                        <img id="headerCompanyLogoImg" src="" alt="Logo Corporativo" class="w-full h-full object-cover hidden">
-                        <span id="headerCompanyLogoFallback" class="text-sky-300 font-black text-xs tracking-wider">PY</span>
-                        <div class="absolute inset-0 bg-slate-950/75 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-sky-300">
+                    <div id="headerCompanyLogoBox" onclick="triggerLogoUpload()" title="Haga clic para cambiar el logo corporativo" class="org-logo-tile relative rounded-lg bg-slate-950 border border-sky-400/50 flex items-center justify-center text-sky-300 font-bold text-xs overflow-hidden cursor-pointer shrink-0 hover:border-sky-300 transition group-hover:scale-105 shadow-inner">
+                        <img id="headerCompanyLogoImg" src="" alt="Logo Corporativo" class="w-full h-full object-contain hidden">
+                        <span id="headerCompanyLogoFallback" class="text-sky-300 font-black text-sm tracking-wider">PY</span>
+                        <div class="org-logo-overlay absolute inset-0 bg-slate-950/75 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-sky-300">
                             <i class="fa-solid fa-camera text-2xs"></i>
                         </div>
                     </div>
@@ -7383,6 +7389,8 @@
             const reportImg = document.getElementById('reportCompanyLogoImg');
             const reportFallback = document.getElementById('reportCompanyLogoFallback');
 
+            const logoBox = document.getElementById('headerCompanyLogoBox');
+            if (logoBox) logoBox.classList.toggle('has-logo', !!appState.companyLogo);
             if (appState.companyLogo) {
                 if (headerImg) {
                     headerImg.src = appState.companyLogo;
