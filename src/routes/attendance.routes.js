@@ -1455,7 +1455,7 @@ function buildIncapacityEpisodes(incapDays, workKeys) {
 function emptyBucket(name) {
   return { name, programados: 0, asistidos: 0, ausencias: 0, ausenciasJustificadas: 0, entradas: 0, tarde: 0,
     minutosRetraso: 0, minutosAlmuerzo: 0, minutosPerdidos: 0, costoPerdido: 0, extraDiurnaMin: 0, extraNocturnaMin: 0,
-    extraGeneradaMin: 0, descuentoSalidaMin: 0, sinCerrar: 0, manuales: 0 };
+    extraGeneradaMin: 0, descuentoSalidaMin: 0, valorExtras: 0, sinCerrar: 0, manuales: 0 };
 }
 function finishBucket(b) {
   const pct = (n, d) => d ? Math.round((n / d) * 1000) / 10 : null;
@@ -1463,6 +1463,7 @@ function finishBucket(b) {
   b.ausentismoInjustificado = pct(b.ausencias - b.ausenciasJustificadas, b.programados);
   b.puntualidad = pct(b.entradas - b.tarde, b.entradas);
   b.costoPerdido = Math.round(b.costoPerdido);
+  b.valorExtras = Math.round(b.valorExtras);
   // Horas extra NETAS: lo que realmente paga la empresa (extras generadas menos
   // el tiempo descontado por salidas anticipadas).
   b.extraTotalMin = b.extraDiurnaMin + b.extraNocturnaMin;
@@ -1529,13 +1530,18 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
     // hed_min ya trae descontada la salida anticipada (puede ser negativo):
     // asi se mide lo que la empresa realmente paga en extras.
     const hed = d.hed_min || 0, hen = Math.max(0, d.hen_min || 0), salida = Math.max(0, d.salida_anticipada_min || 0);
+    // Valor en pesos: hora ordinaria (salario / divisor mensual) x 125 % la extra
+    // diurna y x 175 % la extra nocturna (sin dominicales/festivos).
+    const vm = (Number(emp.salary) || 0) / monthlyDividerForDate(d.shift_date) / 60;
+    const valor = hed * vm * 1.25 + hen * vm * 1.75;
     for (const b of bucketsFor(emp)) {
       b.extraDiurnaMin += hed; b.extraNocturnaMin += hen;
       b.descuentoSalidaMin += salida; b.extraGeneradaMin += hed + hen + salida;
+      b.valorExtras += valor;
     }
     if (det && (hed || hen || salida)) {
-      const r = empRow(det.extras, emp, { diurna: 0, nocturna: 0, generada: 0, salida: 0, neto: 0 });
-      r.diurna += hed; r.nocturna += hen; r.salida += salida; r.generada += hed + hen + salida; r.neto += hed + hen;
+      const r = empRow(det.extras, emp, { diurna: 0, nocturna: 0, generada: 0, salida: 0, neto: 0, valor: 0 });
+      r.diurna += hed; r.nocturna += hen; r.salida += salida; r.generada += hed + hen + salida; r.neto += hed + hen; r.valor += valor;
     }
   }
   for (const a of data.alerts) {
@@ -1558,7 +1564,7 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
       ausencias: det.ausencias.sort(byDate).slice(0, 3000),
       tardes: det.tardes.sort(byDate).slice(0, 3000),
       perdido: [...det.perdido.values()].map(r => ({ ...r, costo: Math.round(r.costo) })).sort((x, y) => y.total - x.total),
-      extras: [...det.extras.values()].sort((x, y) => y.neto - x.neto),
+      extras: [...det.extras.values()].map(r => ({ ...r, valor: Math.round(r.valor) })).sort((x, y) => y.neto - x.neto),
       sinCerrar: det.sinCerrar.sort(byDate).slice(0, 3000),
       manuales: det.manuales.sort(byDate).slice(0, 3000),
     };
@@ -1608,6 +1614,47 @@ function computeIncapacities(data, from, to, area, now) {
   return { total, employees, byArea: Object.fromEntries([...byArea].map(([k, v]) => [k, { dias: v.dias, costoSalario: Math.round(v.costoSalario) }])) };
 }
 
+// ---------------------------------------------------------------------------
+// METAS DE LOS INDICADORES (semaforo). Cada meta puede quedar vacia (null) y
+// entonces esa tarjeta no se colorea.
+//   ausentismoMax (%), puntualidadMin (%), perdidoMaxPorTurno (min por turno
+//   asistido), extrasValorMaxMes ($ por mes, se prorratea segun los dias del
+//   periodo), sinCerrarMaxPct (% de turnos asistidos), manualesMaxPct (%).
+// ---------------------------------------------------------------------------
+const DEFAULT_INDICATOR_GOALS = { ausentismoMax: 3, puntualidadMin: 95, perdidoMaxPorTurno: 5, extrasValorMaxMes: null, sinCerrarMaxPct: 2, manualesMaxPct: 5 };
+function getIndicatorGoals(orgId) {
+  const r = db.prepare('SELECT indicator_goals FROM org_settings WHERE organization_id = ?').get(orgId);
+  let g = {};
+  try { g = r && r.indicator_goals ? JSON.parse(r.indicator_goals) : {}; } catch { g = {}; }
+  return { ...DEFAULT_INDICATOR_GOALS, ...g };
+}
+function getIndicatorGoalsRoute(req, res, query) {
+  const orgId = resolveOrgId(req, query || {});
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  sendJson(res, 200, { goals: getIndicatorGoals(orgId), defaults: DEFAULT_INDICATOR_GOALS });
+}
+async function saveIndicatorGoals(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const LIMITS = { ausentismoMax: [0, 100], puntualidadMin: [0, 100], perdidoMaxPorTurno: [0, 480], extrasValorMaxMes: [0, 10000000000], sinCerrarMaxPct: [0, 100], manualesMaxPct: [0, 100] };
+  const g = {};
+  for (const [k, [lo, hi]] of Object.entries(LIMITS)) {
+    const v = body[k];
+    if (v === null || v === '' || v === undefined) { g[k] = null; continue; }
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < lo || n > hi) return sendJson(res, 400, { error: `Valor no válido para la meta (${k}).` });
+    g[k] = Math.round(n * 100) / 100;
+  }
+  const prev = getIndicatorGoals(orgId);
+  const exists = db.prepare('SELECT 1 FROM org_settings WHERE organization_id = ?').get(orgId);
+  if (!exists) db.prepare("INSERT INTO org_settings (organization_id, org_name) VALUES (?, 'Empresa')").run(orgId);
+  db.prepare('UPDATE org_settings SET indicator_goals = ? WHERE organization_id = ?').run(JSON.stringify(g), orgId);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.indicator_goals', resourceType: 'organization', resourceId: orgId, ip: getClientIp(req), metadata: { antes: prev, despues: g } });
+  sendJson(res, 200, { ok: true, goals: getIndicatorGoals(orgId) });
+}
+
 // GET /api/attendance/indicators?from=&to=&area=
 function indicators(req, res, query) {
   const orgId = resolveOrgId(req, query);
@@ -1653,7 +1700,7 @@ function indicators(req, res, query) {
   const trend = months.filter(m => m.from <= today).map(m => {
     const t = computeIndicators(data, m.from, m.to, area, now).total;
     const inc = computeIncapacities(data, m.from, m.to, area, now).total;
-    return { month: m.label, ausentismo: t.ausentismo, puntualidad: t.puntualidad, extraHoras: Math.round(t.extraTotalMin / 6) / 10, programados: t.programados,
+    return { month: m.label, ausentismo: t.ausentismo, puntualidad: t.puntualidad, extraHoras: Math.round(t.extraTotalMin / 6) / 10, extraValor: t.valorExtras, programados: t.programados,
       incapacidadDias: inc.dias, incapacidadCosto: inc.costoSalario };
   });
 
@@ -1673,6 +1720,7 @@ function indicators(req, res, query) {
   sendJson(res, 200, {
     from, to, area, prevFrom, prevTo, dayZero: data.dayZero,
     total: current.total, areas: current.areas, previous, trend, top: topList, areasAll, details: current.details,
+    goals: getIndicatorGoals(orgId),
     incapacities: { total: incap.total, previous: incapPrev, employees: incap.employees },
   });
 }
@@ -2182,6 +2230,7 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(HOURS_ENGINE_
 }
 
 module.exports = {
+  getIndicatorGoalsRoute, saveIndicatorGoals,
   recalculateFinalizedDays,
   listEmployeesToday, registerMark, listHistory, listMyHistory, listAlerts, registerCorrection, listCorrections, listFaceProfiles, enrollFaceProfile, deactivateFaceProfile, registerMarkByFace,
   listDevices, createDevice, rotateDeviceToken, deactivateDevice, getDeviceAssignments, setDeviceAssignments,
