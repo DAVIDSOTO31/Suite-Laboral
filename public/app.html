@@ -229,6 +229,10 @@
                     <i class="fa-solid fa-id-badge text-sky-600 w-5"></i>
                     <span>Mi horario y marcaciones</span>
                 </a>
+                <a href="#gerencia" onclick="switchView('gerencia')" id="nav-gerencia" data-perm="attendance.view_alerts" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
+                    <i class="fa-solid fa-chart-line text-emerald-600 w-5"></i>
+                    <span>Tablero Gerencial</span>
+                </a>
                 <a href="#shifts" onclick="switchView('shifts')" id="nav-shifts" data-perm="shifts.view" class="sidebar-item-active flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
                     <i class="fa-solid fa-table-cells text-amber-500 w-5"></i>
                     <span>Planilla & Cuadre Semanal</span>
@@ -336,6 +340,169 @@
                             </tr></thead>
                             <tbody id="mineHistoryBody"></tbody>
                         </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MÓDULO: Tablero gerencial -->
+            <div id="view-gerencia" class="app-view hidden space-y-6">
+                <!-- Tablero gerencial: indicadores, metas y costos (antes dentro de Asistencia) -->
+                <!-- Resumen de HOY (en vivo) -->
+                <div id="gerHoyStrip" data-perm="attendance.view" class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-5"></div>
+                <div id="gerenciaPanel">
+                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-5">
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-chart-line text-sky-600"></i> Tablero gerencial · Indicadores</h3>
+                            <p class="text-xs text-slate-500">Se calculan con los turnos programados que <strong>ya terminaron</strong> y sus marcaciones. Vacaciones, incapacidades y descansos no cuentan como ausencia. Cada cifra se compara con el periodo anterior de la misma duración.</p>
+                        </div>
+                        <div class="flex flex-wrap items-end gap-3">
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Periodo</label>
+                                <select id="indPreset" onchange="indApplyPreset()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white">
+                                    <option value="month">Este mes</option>
+                                    <option value="prevMonth">Mes anterior</option>
+                                    <option value="quincena">Quincena actual</option>
+                                    <option value="custom">Rango libre</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Desde</label>
+                                <input type="date" id="indFrom" onchange="document.getElementById('indPreset').value='custom'" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Hasta</label>
+                                <input type="date" id="indTo" onchange="document.getElementById('indPreset').value='custom'" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Área</label>
+                                <select id="indArea" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[160px]"><option value="">Todas las áreas</option></select>
+                            </div>
+                            <button onclick="attendanceLoadIndicators()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
+                            <button onclick="exportIndicatorsXLSX()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel</button>
+                            <button onclick="exportIndicatorsPdf()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-pdf text-rose-600"></i> Exportar PDF</button>
+                            <button onclick="openIndicatorGoals()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-bullseye text-sky-600"></i> Metas</button>
+                        </div>
+                        <p id="indPeriodNote" class="text-2xs text-slate-500 -mt-2">-</p>
+                        <div id="indCards" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
+                        <div id="indCardDetail"></div>
+
+                        <div>
+                            <h4 class="font-bold text-slate-700 text-sm mb-2">Por área</h4>
+                            <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                                <table class="w-full text-xs">
+                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
+                                        <th class="text-left px-3 py-2">Área</th>
+                                        <th class="text-center px-3 py-2">Turnos evaluados</th>
+                                        <th class="text-center px-3 py-2">Ausencias</th>
+                                        <th class="text-center px-3 py-2">Ausentismo</th>
+                                        <th class="text-center px-3 py-2">Puntualidad</th>
+                                        <th class="text-center px-3 py-2">Tiempo perdido</th>
+                                        <th class="text-right px-3 py-2">Costo perdido</th>
+                                        <th class="text-center px-3 py-2">Horas extra netas</th>
+                                        <th class="text-center px-3 py-2">Incapacidad</th>
+                                        <th class="text-center px-3 py-2">Sin cerrar</th>
+                                        <th class="text-center px-3 py-2">Manuales</th>
+                                    </tr></thead>
+                                    <tbody id="indAreaBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="border border-orange-200 rounded-lg p-4 space-y-3">
+                            <div>
+                                <h4 class="font-bold text-slate-800 text-sm flex items-center gap-2"><i class="fa-solid fa-briefcase-medical text-orange-600"></i> Incapacidades</h4>
+                                <p class="text-2xs text-slate-500">Días marcados como <strong>Incapacidad</strong> en el cuadro de turnos (hasta hoy). Días seguidos —aunque haya descansos en medio— cuentan como una sola incapacidad. Costo en salario = salario mensual ÷ 30 por cada día.</p>
+                            </div>
+                            <div id="indIncCards" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3"></div>
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <h5 class="font-bold text-slate-700 text-xs uppercase">Por colaborador</h5>
+                                <div class="flex items-center gap-1 text-2xs">
+                                    <span class="text-slate-500 mr-1">Ordenar por:</span>
+                                    <button type="button" id="indIncSortDias" onclick="indIncSort('dias')" class="px-2 py-1 rounded-full border border-slate-300 bg-slate-800 text-white font-semibold">Más días</button>
+                                    <button type="button" id="indIncSortEpisodios" onclick="indIncSort('episodios')" class="px-2 py-1 rounded-full border border-slate-300 bg-white text-slate-700 font-semibold">Más recurrentes</button>
+                                    <button type="button" id="indIncSortCosto" onclick="indIncSort('costo')" class="px-2 py-1 rounded-full border border-slate-300 bg-white text-slate-700 font-semibold">Mayor costo</button>
+                                </div>
+                            </div>
+                            <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                                <table class="w-full text-xs">
+                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
+                                        <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Área</th>
+                                        <th class="text-center px-3 py-2">N.º incapacidades</th><th class="text-center px-3 py-2">Días</th>
+                                        <th class="text-right px-3 py-2">Salario</th><th class="text-right px-3 py-2">Costo en salario</th>
+                                        <th class="text-right px-3 py-2">A cargo empresa (est.)</th><th class="text-left px-3 py-2">Periodos</th>
+                                    </tr></thead>
+                                    <tbody id="indIncBody"></tbody>
+                                    <tfoot id="indIncFoot" class="bg-slate-50 font-semibold"></tfoot>
+                                </table>
+                            </div>
+                            <p class="text-3xs text-slate-400">"A cargo empresa (est.)": estimado para incapacidad de origen común: los 2 primeros días de cada incapacidad los paga el empleador al 66,67 % del salario, sin bajar del salario mínimo diario (art. 227 CST y Decreto 2943 de 2013); desde el día 3 los reconoce la EPS. No aplica a incapacidades de origen laboral (las paga la ARL).</p>
+                        </div>
+
+                        <div>
+                            <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+                                <h4 class="font-bold text-slate-700 text-sm">Tendencia de los últimos 6 meses</h4>
+                                <button type="button" onclick="document.getElementById('indTrendTableBox').classList.toggle('hidden')" class="text-2xs font-semibold text-sky-700 hover:underline">Ver / ocultar tabla</button>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Ausentismo (%)</p><div class="relative h-44"><canvas id="indChartAus"></canvas></div></div>
+                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Puntualidad (%)</p><div class="relative h-44"><canvas id="indChartPun"></canvas></div></div>
+                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Horas extra</p><div class="relative h-44"><canvas id="indChartExt"></canvas></div></div>
+                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Días de incapacidad</p><div class="relative h-44"><canvas id="indChartInc"></canvas></div></div>
+                            </div>
+                            <div id="indTrendTableBox" class="hidden mt-3 overflow-x-auto border border-slate-200 rounded-lg">
+                                <table class="w-full text-xs">
+                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr><th class="text-left px-3 py-2">Mes</th><th class="text-center px-3 py-2">Turnos evaluados</th><th class="text-center px-3 py-2">Ausentismo</th><th class="text-center px-3 py-2">Puntualidad</th><th class="text-center px-3 py-2">Horas extra netas</th><th class="text-right px-3 py-2">Valor extras</th><th class="text-center px-3 py-2">Días de incapacidad</th><th class="text-right px-3 py-2">Costo incapacidad</th></tr></thead>
+                                    <tbody id="indTrendBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h4 class="font-bold text-slate-700 text-sm mb-1">Top 10 de colaboradores con más novedades</h4>
+                            <p class="text-2xs text-slate-500 mb-2">Ordenado primero por novedades injustificadas. Haz clic en un nombre para ver sus alertas.</p>
+                            <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                                <table class="w-full text-xs">
+                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
+                                        <th class="text-left px-3 py-2">#</th><th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Área</th>
+                                        <th class="text-center px-3 py-2">Total</th><th class="text-center px-3 py-2">Injustificadas</th>
+                                        <th class="text-center px-3 py-2">Pendientes</th><th class="text-center px-3 py-2">Justificadas</th>
+                                    </tr></thead>
+                                    <tbody id="indTopBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div data-perm="settings.manage" class="border border-sky-200 bg-sky-50/40 rounded-lg p-4 space-y-3">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                    <h4 class="font-bold text-slate-800 text-sm flex items-center gap-2"><i class="fa-solid fa-envelope text-sky-600"></i> Resumen diario por correo</h4>
+                                    <p class="text-2xs text-slate-500">Cada día, a la hora elegida, llega un correo con: programados, asistieron, no se presentaron, llegadas tarde, turnos sin cerrar, marcaciones manuales y alertas pendientes.</p>
+                                </div>
+                                <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer"><input type="checkbox" id="digEnabled" class="rounded h-4 w-4"> Activado</label>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                                <div>
+                                    <label class="block font-semibold text-slate-700 mb-1">Hora de envío (Colombia)</label>
+                                    <select id="digHour" class="w-full p-2 border rounded-lg bg-white"></select>
+                                </div>
+                                <div>
+                                    <label class="block font-semibold text-slate-700 mb-1">Enviar a</label>
+                                    <select id="digTo" class="w-full p-2 border rounded-lg bg-white">
+                                        <option value="admins">Administradores</option>
+                                        <option value="admins_sups">Administradores y supervisores</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block font-semibold text-slate-700 mb-1">Correos adicionales (opcional)</label>
+                                    <input type="text" id="digExtra" placeholder="gerencia@empresa.com, jefe@empresa.com" class="w-full p-2 border rounded-lg">
+                                </div>
+                            </div>
+                            <p id="digRecipients" class="text-2xs text-slate-500">-</p>
+                            <div class="flex flex-wrap gap-2">
+                                <button type="button" onclick="saveDigestSettings()" id="digSaveBtn" class="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold">Guardar</button>
+                                <button type="button" onclick="sendDigestTest()" id="digTestBtn" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold">Enviar prueba a mi correo</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -972,10 +1139,6 @@
                                 <span class="att-subnav-icon"><i class="fa-solid fa-folder-open"></i></span>
                                 <span class="att-subnav-text"><span class="att-subnav-title">Novedades por colaborador<span class="att-badge hidden" id="attBadge-novedades"></span></span><span class="att-subnav-desc">Resumen del periodo: tardanzas, inasistencias y su gestión</span></span>
                             </button>
-                            <button id="btnAttTabIndicators" data-perm="attendance.view_alerts" onclick="attendanceSetSubTab('indicators')" class="att-subnav-item">
-                                <span class="att-subnav-icon"><i class="fa-solid fa-chart-line"></i></span>
-                                <span class="att-subnav-text"><span class="att-subnav-title">Indicadores<span class="att-badge hidden" id="attBadge-indicators"></span></span><span class="att-subnav-desc">Ausentismo, puntualidad, costo del tiempo perdido y horas extra</span></span>
-                            </button>
                             <button id="btnAttTabBio" data-perm="attendance.manage_biometrics" onclick="attendanceSetSubTab('bio')" class="att-subnav-item">
                                 <span class="att-subnav-icon"><i class="fa-solid fa-id-badge"></i></span>
                                 <span class="att-subnav-text"><span class="att-subnav-title">Biometría<span class="att-badge hidden" id="attBadge-bio"></span></span><span class="att-subnav-desc">Perfiles faciales de los colaboradores</span></span>
@@ -1050,164 +1213,6 @@
                                 </tr></thead>
                                 <tbody id="attNovBody"></tbody>
                             </table>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Sub-vista: Indicadores (gerencia) -->
-                <div id="attSubtab-indicators" class="hidden">
-                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-5">
-                        <div>
-                            <h3 class="font-bold text-slate-800 text-base">Indicadores de asistencia</h3>
-                            <p class="text-xs text-slate-500">Se calculan con los turnos programados que <strong>ya terminaron</strong> y sus marcaciones. Vacaciones, incapacidades y descansos no cuentan como ausencia. Cada cifra se compara con el periodo anterior de la misma duración.</p>
-                        </div>
-                        <div class="flex flex-wrap items-end gap-3">
-                            <div>
-                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Periodo</label>
-                                <select id="indPreset" onchange="indApplyPreset()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white">
-                                    <option value="month">Este mes</option>
-                                    <option value="prevMonth">Mes anterior</option>
-                                    <option value="quincena">Quincena actual</option>
-                                    <option value="custom">Rango libre</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Desde</label>
-                                <input type="date" id="indFrom" onchange="document.getElementById('indPreset').value='custom'" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
-                            </div>
-                            <div>
-                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Hasta</label>
-                                <input type="date" id="indTo" onchange="document.getElementById('indPreset').value='custom'" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
-                            </div>
-                            <div>
-                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Área</label>
-                                <select id="indArea" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[160px]"><option value="">Todas las áreas</option></select>
-                            </div>
-                            <button onclick="attendanceLoadIndicators()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
-                            <button onclick="exportIndicatorsXLSX()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel</button>
-                            <button onclick="exportIndicatorsPdf()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-pdf text-rose-600"></i> Exportar PDF</button>
-                            <button onclick="openIndicatorGoals()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-bullseye text-sky-600"></i> Metas</button>
-                        </div>
-                        <p id="indPeriodNote" class="text-2xs text-slate-500 -mt-2">-</p>
-                        <div id="indCards" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
-                        <div id="indCardDetail"></div>
-
-                        <div>
-                            <h4 class="font-bold text-slate-700 text-sm mb-2">Por área</h4>
-                            <div class="overflow-x-auto border border-slate-200 rounded-lg">
-                                <table class="w-full text-xs">
-                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
-                                        <th class="text-left px-3 py-2">Área</th>
-                                        <th class="text-center px-3 py-2">Turnos evaluados</th>
-                                        <th class="text-center px-3 py-2">Ausencias</th>
-                                        <th class="text-center px-3 py-2">Ausentismo</th>
-                                        <th class="text-center px-3 py-2">Puntualidad</th>
-                                        <th class="text-center px-3 py-2">Tiempo perdido</th>
-                                        <th class="text-right px-3 py-2">Costo perdido</th>
-                                        <th class="text-center px-3 py-2">Horas extra netas</th>
-                                        <th class="text-center px-3 py-2">Incapacidad</th>
-                                        <th class="text-center px-3 py-2">Sin cerrar</th>
-                                        <th class="text-center px-3 py-2">Manuales</th>
-                                    </tr></thead>
-                                    <tbody id="indAreaBody"></tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        <div class="border border-orange-200 rounded-lg p-4 space-y-3">
-                            <div>
-                                <h4 class="font-bold text-slate-800 text-sm flex items-center gap-2"><i class="fa-solid fa-briefcase-medical text-orange-600"></i> Incapacidades</h4>
-                                <p class="text-2xs text-slate-500">Días marcados como <strong>Incapacidad</strong> en el cuadro de turnos (hasta hoy). Días seguidos —aunque haya descansos en medio— cuentan como una sola incapacidad. Costo en salario = salario mensual ÷ 30 por cada día.</p>
-                            </div>
-                            <div id="indIncCards" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3"></div>
-                            <div class="flex flex-wrap items-center justify-between gap-2">
-                                <h5 class="font-bold text-slate-700 text-xs uppercase">Por colaborador</h5>
-                                <div class="flex items-center gap-1 text-2xs">
-                                    <span class="text-slate-500 mr-1">Ordenar por:</span>
-                                    <button type="button" id="indIncSortDias" onclick="indIncSort('dias')" class="px-2 py-1 rounded-full border border-slate-300 bg-slate-800 text-white font-semibold">Más días</button>
-                                    <button type="button" id="indIncSortEpisodios" onclick="indIncSort('episodios')" class="px-2 py-1 rounded-full border border-slate-300 bg-white text-slate-700 font-semibold">Más recurrentes</button>
-                                    <button type="button" id="indIncSortCosto" onclick="indIncSort('costo')" class="px-2 py-1 rounded-full border border-slate-300 bg-white text-slate-700 font-semibold">Mayor costo</button>
-                                </div>
-                            </div>
-                            <div class="overflow-x-auto border border-slate-200 rounded-lg">
-                                <table class="w-full text-xs">
-                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
-                                        <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Área</th>
-                                        <th class="text-center px-3 py-2">N.º incapacidades</th><th class="text-center px-3 py-2">Días</th>
-                                        <th class="text-right px-3 py-2">Salario</th><th class="text-right px-3 py-2">Costo en salario</th>
-                                        <th class="text-right px-3 py-2">A cargo empresa (est.)</th><th class="text-left px-3 py-2">Periodos</th>
-                                    </tr></thead>
-                                    <tbody id="indIncBody"></tbody>
-                                    <tfoot id="indIncFoot" class="bg-slate-50 font-semibold"></tfoot>
-                                </table>
-                            </div>
-                            <p class="text-3xs text-slate-400">"A cargo empresa (est.)": estimado para incapacidad de origen común: los 2 primeros días de cada incapacidad los paga el empleador al 66,67 % del salario, sin bajar del salario mínimo diario (art. 227 CST y Decreto 2943 de 2013); desde el día 3 los reconoce la EPS. No aplica a incapacidades de origen laboral (las paga la ARL).</p>
-                        </div>
-
-                        <div>
-                            <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2">
-                                <h4 class="font-bold text-slate-700 text-sm">Tendencia de los últimos 6 meses</h4>
-                                <button type="button" onclick="document.getElementById('indTrendTableBox').classList.toggle('hidden')" class="text-2xs font-semibold text-sky-700 hover:underline">Ver / ocultar tabla</button>
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Ausentismo (%)</p><div class="relative h-44"><canvas id="indChartAus"></canvas></div></div>
-                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Puntualidad (%)</p><div class="relative h-44"><canvas id="indChartPun"></canvas></div></div>
-                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Horas extra</p><div class="relative h-44"><canvas id="indChartExt"></canvas></div></div>
-                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Días de incapacidad</p><div class="relative h-44"><canvas id="indChartInc"></canvas></div></div>
-                            </div>
-                            <div id="indTrendTableBox" class="hidden mt-3 overflow-x-auto border border-slate-200 rounded-lg">
-                                <table class="w-full text-xs">
-                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr><th class="text-left px-3 py-2">Mes</th><th class="text-center px-3 py-2">Turnos evaluados</th><th class="text-center px-3 py-2">Ausentismo</th><th class="text-center px-3 py-2">Puntualidad</th><th class="text-center px-3 py-2">Horas extra netas</th><th class="text-right px-3 py-2">Valor extras</th><th class="text-center px-3 py-2">Días de incapacidad</th><th class="text-right px-3 py-2">Costo incapacidad</th></tr></thead>
-                                    <tbody id="indTrendBody"></tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        <div>
-                            <h4 class="font-bold text-slate-700 text-sm mb-1">Top 10 de colaboradores con más novedades</h4>
-                            <p class="text-2xs text-slate-500 mb-2">Ordenado primero por novedades injustificadas. Haz clic en un nombre para ver sus alertas.</p>
-                            <div class="overflow-x-auto border border-slate-200 rounded-lg">
-                                <table class="w-full text-xs">
-                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
-                                        <th class="text-left px-3 py-2">#</th><th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Área</th>
-                                        <th class="text-center px-3 py-2">Total</th><th class="text-center px-3 py-2">Injustificadas</th>
-                                        <th class="text-center px-3 py-2">Pendientes</th><th class="text-center px-3 py-2">Justificadas</th>
-                                    </tr></thead>
-                                    <tbody id="indTopBody"></tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        <div data-perm="settings.manage" class="border border-sky-200 bg-sky-50/40 rounded-lg p-4 space-y-3">
-                            <div class="flex flex-wrap items-center justify-between gap-2">
-                                <div>
-                                    <h4 class="font-bold text-slate-800 text-sm flex items-center gap-2"><i class="fa-solid fa-envelope text-sky-600"></i> Resumen diario por correo</h4>
-                                    <p class="text-2xs text-slate-500">Cada día, a la hora elegida, llega un correo con: programados, asistieron, no se presentaron, llegadas tarde, turnos sin cerrar, marcaciones manuales y alertas pendientes.</p>
-                                </div>
-                                <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer"><input type="checkbox" id="digEnabled" class="rounded h-4 w-4"> Activado</label>
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                                <div>
-                                    <label class="block font-semibold text-slate-700 mb-1">Hora de envío (Colombia)</label>
-                                    <select id="digHour" class="w-full p-2 border rounded-lg bg-white"></select>
-                                </div>
-                                <div>
-                                    <label class="block font-semibold text-slate-700 mb-1">Enviar a</label>
-                                    <select id="digTo" class="w-full p-2 border rounded-lg bg-white">
-                                        <option value="admins">Administradores</option>
-                                        <option value="admins_sups">Administradores y supervisores</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block font-semibold text-slate-700 mb-1">Correos adicionales (opcional)</label>
-                                    <input type="text" id="digExtra" placeholder="gerencia@empresa.com, jefe@empresa.com" class="w-full p-2 border rounded-lg">
-                                </div>
-                            </div>
-                            <p id="digRecipients" class="text-2xs text-slate-500">-</p>
-                            <div class="flex flex-wrap gap-2">
-                                <button type="button" onclick="saveDigestSettings()" id="digSaveBtn" class="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold">Guardar</button>
-                                <button type="button" onclick="sendDigestTest()" id="digTestBtn" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold">Enviar prueba a mi correo</button>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -7994,7 +7999,8 @@
                 audit: 'Auditoría Legal CST',
                 reports: 'Informes & Certificados',
                 orgadmin: 'Usuarios & Seguridad',
-                attendance: 'Asistencia'
+                attendance: 'Asistencia',
+                gerencia: 'Tablero Gerencial'
             };
             document.getElementById('breadcrumbCurrent').innerText = titles[viewId] || 'Módulo';
 
@@ -8011,6 +8017,7 @@
             if (viewId === 'orgadmin') loadOrgAdminPanel();
             if (viewId === 'attendance') initAttendanceView();
             if (viewId === 'mine') renderMyView();
+            if (viewId === 'gerencia') { attendanceLoadIndicators(!gerenciaLoadedOnce); gerenciaLoadedOnce = true; loadGerenciaHoy(); }
 
             if (window.innerWidth < 1024) {
                 document.getElementById('appSidebar').classList.add('-translate-x-full');
@@ -8758,7 +8765,6 @@
             bio: ['Biometría', 'fa-id-badge', 'Registro y desactivación de perfiles faciales para marcar en el kiosco.'],
             mark: ['Marcación manual', 'fa-hand-pointer', 'Respaldo de emergencia cuando el kiosco no funciona. Pide motivo y genera alerta.'],
             workdays: ['Días laborados', 'fa-calendar-check', 'Conteo de días con marcación de entrada para los colaboradores seleccionados.'],
-            indicators: ['Indicadores', 'fa-chart-line', 'Ausentismo, puntualidad, costo del tiempo perdido, horas extra por área y tendencia de 6 meses.'],
             novedades: ['Novedades por colaborador', 'fa-folder-open', 'Resumen por colaborador de las novedades del periodo y su gestión (justificadas / injustificadas).'],
             devices: ['Dispositivos', 'fa-tablet-screen-button', 'Tablets y celulares habilitados como punto de marcación.'],
         };
@@ -8796,7 +8802,6 @@
             if (tab === 'devices') attendanceLoadDevices();
             if (tab === 'today') attendanceLoadToday(); else attTodayStopAuto();
             if (tab === 'novedades') attendanceLoadNovedades();
-            if (tab === 'indicators') attendanceLoadIndicators(true);
         }
         // Contador de alertas de los últimos 7 días en el menú.
         async function refreshAttAlertsBadge() {
@@ -9834,7 +9839,57 @@
                 },
             });
         }
+        let gerenciaLoadedOnce = false;
+        // ---- Franja "Hoy" del Tablero gerencial (se actualiza cada minuto) ----
+        let gerHoyTimer = null;
+        async function loadGerenciaHoy() {
+            const box = document.getElementById('gerHoyStrip');
+            if (!box || !CAN('attendance.view')) return;
+            if (!gerHoyTimer) gerHoyTimer = setInterval(() => {
+                const v = document.getElementById('view-gerencia');
+                if (v && !v.classList.contains('hidden')) loadGerenciaHoy();
+            }, 60000);
+            try {
+                const b = await apiFetch('/api/attendance/today');
+                lastTodayBoard = b; // la misma información que Asistencia → Hoy
+                const people = b.areas.flatMap(a => a.people);
+                const PRESENT = ['presente', 'tarde', 'almuerzo', 'almuerzo_largo'];
+                const n = (fn) => people.filter(fn).length;
+                const c = {
+                    programados: people.length, presentes: n(p => PRESENT.includes(p.status)), tarde: n(p => p.status === 'tarde'),
+                    noLlego: n(p => p.status === 'no_llego'), sinCerrar: n(p => p.status === 'sin_cerrar'),
+                };
+                const devs = (b.devices || []).length;
+                const [y, m, d] = b.date.split('-');
+                const chip = (key, label, value, cls, icon) => `<button type="button" onclick="gerOpenToday('${key}')" title="Ver la lista en Asistencia → Hoy" class="text-left rounded-lg border px-3 py-2 transition hover:shadow-md hover:-translate-y-0.5 ${cls}">
+                    <p class="text-3xs font-bold uppercase opacity-80 leading-tight">${label}</p>
+                    <p class="flex items-center justify-between gap-2"><span class="text-2xl font-black leading-tight">${value}</span><i class="fa-solid ${icon} opacity-70"></i></p></button>`;
+                box.innerHTML = `
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <p class="font-bold text-slate-800 text-sm flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span> Hoy en vivo <span class="font-normal text-2xs text-slate-500">${d}/${m}/${y} · actualizado a las ${escapeHtml(b.now)}</span></p>
+                        <button type="button" onclick="gerOpenToday(null)" class="text-2xs font-semibold text-sky-700 hover:underline">Ver detalle en Asistencia → Hoy <i class="fa-solid fa-arrow-right"></i></button>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                        ${chip('programados', 'Programados hoy', c.programados, 'bg-white border-slate-200 text-slate-800', 'fa-users')}
+                        ${chip('presentes', 'Presentes', c.presentes, 'bg-emerald-50 border-emerald-200 text-emerald-800', 'fa-user-check')}
+                        ${chip('noLlego', 'No han llegado', c.noLlego, c.noLlego ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-400', 'fa-user-xmark')}
+                        ${chip('sinCerrar', 'Sin marcar salida', c.sinCerrar, c.sinCerrar ? 'bg-amber-400 border-amber-400 text-amber-950' : 'bg-white border-slate-200 text-slate-400', 'fa-door-open')}
+                        ${chip(null, 'Kioscos con problema', devs, devs ? 'bg-rose-100 border-rose-300 text-rose-800' : 'bg-white border-slate-200 text-slate-400', 'fa-tablet-screen-button')}
+                    </div>
+                    ${c.tarde ? `<p class="text-2xs text-rose-700 font-semibold mt-2"><i class="fa-solid fa-clock"></i> ${c.tarde} persona(s) llegaron tarde hoy.</p>` : ''}`;
+            } catch (e) {
+                box.innerHTML = `<p class="text-xs text-slate-400">No se pudo cargar el resumen de hoy: ${escapeHtml(e.message)}</p>`;
+            }
+        }
+        // Abre Asistencia → Hoy con la lista correspondiente desplegada.
+        function gerOpenToday(key) {
+            switchView('attendance');
+            attTodaySelectedCounter = key || null;
+            attendanceSetSubTab('today');
+        }
         function indOpenEmployee(employeeId) {
+            // Desde el Tablero gerencial se abren las alertas del colaborador en Asistencia.
+            switchView('attendance');
             document.getElementById('attAlertsFrom').value = lastIndicators ? lastIndicators.from : document.getElementById('indFrom').value;
             document.getElementById('attAlertsTo').value = lastIndicators ? lastIndicators.to : document.getElementById('indTo').value;
             document.getElementById('attAlertsType').value = '';
