@@ -6521,6 +6521,44 @@
             const h = Number(m[4]), h12 = h % 12 === 0 ? 12 : h % 12;
             return `${Number(m[3])} de ${MES[Number(m[2]) - 1]} de ${m[1]}, ${h12}:${m[5]} ${h < 12 ? 'a. m.' : 'p. m.'}`;
         }
+        // Logo de la organización para los PDF: se convierte a PNG (jsPDF no lee SVG/WEBP)
+        // y se devuelve con su proporción para encajarlo sin deformarlo.
+        let pdfLogoCache = { src: null, val: null };
+        async function pdfOrgLogo() {
+            const src = appState.companyLogo;
+            if (!src) return null;
+            if (pdfLogoCache.src === src) return pdfLogoCache.val;
+            const val = await new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    try {
+                        const nw = img.naturalWidth || 300, nh = img.naturalHeight || 150;
+                        const k = Math.min(1, 900 / Math.max(nw, nh));
+                        const c = document.createElement('canvas');
+                        c.width = Math.max(1, Math.round(nw * k)); c.height = Math.max(1, Math.round(nh * k));
+                        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+                        resolve({ data: c.toDataURL('image/png'), ratio: c.width / c.height });
+                    } catch (e) { resolve(null); }
+                };
+                img.onerror = () => resolve(null);
+                img.src = src;
+            });
+            pdfLogoCache = { src, val };
+            return val;
+        }
+        // Dibuja el logo dentro de una caja (x, y, ancho máx., alto máx.), centrado y sin deformar.
+        // Devuelve el ancho realmente usado (0 si no hay logo).
+        function pdfDrawLogo(doc, logo, x, y, maxW, maxH, withBox) {
+            if (!logo) return 0;
+            const pad = withBox ? 1.6 : 0;
+            let h = maxH - 2 * pad, w = h * logo.ratio;
+            if (w > maxW - 2 * pad) { w = maxW - 2 * pad; h = w / logo.ratio; }
+            const boxW = w + 2 * pad;
+            if (withBox) { doc.setFillColor(255, 255, 255); doc.roundedRect(x, y, boxW, maxH, 1.8, 1.8, 'F'); }
+            try { doc.addImage(logo.data, 'PNG', x + pad, y + (maxH - h) / 2, w, h); } catch (e) { return 0; }
+            return boxW;
+        }
+
         async function generatePayslips() {
             const sel = document.getElementById('payslipEmp');
             const type = sel.dataset.type;
@@ -6532,6 +6570,7 @@
             } catch (e) { showAppToast(e.message); return; }
             const all = [...(closure.snapshot.employees || [])].sort((a, b) => String(a.name).localeCompare(String(b.name)));
             const list = sel.value === '_ALL_' ? all : all.filter(e => String(e.employeeId) === sel.value);
+            const orgLogo = await pdfOrgLogo();
             if (!list.length) { showAppToast('No hay colaboradores en este cierre.'); return; }
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -6555,8 +6594,11 @@
                 let y = M;
                 // Encabezado
                 doc.setFillColor(15, 23, 42); doc.rect(0, 0, W, 30, 'F');
-                T(org, M, 13, 14, 'bold', [255, 255, 255]);
-                T(appState.orgNit ? `NIT: ${appState.orgNit}` : 'NIT: sin registrar', M, 20, 9, 'normal', [203, 213, 225]);
+                // Logo de la organización (en recuadro blanco, a la izquierda de sus datos).
+                const lw = pdfDrawLogo(doc, orgLogo, M, 5, 46, 20, true);
+                const hx = lw ? M + lw + 5 : M;
+                T(org, hx, 13, 14, 'bold', [255, 255, 255]);
+                T(appState.orgNit ? `NIT: ${appState.orgNit}` : 'NIT: sin registrar', hx, 20, 9, 'normal', [203, 213, 225]);
                 T(type === 'extras' ? 'COLILLA DE PAGO - HORAS EXTRAS' : 'COLILLA DE PAGO - RECARGOS', W - M, 13, 11, 'bold', [255, 255, 255], { align: 'right' });
                 T(`Periodo: ${pdfDate(closure.from)} al ${pdfDate(closure.to)}`, W - M, 20, 9, 'normal', [203, 213, 225], { align: 'right' });
                 T(`${closure.number ? `Cierre N° ${closure.number} · ` : ''}Aprobado el ${closedAtText(closure.closedAt)} (hora Colombia)`, W - M, 25.5, 7.5, 'normal', [148, 163, 184], { align: 'right' });
@@ -6730,15 +6772,19 @@
 
             // ---- Encabezado ----
             const title = type === 'extras' ? 'Cierre de periodo - Horas extras' : 'Cierre de periodo - Recargos nocturnos' + (closure.snapshot.includeSundayHoliday ? ' y dominicales/festivos' : '');
-            text(title, M, 15, 'bold', [15, 23, 42]);
+            // Logo de la organización a la izquierda; título y datos de la empresa a su lado.
+            const lw = pdfDrawLogo(doc, await pdfOrgLogo(), M, 5, 48, 21, false);
+            const hx = lw ? M + lw + 6 : M;
+            if (lw) { doc.setDrawColor(203, 213, 225); doc.line(hx - 3, 6, hx - 3, 25); }
+            text(title, hx, 15, 'bold', [15, 23, 42]);
             if (closure.number) {
                 doc.setFillColor(15, 23, 42); doc.roundedRect(W - M - 52, y - 6, 52, 13, 2, 2, 'F');
                 text('CIERRE N°', W - M - 26, 7, 'bold', [148, 163, 184], { align: 'center' });
                 y += 5; text(closure.number, W - M - 26, 11, 'bold', [255, 255, 255], { align: 'center' }); y -= 5;
             }
             y += 6;
-            text(org, M, 10, 'bold', [51, 65, 85]); y += 5;
-            text(appState.orgNit ? `NIT ${appState.orgNit}` : 'NIT sin registrar', M, 8.5, 'normal', [100, 116, 139]); y += 7;
+            text(org, hx, 10, 'bold', [51, 65, 85]); y += 5;
+            text(appState.orgNit ? `NIT ${appState.orgNit}` : 'NIT sin registrar', hx, 8.5, 'normal', [100, 116, 139]); y += 7;
             kv([
                 ['Periodo liquidado:', `del ${pdfDate(closure.from)} al ${pdfDate(closure.to)}`],
                 ['Estado:', closure.status === 'cerrado' ? 'Cerrado (valores congelados)' : 'Reabierto'],
@@ -8082,7 +8128,8 @@
             if (btn) btn.title = n ? `Notificaciones: ${n} nueva${n === 1 ? '' : 's'}` : 'Notificaciones';
             notifLastUnread = n;
             try { if ('setAppBadge' in navigator) { n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } } catch (e) {}
-            if (!document.getElementById('notifPanel').classList.contains('hidden')) renderNotifList();
+            const notifPanelEl = document.getElementById('notifPanel');
+            if (notifPanelEl && !notifPanelEl.classList.contains('hidden')) renderNotifList();
         }
 
         function positionNotifPanel() {
