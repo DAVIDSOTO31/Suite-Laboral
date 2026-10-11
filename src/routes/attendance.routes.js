@@ -1454,7 +1454,8 @@ function buildIncapacityEpisodes(incapDays, workKeys) {
 
 function emptyBucket(name) {
   return { name, programados: 0, asistidos: 0, ausencias: 0, ausenciasJustificadas: 0, entradas: 0, tarde: 0,
-    minutosRetraso: 0, minutosPerdidos: 0, costoPerdido: 0, extraDiurnaMin: 0, extraNocturnaMin: 0, sinCerrar: 0, manuales: 0 };
+    minutosRetraso: 0, minutosAlmuerzo: 0, minutosPerdidos: 0, costoPerdido: 0, extraDiurnaMin: 0, extraNocturnaMin: 0,
+    extraGeneradaMin: 0, descuentoSalidaMin: 0, sinCerrar: 0, manuales: 0 };
 }
 function finishBucket(b) {
   const pct = (n, d) => d ? Math.round((n / d) * 1000) / 10 : null;
@@ -1462,13 +1463,20 @@ function finishBucket(b) {
   b.ausentismoInjustificado = pct(b.ausencias - b.ausenciasJustificadas, b.programados);
   b.puntualidad = pct(b.entradas - b.tarde, b.entradas);
   b.costoPerdido = Math.round(b.costoPerdido);
+  // Horas extra NETAS: lo que realmente paga la empresa (extras generadas menos
+  // el tiempo descontado por salidas anticipadas).
   b.extraTotalMin = b.extraDiurnaMin + b.extraNocturnaMin;
   return b;
 }
 
 // Calcula los indicadores de un rango usando datos ya cargados.
-function computeIndicators(data, from, to, area, now) {
+function computeIndicators(data, from, to, area, now, withDetails = false) {
   const today = bogota.todayISOInBogota(now);
+  // Detalle de cada indicador (solo para el periodo consultado): se muestra al
+  // hacer clic en la tarjeta correspondiente.
+  const det = withDetails ? { ausencias: [], tardes: [], perdido: new Map(), extras: new Map(), sinCerrar: [], manuales: [] } : null;
+  const empRow = (map, emp, init) => { if (!map.has(emp.id)) map.set(emp.id, { employeeId: emp.id, name: emp.name, area: emp.department, ...init }); return map.get(emp.id); };
+  const mgmtOf = new Map(data.alerts.map(a => [`${a.employee_id}|${a.shift_date}|${a.alert_type}`, a.mgmt]));
   const total = emptyBucket('Total');
   const byArea = new Map();
   const bucketsFor = (emp) => {
@@ -1493,14 +1501,23 @@ function computeIndicators(data, from, to, area, now) {
     for (const b of bs) b.programados++;
     if (!d || !d.entrada_real) {
       for (const b of bs) { b.ausencias++; if (justifiedAbs.has(key)) b.ausenciasJustificadas++; }
+      if (det) det.ausencias.push({ employeeId: emp.id, name: emp.name, area: emp.department, date: s.date, turno: `${s.startTime} - ${s.endTime}`, estado: mgmtOf.get(`${emp.id}|${s.date}|inasistencia`) || 'pendiente' });
       continue;
     }
-    const lost = (d.retraso_min || 0) + (d.exceso_almuerzo_min || 0) + (d.salida_anticipada_min || 0);
+    // Tiempo perdido = solo lo que no se recupera: retrasos y exceso de almuerzo.
+    // La salida anticipada NO cuenta aqui: se descuenta de las horas extra.
+    const retraso = d.retraso_min || 0, almuerzo = d.exceso_almuerzo_min || 0;
+    const lost = retraso + almuerzo;
     for (const b of bs) {
       b.asistidos++; b.entradas++;
-      if ((d.retraso_min || 0) > 0) { b.tarde++; b.minutosRetraso += d.retraso_min; }
+      if (retraso > 0) { b.tarde++; b.minutosRetraso += retraso; }
+      b.minutosAlmuerzo += almuerzo;
       b.minutosPerdidos += lost;
       b.costoPerdido += lost * valorMinuto;
+    }
+    if (det) {
+      if (retraso > 0) det.tardes.push({ employeeId: emp.id, name: emp.name, area: emp.department, date: s.date, programada: s.startTime, real: d.entrada_real, min: retraso });
+      if (lost > 0) { const r = empRow(det.perdido, emp, { retraso: 0, almuerzo: 0, total: 0, costo: 0, dias: 0 }); r.retraso += retraso; r.almuerzo += almuerzo; r.total += lost; r.costo += lost * valorMinuto; r.dias++; }
     }
   }
   // Horas extra de los dias cerrados (saldo positivo de extra diurna + extra nocturna).
@@ -1509,7 +1526,17 @@ function computeIndicators(data, from, to, area, now) {
     if (data.dayZero && d.shift_date <= data.dayZero) continue;
     const emp = data.employees.get(d.employee_id);
     if (!emp || (area && emp.department !== area)) continue;
-    for (const b of bucketsFor(emp)) { b.extraDiurnaMin += Math.max(0, d.hed_min || 0); b.extraNocturnaMin += Math.max(0, d.hen_min || 0); }
+    // hed_min ya trae descontada la salida anticipada (puede ser negativo):
+    // asi se mide lo que la empresa realmente paga en extras.
+    const hed = d.hed_min || 0, hen = Math.max(0, d.hen_min || 0), salida = Math.max(0, d.salida_anticipada_min || 0);
+    for (const b of bucketsFor(emp)) {
+      b.extraDiurnaMin += hed; b.extraNocturnaMin += hen;
+      b.descuentoSalidaMin += salida; b.extraGeneradaMin += hed + hen + salida;
+    }
+    if (det && (hed || hen || salida)) {
+      const r = empRow(det.extras, emp, { diurna: 0, nocturna: 0, generada: 0, salida: 0, neto: 0 });
+      r.diurna += hed; r.nocturna += hen; r.salida += salida; r.generada += hed + hen + salida; r.neto += hed + hen;
+    }
   }
   for (const a of data.alerts) {
     if (a.shift_date < from || a.shift_date > to) continue;
@@ -1517,11 +1544,26 @@ function computeIndicators(data, from, to, area, now) {
     if (!emp || (area && emp.department !== area)) continue;
     if (a.alert_type === 'turno_sin_cerrar') for (const b of bucketsFor(emp)) b.sinCerrar++;
     if (a.alert_type === 'marcacion_manual') for (const b of bucketsFor(emp)) b.manuales++;
+    if (det && (a.alert_type === 'turno_sin_cerrar' || a.alert_type === 'marcacion_manual')) {
+      (a.alert_type === 'turno_sin_cerrar' ? det.sinCerrar : det.manuales).push({ employeeId: emp.id, name: emp.name, area: emp.department, date: a.shift_date, estado: a.mgmt });
+    }
   }
-  return {
+  const out = {
     total: finishBucket(total),
     areas: [...byArea.values()].map(finishBucket).sort((a, b) => a.name.localeCompare(b.name, 'es')),
   };
+  if (det) {
+    const byDate = (x, y) => y.date.localeCompare(x.date) || x.name.localeCompare(y.name, 'es');
+    out.details = {
+      ausencias: det.ausencias.sort(byDate).slice(0, 3000),
+      tardes: det.tardes.sort(byDate).slice(0, 3000),
+      perdido: [...det.perdido.values()].map(r => ({ ...r, costo: Math.round(r.costo) })).sort((x, y) => y.total - x.total),
+      extras: [...det.extras.values()].sort((x, y) => y.neto - x.neto),
+      sinCerrar: det.sinCerrar.sort(byDate).slice(0, 3000),
+      manuales: det.manuales.sort(byDate).slice(0, 3000),
+    };
+  }
+  return out;
 }
 
 // Incapacidades del periodo (dias marcados como "Incapacidad" en el cuadro de
@@ -1595,7 +1637,7 @@ function indicators(req, res, query) {
   const loadFrom = [prevFrom, months[0].from, from].sort()[0];
   const data = loadIndicatorData(orgId, loadFrom, to > today ? today : to);
 
-  const current = computeIndicators(data, from, to, area, now);
+  const current = computeIndicators(data, from, to, area, now, true);
   const previous = computeIndicators(data, prevFrom, prevTo, area, now).total;
   // Incapacidades: dias, costo y tasa (dias de incapacidad sobre dias programados + incapacidad).
   const incap = computeIncapacities(data, from, to, area, now);
@@ -1630,7 +1672,7 @@ function indicators(req, res, query) {
 
   sendJson(res, 200, {
     from, to, area, prevFrom, prevTo, dayZero: data.dayZero,
-    total: current.total, areas: current.areas, previous, trend, top: topList, areasAll,
+    total: current.total, areas: current.areas, previous, trend, top: topList, areasAll, details: current.details,
     incapacities: { total: incap.total, previous: incapPrev, employees: incap.employees },
   });
 }
