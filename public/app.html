@@ -7624,7 +7624,7 @@
                 showAppToast('No hay datos en la planilla para exportar.');
                 return;
             }
-            const header = ['Fecha', 'Colaborador', 'Área', 'Entrada', 'Salida', 'Horas Totales', 'HOD', 'HON', 'HED', 'HEN', 'Total Devengado COP'];
+            const header = ['Fecha', 'Colaborador', 'Área', 'Entrada', 'Salida', 'Horas Totales', 'Horas Ordinarias Diurnas', 'Horas con Recargo Nocturno', 'Horas Extra Diurnas', 'Horas Extra Nocturnas', 'Total Devengado COP'];
             const dataRows = activeShifts.map(s => {
                 const emp = appState.employees.find(e => e.id === s.empId) || { name: 'Operador', department: 'General' };
                 return [
