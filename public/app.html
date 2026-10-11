@@ -249,10 +249,6 @@
                     <i class="fa-solid fa-users text-emerald-600 w-5"></i>
                     <span>Colaboradores & Nómina</span>
                 </a>
-                <a href="#reports" onclick="switchView('reports')" id="nav-reports" data-perm="reports.view" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
-                    <i class="fa-solid fa-file-invoice-dollar text-purple-600 w-5"></i>
-                    <span>Informes & Certificados</span>
-                </a>
                 <a href="#dashboard" onclick="switchView('dashboard')" id="nav-dashboard" data-perm="reports.view" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
                     <i class="fa-solid fa-chart-line text-blue-600 w-5"></i>
                     <span>Dashboard General</span>
@@ -932,113 +928,6 @@
                         </div>
 
                     </div>
-                </div>
-
-            </div>
-
-            <!-- REPORTS VIEW -->
-            <div id="view-reports" class="app-view hidden space-y-6">
-                
-                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
-                    <div>
-                        <h3 class="font-bold text-slate-800 text-base">Volante Oficial de Liquidación de Recargos y Horas Extras</h3>
-                        <p class="text-xs text-slate-500">Genere el anexo formal de nómina para adjuntar al desprendible de pago del colaborador.</p>
-                        <p class="text-3xs text-amber-700 font-semibold mt-1"><i class="fa-solid fa-circle-info"></i> Este volante es una estimación desde el cuadro de turnos. Para el soporte de pago oficial usa <strong>Liquidación → periodo cerrado → Colillas de pago</strong>.</p>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <select id="reportEmpSelector" onchange="renderReportsView()" class="text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500">
-                            <!-- Dynamic Employee Options -->
-                        </select>
-                        <button onclick="window.print()" class="bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-4 py-2 rounded-lg transition flex items-center gap-2 shadow">
-                            <i class="fa-solid fa-print"></i> Imprimir Volante
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Plantilla de Impresión / Volante Formal -->
-                <div class="bg-white rounded-xl border border-slate-300 shadow-sm p-6 sm:p-8 max-w-4xl mx-auto space-y-6 text-xs text-slate-800">
-                    
-                    <div class="flex justify-between items-start border-b pb-4">
-                        <div class="flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-xl bg-slate-900 text-sky-400 font-extrabold flex items-center justify-center border border-slate-300 overflow-hidden shrink-0" id="reportCompanyLogoContainer">
-                                <img id="reportCompanyLogoImg" src="" alt="Logo Corporativo" class="w-full h-full object-cover hidden">
-                                <span id="reportCompanyLogoFallback" class="text-lg">PY</span>
-                            </div>
-                            <div class="space-y-0.5">
-                                <div class="flex items-center gap-2">
-                                    <span class="font-extrabold text-base text-slate-900 displayOrgNameLabel">Empresa Demo</span>
-                                    <span class="text-3xs bg-sky-100 text-sky-800 font-bold px-1.5 py-0.5 rounded">COLOMBIA</span>
-                                </div>
-                                <p class="text-3xs text-slate-500" id="reportOrgNit">NIT: -</p>
-                                <p class="text-3xs text-slate-500">Anexo Técnico de Liquidación de Tiempo Suplementario (CST)</p>
-                            </div>
-                        </div>
-                        <div class="text-right">
-                            <span class="text-3xs font-bold text-slate-400 block uppercase">Periodo de Liquidación:</span>
-                            <span class="font-bold text-sm text-slate-800" id="reportPeriodText">Septiembre 2026</span>
-                            <span class="text-3xs text-emerald-700 block font-semibold">Ley 2101 / Ley 2466</span>
-                        </div>
-                    </div>
-
-                    <!-- Datos del Trabajador -->
-                    <div class="grid grid-cols-2 sm:grid-cols-5 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        <div>
-                            <span class="text-3xs text-slate-400 block uppercase font-semibold">Colaborador:</span>
-                            <span class="font-bold text-slate-800 text-xs" id="reportEmpName">-</span>
-                        </div>
-                        <div>
-                            <span class="text-3xs text-slate-400 block uppercase font-semibold">Documento:</span>
-                            <span class="font-bold text-slate-800 text-xs" id="reportEmpDoc">-</span>
-                        </div>
-                        <div>
-                            <span class="text-3xs text-slate-400 block uppercase font-semibold">Cargo:</span>
-                            <span class="font-medium text-slate-700 text-xs" id="reportEmpRole">-</span>
-                        </div>
-                        <div>
-                            <span class="text-3xs text-slate-400 block uppercase font-semibold">Salario Básico:</span>
-                            <span class="font-bold text-slate-800 text-xs font-mono" id="reportEmpSalary">$0</span>
-                        </div>
-                        <div>
-                            <span class="text-3xs text-slate-400 block uppercase font-semibold">Valor Hora Ordinaria:</span>
-                            <span class="font-bold text-emerald-700 text-xs font-mono" id="reportEmpHourlyRate">$0/h</span>
-                        </div>
-                    </div>
-
-                    <!-- Tabla de Recargos -->
-                    <div class="border rounded-lg overflow-hidden">
-                        <table class="w-full text-left">
-                            <thead class="bg-slate-100 text-slate-700 border-b font-bold text-3xs uppercase tracking-wider">
-                                <tr>
-                                    <th class="p-2.5">Concepto Normativo (CST)</th>
-                                    <th class="p-2.5 text-center">Porcentaje (%)</th>
-                                    <th class="p-2.5 text-center">Horas Reportadas</th>
-                                    <th class="p-2.5 text-right">Valor Unitario Hora</th>
-                                    <th class="p-2.5 text-right">Subtotal a Pagar</th>
-                                </tr>
-                            </thead>
-                            <tbody id="reportPayrollLinesTableBody" class="divide-y divide-slate-100">
-                                <!-- Injected dynamically -->
-                            </tbody>
-                            <tfoot class="bg-slate-900 text-white font-bold">
-                                <tr>
-                                    <td colspan="4" class="p-3 text-right uppercase text-3xs tracking-wider">Total Devengado Suplementario & Recargos:</td>
-                                    <td class="p-3 text-right text-emerald-400 font-mono text-sm" id="reportGrandTotal">$0 COP</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-
-                    <div class="pt-10 grid grid-cols-2 gap-12 text-center text-3xs text-slate-500">
-                        <div class="border-t border-slate-300 pt-2">
-                            <p class="font-bold text-slate-700 displayOrgNameLabel">Empresa Demo</p>
-                            <p>Firma Autorizada RR.HH / Nómina</p>
-                        </div>
-                        <div class="border-t border-slate-300 pt-2">
-                            <p class="font-bold text-slate-700">Firma del Colaborador</p>
-                            <p>C.C. de Conformidad</p>
-                        </div>
-                    </div>
-
                 </div>
 
             </div>
@@ -5501,112 +5390,6 @@
 
 // (Módulo "Auditoría Legal CST" eliminado: los límites legales podrán agregarse luego al Tablero Gerencial.)
 
-        function renderReportsView() {
-            // Los informes y certificados usan todo el historial del colaborador.
-            if (!shiftsLoaded('0000-01-01')) {
-                ensureAllShiftsLoaded().then(renderReportsView).catch(e => showAppToast('No se pudo cargar el historial: ' + e.message));
-                return;
-            }
-            const selector = document.getElementById('reportEmpSelector');
-            if (!selector) return;
-            selector.innerHTML = '';
-
-            if (appState.employees.length === 0) {
-                let opt = document.createElement('option');
-                opt.value = "";
-                opt.innerText = "No hay colaboradores";
-                selector.appendChild(opt);
-                return;
-            }
-
-            appState.employees.forEach(e => {
-                let opt = document.createElement('option');
-                opt.value = e.id;
-                opt.innerText = `${e.name} (${e.role})`;
-                if (e.id === appState.selectedEmpId) opt.selected = true;
-                selector.appendChild(opt);
-            });
-
-            let empId = parseInt(selector.value) || appState.employees[0].id;
-            let emp = appState.employees.find(e => e.id === empId);
-
-            if (!emp) return;
-
-            let hourlyRate = emp.salary / appState.settings.monthlyHoursDivider;
-
-            setSafeText('reportEmpName', emp.name);
-            setSafeText('reportEmpDoc', docLabel(emp) || 'Sin registrar');
-            setSafeText('reportOrgNit', appState.orgNit ? `NIT: ${appState.orgNit}` : 'NIT: sin registrar');
-            setSafeText('reportEmpRole', `${emp.role} • ${emp.department || 'Cocina'}`);
-            setSafeText('reportEmpSalary', `$${emp.salary.toLocaleString('es-CO')} COP`);
-            setSafeText('reportEmpHourlyRate', `$${Math.round(hourlyRate).toLocaleString('es-CO')}/h`);
-
-            let empShifts = appState.shifts.filter(s => s.empId === emp.id && !s.isOffDay);
-
-            let totalHOD = 0, totalHON = 0, totalHED = 0, totalHEN = 0, totalDOM = 0;
-            let totalHonPay = 0, totalHedPay = 0, totalHenPay = 0, totalDomPay = 0;
-
-            empShifts.forEach(s => {
-                totalHOD += s.res.hod;
-                totalHON += s.res.hon;
-                totalHED += s.res.hed + s.res.hedd;
-                totalHEN += s.res.hen + s.res.hend;
-                totalHonPay += s.res.honSurcharge;
-                totalHedPay += s.res.hedTotalPay;
-                totalHenPay += s.res.henTotalPay;
-                if (s.res.isSunday) {
-                    totalDOM += (s.res.hod + s.res.hon);
-                    totalDomPay += s.res.domOrdinarySurcharge;
-                }
-            });
-
-            const tbody = document.getElementById('reportPayrollLinesTableBody');
-            if (tbody) {
-                tbody.innerHTML = `
-                    <tr>
-                        <td class="p-2.5 font-bold text-slate-800">Horas Ordinarias Diurnas (HOD)</td>
-                        <td class="p-2.5 text-center font-mono">100%</td>
-                        <td class="p-2.5 text-center font-bold font-mono">${totalHOD.toFixed(2)} h</td>
-                        <td class="p-2.5 text-right font-mono">$${Math.round(hourlyRate).toLocaleString('es-CO')}</td>
-                        <td class="p-2.5 text-right font-mono text-slate-800">$${Math.round(totalHOD * hourlyRate).toLocaleString('es-CO')}</td>
-                    </tr>
-                    <tr class="bg-purple-50/40">
-                        <td class="p-2.5 font-bold text-purple-950">Recargo Nocturno Ordinario (HON)</td>
-                        <td class="p-2.5 text-center font-mono">+35%</td>
-                        <td class="p-2.5 text-center font-bold font-mono text-purple-900">${totalHON.toFixed(2)} h</td>
-                        <td class="p-2.5 text-right font-mono">$${Math.round(hourlyRate * 0.35).toLocaleString('es-CO')}</td>
-                        <td class="p-2.5 text-right font-mono text-purple-900 font-bold">$${Math.round(totalHonPay).toLocaleString('es-CO')}</td>
-                    </tr>
-                    <tr class="bg-amber-50/40">
-                        <td class="p-2.5 font-bold text-amber-950">Horas Extras Diurnas (HED)</td>
-                        <td class="p-2.5 text-center font-mono">+25%</td>
-                        <td class="p-2.5 text-center font-bold font-mono text-amber-900">${totalHED.toFixed(2)} h</td>
-                        <td class="p-2.5 text-right font-mono">$${Math.round(hourlyRate * 1.25).toLocaleString('es-CO')}</td>
-                        <td class="p-2.5 text-right font-mono text-amber-900 font-bold">$${Math.round(totalHedPay).toLocaleString('es-CO')}</td>
-                    </tr>
-                    <tr class="bg-rose-50/40">
-                        <td class="p-2.5 font-bold text-rose-950">Horas Extras Nocturnas (HEN)</td>
-                        <td class="p-2.5 text-center font-mono">+75%</td>
-                        <td class="p-2.5 text-center font-bold font-mono text-rose-900">${totalHEN.toFixed(2)} h</td>
-                        <td class="p-2.5 text-right font-mono">$${Math.round(hourlyRate * 1.75).toLocaleString('es-CO')}</td>
-                        <td class="p-2.5 text-right font-mono text-rose-900 font-bold">$${Math.round(totalHenPay).toLocaleString('es-CO')}</td>
-                    </tr>
-                    ${totalDOM > 0 ? `
-                    <tr class="bg-blue-50/40">
-                        <td class="p-2.5 font-bold text-blue-950">Recargo Dominical / Festivo</td>
-                        <td class="p-2.5 text-center font-mono">+${Math.round(appState.settings.percDOM * 100)}%</td>
-                        <td class="p-2.5 text-center font-bold font-mono text-blue-900">${totalDOM.toFixed(2)} h</td>
-                        <td class="p-2.5 text-right font-mono">$${Math.round(hourlyRate * appState.settings.percDOM).toLocaleString('es-CO')}</td>
-                        <td class="p-2.5 text-right font-mono text-blue-900 font-bold">$${Math.round(totalDomPay).toLocaleString('es-CO')}</td>
-                    </tr>
-                    ` : ''}
-                `;
-            }
-
-            let grandTotal = (totalHOD * hourlyRate) + totalHonPay + totalHedPay + totalHenPay + totalDomPay;
-            setSafeText('reportGrandTotal', `$${Math.round(grandTotal).toLocaleString('es-CO')} COP`);
-        }
-
         // ============================================================
         // MÓDULO: Liquidación de Horas Extras y Recargos Nocturnos
         // ============================================================
@@ -7928,7 +7711,6 @@
                 shifts: 'Planilla & Cuadre Semanal',
                 payrollot: 'Liquidación de Extras & Recargos',
                 mine: 'Mi horario y marcaciones',
-                reports: 'Informes & Certificados',
                 orgadmin: 'Usuarios & Seguridad',
                 attendance: 'Asistencia',
                 gerencia: 'Tablero Gerencial'
@@ -7943,7 +7725,6 @@
                 renderShiftsView();
             }
             if (viewId === 'payrollot') renderPayrollOvertimeView();
-            if (viewId === 'reports') renderReportsView();
             if (viewId === 'orgadmin') loadOrgAdminPanel();
             if (viewId === 'attendance') initAttendanceView();
             if (viewId === 'mine') renderMyView();
