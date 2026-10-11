@@ -150,6 +150,8 @@ route('POST', '/api/attendance/alerts/:id/manage', [requirePermission('attendanc
 route('GET', '/api/attendance/alerts/:id/attachment', [requirePermission('attendance.view_alerts')], (req, res, params) => attendance.getAlertAttachment(req, res, params));
 // Indicadores de asistencia (gerencia) y resumen diario por correo.
 route('GET', '/api/attendance/indicators', [requirePermission('attendance.view_alerts')], (req, res, params, query) => attendance.indicators(req, res, query));
+route('GET', '/api/attendance/indicator-goals', [requirePermission('attendance.view')], (req, res, params, query) => attendance.getIndicatorGoalsRoute(req, res, query));
+route('PUT', '/api/attendance/indicator-goals', [requirePermission('settings.manage')], (req, res) => attendance.saveIndicatorGoals(req, res));
 route('GET', '/api/attendance/digest-settings', [requirePermission('settings.manage')], (req, res, params, query) => attendance.getDigestSettingsRoute(req, res, query));
 route('PUT', '/api/attendance/digest-settings', [requirePermission('settings.manage')], (req, res) => attendance.saveDigestSettings(req, res));
 route('POST', '/api/attendance/digest-test', [requirePermission('settings.manage')], (req, res) => attendance.sendDigestTest(req, res));
