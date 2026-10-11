@@ -175,6 +175,12 @@ function describeAudit(row, ctx = {}) {
     case 'org_data.ignored': return out('Configuración', 'Cambios no permitidos', 'Intentó guardar cambios que su rol no permite; no se aplicaron.', m.ignorados || []);
     case 'org_data.sync': return out('Configuración', 'Guardado (registro anterior)', 'Guardó cambios en colaboradores y turnos (registro anterior, sin detalle).');
 
+    case 'attendance.indicator_goals': {
+      const N = { ausentismoMax: 'Ausentismo máximo (%)', puntualidadMin: 'Puntualidad mínima (%)', perdidoMaxPorTurno: 'Tiempo perdido máx. por turno (min)', extrasValorMaxMes: 'Valor de horas extra máx. por mes ($)', sinCerrarMaxPct: 'Turnos sin cerrar máx. (%)', manualesMaxPct: 'Marcaciones manuales máx. (%)' };
+      const a = m.antes || {}, b = m.despues || {};
+      const d = Object.keys(N).filter(k => String(a[k] ?? '') !== String(b[k] ?? '')).map(k => `${N[k]}: ${a[k] ?? 'sin meta'} → ${b[k] ?? 'sin meta'}`);
+      return out('Configuración', 'Metas de indicadores', d.length ? `Cambió las metas de los indicadores (${d.length}).` : 'Guardó las metas de los indicadores sin cambios.', d);
+    }
     // ---------------- Super Admin ----------------
     case 'organization.create': case 'organization.update': case 'organization.delete':
     case 'organization.activate': case 'organization.deactivate': {
