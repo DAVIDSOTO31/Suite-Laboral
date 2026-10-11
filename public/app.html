@@ -249,10 +249,6 @@
                     <i class="fa-solid fa-users text-emerald-600 w-5"></i>
                     <span>Colaboradores & Nómina</span>
                 </a>
-                <a href="#dashboard" onclick="switchView('dashboard')" id="nav-dashboard" data-perm="reports.view" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
-                    <i class="fa-solid fa-chart-line text-blue-600 w-5"></i>
-                    <span>Dashboard General</span>
-                </a>
                 <a href="#orgadmin" onclick="switchView('orgadmin')" id="nav-orgadmin" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition hidden">
                     <i class="fa-solid fa-user-shield text-sky-700 w-5"></i>
                     <span>Usuarios & Seguridad</span>
@@ -680,131 +676,6 @@
                                 </tbody>
                             </table>
                         </div>
-                    </div>
-                </div>
-
-            </div>
-
-            <!-- DASHBOARD VIEW -->
-            <div id="view-dashboard" class="app-view hidden space-y-6">
-                
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div class="bg-white p-5 rounded-xl border border-slate-200/80 shadow-sm relative overflow-hidden">
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <span class="text-2xs font-bold uppercase tracking-wider text-slate-500">Costo Nómina del Mes</span>
-                                <h3 class="text-2xl font-black text-slate-800 mt-1" id="kpiMonthPayroll">$0</h3>
-                            </div>
-                            <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-base border border-emerald-100">
-                                <i class="fa-solid fa-money-bill-trend-up"></i>
-                            </div>
-                        </div>
-                        <div class="mt-3 flex items-center gap-2 text-xs text-emerald-700">
-                            <span class="font-bold flex items-center gap-1"><i class="fa-solid fa-check"></i> Activo</span>
-                            <span class="text-slate-400">Turnos liquidados</span>
-                        </div>
-                    </div>
-
-                    <div class="bg-white p-5 rounded-xl border border-slate-200/80 shadow-sm relative overflow-hidden">
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <span class="text-2xs font-bold uppercase tracking-wider text-slate-500">Costo Recargos & Extras</span>
-                                <h3 class="text-2xl font-black text-amber-600 mt-1" id="kpiSurchargesTotal">$0</h3>
-                            </div>
-                            <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-base border border-amber-100">
-                                <i class="fa-solid fa-bolt"></i>
-                            </div>
-                        </div>
-                        <div class="mt-3 flex items-center gap-2 text-xs text-amber-700">
-                            <span class="font-bold" id="kpiSurchargesRatio">0%</span>
-                            <span class="text-slate-400">del total devengado</span>
-                        </div>
-                    </div>
-
-                    <div class="bg-white p-5 rounded-xl border border-slate-200/80 shadow-sm relative overflow-hidden">
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <span class="text-2xs font-bold uppercase tracking-wider text-slate-500">Total Horas Trabajadas</span>
-                                <h3 class="text-2xl font-black text-sky-700 mt-1" id="kpiTotalHours">0 h</h3>
-                            </div>
-                            <div class="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center text-base border border-sky-100">
-                                <i class="fa-solid fa-clock"></i>
-                            </div>
-                        </div>
-                        <div class="mt-3 flex items-center gap-2 text-xs text-sky-700">
-                            <span class="font-bold" id="kpiNightOvertimeHours">0 h</span>
-                            <span class="text-slate-400">en horario nocturno</span>
-                        </div>
-                    </div>
-
-                    <div class="bg-white p-5 rounded-xl border border-slate-200/80 shadow-sm relative overflow-hidden">
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <span class="text-2xs font-bold uppercase tracking-wider text-slate-500">Colaboradores Activos</span>
-                                <h3 class="text-2xl font-black text-slate-800 mt-1" id="kpiActiveEmployees">0</h3>
-                            </div>
-                            <div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-base border border-indigo-100">
-                                <i class="fa-solid fa-users"></i>
-                            </div>
-                        </div>
-                        <div class="mt-3 flex items-center gap-2 text-xs text-slate-500">
-                            <span class="font-bold text-indigo-600" id="kpiAvgHoursPerEmp">0 h</span>
-                            <span class="text-slate-400">promedio por operario</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Charts Section -->
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-                        <div class="flex justify-between items-center mb-4">
-                            <h4 class="font-bold text-xs uppercase tracking-wider text-slate-600">Distribución de Horas</h4>
-                            <span class="text-2xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-semibold">CST</span>
-                        </div>
-                        <div class="relative h-64 flex items-center justify-center">
-                            <canvas id="chartHoursDist"></canvas>
-                        </div>
-                        <p class="text-2xs text-slate-400 text-center mt-3">Segmentación: Ordinarias, Recargo Nocturno, Extras y Dominicales.</p>
-                    </div>
-
-                    <div class="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                        <div class="flex justify-between items-center mb-4">
-                            <h4 class="font-bold text-xs uppercase tracking-wider text-slate-600">Composición de Costos ($ COP)</h4>
-                            <span class="text-xs text-emerald-600 font-bold">Liquidación Estimada</span>
-                        </div>
-                        <div class="relative h-64">
-                            <canvas id="chartCostsBreakdown"></canvas>
-                        </div>
-                        <div class="flex justify-between items-center text-2xs text-slate-400 mt-3 pt-2 border-t">
-                            <span>Base: Sueldo Ordinario Proporcional</span>
-                            <span>Recargos: Art. 168 & 179 CST</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Resumen de Últimos Turnos -->
-                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
-                    <div class="flex justify-between items-center">
-                        <h4 class="font-bold text-xs uppercase tracking-wider text-slate-600 flex items-center gap-2">
-                            <i class="fa-solid fa-clock-rotate-left text-sky-600"></i>
-                            Últimos Turnos Reportados
-                        </h4>
-                        <button onclick="switchView('shifts')" class="text-xs text-sky-600 font-bold hover:underline">Planilla completa</button>
-                    </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left text-xs">
-                            <thead>
-                                <tr class="border-b text-slate-400 font-semibold">
-                                    <th class="py-2">Fecha</th>
-                                    <th class="py-2">Colaborador</th>
-                                    <th class="py-2 text-center">Horas</th>
-                                    <th class="py-2 text-right">Devengado</th>
-                                </tr>
-                            </thead>
-                            <tbody id="dashboardRecentShiftsBody" class="divide-y divide-slate-100">
-                                <!-- Injected dynamically -->
-                            </tbody>
-                        </table>
                     </div>
                 </div>
 
@@ -2519,8 +2390,6 @@
 
         let CURRENT_USER = null; // poblado por appBootstrap() tras validar la sesión
 
-        let chartHoursDist = null;
-        let chartCostsBreakdown = null;
         let currentShiftsSubTab = 'weekly';
 
         // Exact order required: Cocina, Restaurante, Hotel, Mantenimiento/Jardineria, Recepción/Admin
@@ -3524,7 +3393,6 @@
             }
             rcUndo = [{ empId: emp.id, date: s0.date, prev: prevSrc }, { empId: emp.id, date: t0.date, prev: prevTgt }];
             renderWeeklyRoster();
-            updateDashboardMetrics();
             renderSelectedEmployeeLedger();
             const dn = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric' });
             rcShowUndoBar(`Descanso de ${emp.name} movido al ${dn(t0.date)}${prevTgt && !prevTgt.isOffDay ? `; su turno pasó al ${dn(s0.date)}` : ''}.`);
@@ -3548,7 +3416,6 @@
             if (!changes.length) { if (skipped) showAppToast('No se copió: esos días tienen vacaciones/incapacidad o son posteriores al retiro.'); return; }
             rcUndo = changes;
             renderWeeklyRoster();
-            updateDashboardMetrics();
             renderSelectedEmployeeLedger();
             rcShowUndoBar(`Turno ${shiftTimeLabel(src)} copiado en ${changes.length} día(s)${skipped ? ` · ${skipped} omitido(s) por ausencia o retiro` : ''}.`);
         }
@@ -3574,7 +3441,6 @@
             rcUndo = null;
             const bar = document.getElementById('rcUndoBar'); if (bar) bar.classList.add('hidden');
             renderWeeklyRoster();
-            updateDashboardMetrics();
             renderSelectedEmployeeLedger();
             showAppToast('Copia deshecha.');
         }
@@ -3627,7 +3493,6 @@
                 else if (sh.note) { delete sh.note; showAppToast(`Nota quitada a ${empName}.`); }
                 else { showAppToast('Escribe la nota en la casilla "Nota del día".'); return; }
                 renderWeeklyRoster();
-                updateDashboardMetrics();
                 renderSelectedEmployeeLedger();
                 return;
             }
@@ -3654,7 +3519,6 @@
                 });
                 showAppToast(`Día marcado como descanso para ${empName}.`);
                 renderWeeklyRoster();
-                updateDashboardMetrics();
                 renderSelectedEmployeeLedger();
                 return;
             }
@@ -3667,7 +3531,6 @@
                 appState.shifts.push(abs);
                 showAppToast(`${a.label} asignado a ${empName}.`);
                 renderWeeklyRoster();
-                updateDashboardMetrics();
                 renderSelectedEmployeeLedger();
                 return;
             }
@@ -3684,7 +3547,6 @@
 
                 showAppToast(`Turno ${presetDisplayName(preset)} asignado a ${empName}${brushNote ? ' con nota' : ''}.`);
                 renderWeeklyRoster();
-                updateDashboardMetrics();
                 renderSelectedEmployeeLedger();
             } else {
                 openRosterQuickAssignModal(empId, dateISO, empName, dateFormatted);
@@ -3798,7 +3660,6 @@
             closeModal('modalRosterQuickAssign');
             showAppToast(`Turno ${presetDisplayName(preset)} asignado.`);
             renderWeeklyRoster();
-            updateDashboardMetrics();
             renderSelectedEmployeeLedger();
         }
 
@@ -3849,7 +3710,7 @@
                 if (sh) { if (n) sh.note = n; else delete sh.note; }
                 closeModal('modalRosterQuickAssign');
                 showAppToast('Nota del día guardada (el horario está bloqueado porque ya marcó entrada).');
-                renderWeeklyRoster(); updateDashboardMetrics(); renderSelectedEmployeeLedger();
+                renderWeeklyRoster(); renderSelectedEmployeeLedger();
                 return;
             }
             if (lockMode === 'split') {
@@ -3919,7 +3780,6 @@
             showAppToast(repeated ? `Turno asignado a ${emp.name} en ${repeated + 1} días${skipped ? ` (${skipped} día(s) con ausencia no se tocaron)` : ''}.` : `Turno asignado a ${emp.name}.`);
 
             renderWeeklyRoster();
-            updateDashboardMetrics();
             renderSelectedEmployeeLedger();
         }
 
@@ -3952,7 +3812,6 @@
             showAppToast('Día marcado como descanso.');
 
             renderWeeklyRoster();
-            updateDashboardMetrics();
             renderSelectedEmployeeLedger();
         }
 
@@ -4379,7 +4238,6 @@
             document.getElementById('newEmpDocNumber').value = '';
             renderEmployeesView();
             renderWeeklyRoster();
-            updateDashboardMetrics();
         }
 
         function resetSelectedEmployeeDetails() {
@@ -4897,7 +4755,6 @@
             recomputeShiftsForEmployee(emp.id);
             renderEmployeesView();
             renderWeeklyRoster();
-            updateDashboardMetrics();
         }
 
         // ---- Retiro de colaboradores ----
@@ -4946,7 +4803,7 @@
                 appState.shifts = appState.shifts.filter(s => !(Number(s.empId) === id && s.date > r.retiredAt));
                 closeModal('modalRetireEmp');
                 showAppToast(`${emp ? emp.name : 'Colaborador'} quedó retirado. Su historial se conserva${r.shiftsRemoved ? `; se quitaron ${r.shiftsRemoved} turno(s) posteriores` : ''}.`);
-                renderEmployeesView(); renderWeeklyRoster(); updateDashboardMetrics();
+                renderEmployeesView(); renderWeeklyRoster();
             } catch (e) { showAppToast(e.message); }
             finally { btn.disabled = false; }
         }
@@ -4958,7 +4815,7 @@
                 if (rr.dataVersion != null) appState.dataVersion = Number(rr.dataVersion);
                 emp.status = 'activo'; emp.retiredAt = null; emp.retireReason = null; emp.retireDetail = null;
                 showAppToast(`${emp.name} fue reintegrado.`);
-                renderEmployeesView(); renderWeeklyRoster(); updateDashboardMetrics();
+                renderEmployeesView(); renderWeeklyRoster();
             } catch (e) { showAppToast(e.message); }
         }
         async function deleteEmployeePermanent() {
@@ -4973,7 +4830,7 @@
                 if (appState.selectedEmpId === id) appState.selectedEmpId = (activeEmployees()[0] || {}).id || null;
                 closeModal('modalRetireEmp');
                 showAppToast(`Ficha de ${emp.name} eliminada.`);
-                renderEmployeesView(); renderWeeklyRoster(); updateDashboardMetrics();
+                renderEmployeesView(); renderWeeklyRoster();
             } catch (e) { showAppToast(e.message); }
         }
 
@@ -5138,7 +4995,6 @@
             showAppToast(`Turno registrado para ${emp.name}`);
             renderWeeklyRoster();
             renderMasterShiftsTable();
-            updateDashboardMetrics();
             renderSelectedEmployeeLedger();
         }
 
@@ -5177,7 +5033,6 @@
             });
 
             showAppToast(`Turno guardado en planilla para ${emp.name}`);
-            updateDashboardMetrics();
             renderWeeklyRoster();
             renderMasterShiftsTable();
             renderSelectedEmployeeLedger();
@@ -5193,7 +5048,6 @@
             renderWeeklyRoster();
             renderMasterShiftsTable();
             renderSelectedEmployeeLedger();
-            updateDashboardMetrics();
         }
 
         function clearAllShifts() {
@@ -5212,7 +5066,6 @@
             renderWeeklyRoster();
             renderMasterShiftsTable();
             renderSelectedEmployeeLedger();
-            updateDashboardMetrics();
         }
 
         function runLiveSimulation() {
@@ -6462,7 +6315,7 @@
             }
             closeModal('modalCopyWeek');
             showAppToast(`${copied} turno(s) copiados${skipped ? `; ${skipped} día(s) ya tenían turno y se respetaron` : ''}. Quedan en borrador hasta publicar.`);
-            renderWeeklyRoster(); updateDashboardMetrics();
+            renderWeeklyRoster();
         }
 
         // ---- Rotaciones ----
@@ -6571,7 +6424,7 @@
             });
             closeModal('modalRotation');
             showAppToast(`Rotación aplicada: ${assigned} turno(s) asignados a ${ids.length} colaborador(es)${kept ? `; ${kept} día(s) se respetaron` : ''}. Quedan en borrador hasta publicar.`);
-            renderWeeklyRoster(); updateDashboardMetrics();
+            renderWeeklyRoster();
         }
 
         // ---- Historial de cambios en turnos publicados ----
@@ -7415,126 +7268,6 @@
             }
         }
 
-        function updateDashboardMetrics() {
-            let totalPayrollCost = 0;
-            let totalSurcharges = 0;
-            let totalHoursWorked = 0;
-            let totalNightHours = 0;
-
-            appState.shifts.forEach(s => {
-                if (!s.isOffDay && s.res) {
-                    totalPayrollCost += s.res.totalPay || 0;
-                    totalSurcharges += s.res.totalSurcharges || 0;
-                    totalHoursWorked += s.res.totalHours || 0;
-                    totalNightHours += (s.res.hon || 0) + (s.res.hen || 0) + (s.res.hend || 0);
-                }
-            });
-
-            let activeCount = activeEmployees().length;
-            let avgHours = activeCount > 0 ? (totalHoursWorked / activeCount) : 0;
-            let surchargeRatio = totalPayrollCost > 0 ? ((totalSurcharges / totalPayrollCost) * 100) : 0;
-
-            setSafeText('kpiMonthPayroll', `$${Math.round(totalPayrollCost).toLocaleString('es-CO')}`);
-            setSafeText('kpiSurchargesTotal', `$${Math.round(totalSurcharges).toLocaleString('es-CO')}`);
-            setSafeText('kpiSurchargesRatio', `${surchargeRatio.toFixed(1)}%`);
-            setSafeText('kpiTotalHours', `${totalHoursWorked.toFixed(2)} h`);
-            setSafeText('kpiNightOvertimeHours', `${totalNightHours.toFixed(2)} h`);
-            setSafeText('kpiActiveEmployees', activeCount);
-            setSafeText('kpiAvgHoursPerEmp', `${avgHours.toFixed(2)} h`);
-
-            const recentBody = document.getElementById('dashboardRecentShiftsBody');
-            if (recentBody) {
-                recentBody.innerHTML = '';
-                let recentShifts = appState.shifts.filter(s => !s.isOffDay).slice(-5).reverse();
-
-                if (recentShifts.length === 0) {
-                    recentBody.innerHTML = `<tr><td colspan="4" class="py-4 text-center text-slate-400">Sin turnos reportados.</td></tr>`;
-                } else {
-                    recentShifts.forEach(s => {
-                        let emp = appState.employees.find(e => e.id === s.empId) || { name: 'Operador' };
-                        let tr = document.createElement('tr');
-                        tr.className = 'hover:bg-slate-50';
-                        tr.innerHTML = `
-                            <td class="py-2 text-slate-500 font-mono">${s.date}</td>
-                            <td class="py-2 font-bold text-slate-800">${emp.name}</td>
-                            <td class="py-2 text-center font-mono font-bold">${(s.res?.totalHours || 0).toFixed(2)}h</td>
-                            <td class="py-2 text-right font-mono text-emerald-600 font-bold">$${Math.round(s.res?.totalPay || 0).toLocaleString('es-CO')}</td>
-                        `;
-                        recentBody.appendChild(tr);
-                    });
-                }
-            }
-
-            renderDashboardCharts();
-        }
-
-        function renderDashboardCharts() {
-            let totHod = 0, totHon = 0, totHed = 0, totHen = 0;
-            let basePay = 0, surchargesPay = 0;
-
-            appState.shifts.forEach(s => {
-                if (!s.isOffDay) {
-                    totHod += s.res.hod;
-                    totHon += s.res.hon;
-                    totHed += s.res.hed + s.res.hedd;
-                    totHen += s.res.hen + s.res.hend;
-                    basePay += s.res.baseOrdinaryPay;
-                    surchargesPay += s.res.totalSurcharges;
-                }
-            });
-
-            const ctx1 = document.getElementById('chartHoursDist')?.getContext('2d');
-            if (ctx1) {
-                if (chartHoursDist) chartHoursDist.destroy();
-                chartHoursDist = new Chart(ctx1, {
-                    type: 'doughnut',
-                    data: {
-                        labels: ['Ord. Diurna (HOD)', 'Rec. Nocturno (HON)', 'Extra Diurna (HED)', 'Extra Noct. (HEN)'],
-                        datasets: [{
-                            data: [totHod || 1, totHon, totHed, totHen],
-                            backgroundColor: ['#10b981', '#9333ea', '#f59e0b', '#f43f5e'],
-                            borderWidth: 2,
-                            borderColor: '#ffffff'
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } }
-                        }
-                    }
-                });
-            }
-
-            const ctx2 = document.getElementById('chartCostsBreakdown')?.getContext('2d');
-            if (ctx2) {
-                if (chartCostsBreakdown) chartCostsBreakdown.destroy();
-                chartCostsBreakdown = new Chart(ctx2, {
-                    type: 'bar',
-                    data: {
-                        labels: ['Sueldo Base Proporcional', 'Recargos & Suplementario'],
-                        datasets: [{
-                            label: 'Monto ($ COP)',
-                            data: [basePay, surchargesPay],
-                            backgroundColor: ['#0284c7', '#d97706'],
-                            borderRadius: 8
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: { display: false }
-                        },
-                        scales: {
-                            y: { beginAtZero: true }
-                        }
-                    }
-                });
-            }
-        }
-
         function getMondayOfDate(d) {
             const date = new Date(d);
             const day = date.getDay();
@@ -7705,7 +7438,6 @@
             }
 
             const titles = {
-                dashboard: 'Dashboard General',
                 express: 'Calculador de Turno Express',
                 employees: 'Colaboradores & Nómina',
                 shifts: 'Planilla & Cuadre Semanal',
@@ -7717,7 +7449,6 @@
             };
             document.getElementById('breadcrumbCurrent').innerText = titles[viewId] || 'Módulo';
 
-            if (viewId === 'dashboard') updateDashboardMetrics();
             if (viewId === 'employees') renderEmployeesView();
             if (viewId === 'shifts') {
                 // Al entrar al módulo siempre se muestra la semana actual.
@@ -7781,7 +7512,6 @@
             closeModal('modalSettings');
             showAppToast('Parámetros normativos actualizados.');
             renderWeeklyRoster();
-            updateDashboardMetrics();
             runLiveSimulation();
         }
 
@@ -7882,7 +7612,6 @@
             renderEmployeesView();
             renderWeeklyRoster();
             renderMasterShiftsTable();
-            updateDashboardMetrics();
             runLiveSimulation();
         }
 
