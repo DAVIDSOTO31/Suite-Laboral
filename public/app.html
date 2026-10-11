@@ -8958,6 +8958,7 @@
         const fmtPct = (v) => v == null ? '—' : `${Number(v).toLocaleString('es-CO', { maximumFractionDigits: 1 })} %`;
         const fmtMins = (m) => formatHM((Number(m) || 0) / 60);
         const fmtMinsS = (m) => formatHMSigned((Number(m) || 0) / 60); // con signo (extras netas pueden quedar negativas)
+        const fmtHorasDec = (m) => `${((Number(m) || 0) / 60).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/^[−‐-]/, '-')} h`; // minutos -> horas con decimales
         const moneyS = (v) => { const n = Math.round(Number(v) || 0); return (n < 0 ? '−' : '') + pdfMoney(Math.abs(n)); }; // pesos con signo
         // ---- Metas (semáforo) ----
         const IND_GOAL_KEYS = ['ausentismoMax', 'puntualidadMin', 'perdidoMaxPorTurno', 'extrasValorMaxMes', 'costoMaxMes', 'sinCerrarMaxPct', 'manualesMaxPct'];
@@ -9072,11 +9073,11 @@
             const diff = Math.round((cur - prev) * 10) / 10;
             if (diff === 0) return `<span class="text-slate-500">= Igual que el periodo anterior (${fmt(prev)})</span>`;
             const up = diff > 0;
-            const good = betterWhen === 'none' ? null : (betterWhen === 'up' ? up : !up);
-            const cls = good == null ? 'text-slate-600' : good ? 'text-emerald-700' : 'text-rose-700';
-            const word = good == null ? '' : good ? ' · mejoró' : ' · empeoró';
-            const amount = unitLabel === ' min' ? fmtMins(Math.abs(diff)) : unitLabel === '$' ? pdfMoney(Math.abs(diff)) : `${Math.abs(diff).toLocaleString('es-CO', { maximumFractionDigits: 1 })}${unitLabel}`;
-            return `<span class="${cls} font-semibold">${up ? '▲' : '▼'} ${amount}${word}</span> <span class="text-slate-400">vs. ${fmt(prev)}</span>`;
+            // Verde = el cambio es favorable para ese indicador; rojo = desfavorable.
+            const good = betterWhen === 'up' ? up : !up;
+            const cls = good ? 'text-emerald-700' : 'text-rose-700';
+            const amount = unitLabel === ' min' ? fmtMins(Math.abs(diff)) : unitLabel === ' h' ? fmtHorasDec(Math.abs(diff)) : unitLabel === '$' ? pdfMoney(Math.abs(diff)) : `${Math.abs(diff).toLocaleString('es-CO', { maximumFractionDigits: 1 })}${unitLabel}`;
+            return `<span class="${cls} font-semibold">${up ? '▲ Subió' : '▼ Bajó'} ${amount}</span> <span class="text-slate-400">vs. ${fmt(prev)}</span>`;
         }
         function renderIndicators(d) {
             const t = d.total, p = d.previous;
@@ -9112,13 +9113,13 @@
                     indDelta(t.minutosPerdidos, p.minutosPerdidos, 'down', minsFmt, ' min')),
                 card('Horas extra (netas)', 'fa-business-time', fmtMinsS(t.extraTotalMin),
                     `≈ <strong>${pdfMoney(t.valorExtras || 0)}</strong> pagados · generadas ${hFmt(t.extraGeneradaMin || 0)} − salidas anticipadas ${hFmt(t.descuentoSalidaMin || 0)} · Diurnas ${fmtMinsS(t.extraDiurnaMin)} · Nocturnas ${hFmt(t.extraNocturnaMin)}`,
-                    indDelta(t.extraTotalMin, p.extraTotalMin, 'none', fmtMinsS, ' min')),
+                    indDelta(t.extraTotalMin, p.extraTotalMin, 'down', fmtMinsS, ' min')),
                 card('Costo de extras y recargos', 'fa-sack-dollar', `<span class="${(t.costoTotal || 0) < 0 ? 'text-rose-700' : ''}">${moneyS(t.costoTotal)}</span>`,
                     `<span class="grid grid-cols-1 gap-0.5 mt-0.5">
-                        <span class="flex justify-between gap-2"><span>Recargo nocturno <span class="text-slate-400">(${fmtMins(t.recargoNocturnoMin)})</span></span><strong class="text-slate-700">${moneyS(t.costoRecargo)}</strong></span>
-                        <span class="flex justify-between gap-2"><span>Extras diurnas netas <span class="text-slate-400">(${fmtMinsS(t.extraDiurnaMin)})</span></span><strong class="${(t.costoExtraDiurna || 0) < 0 ? 'text-rose-700' : 'text-slate-700'}">${moneyS(t.costoExtraDiurna)}</strong></span>
-                        <span class="flex justify-between gap-2"><span>Extras nocturnas <span class="text-slate-400">(${fmtMins(t.extraNocturnaMin)})</span></span><strong class="text-slate-700">${moneyS(t.costoExtraNocturna)}</strong></span>
-                        ${t.costoSalida ? `<span class="text-3xs text-rose-700">Ya descontadas salidas anticipadas: −${pdfMoney(t.costoSalida)} (${fmtMins(t.descuentoSalidaMin)})</span>` : ''}
+                        <span class="flex justify-between gap-2"><span>Recargo nocturno <span class="text-slate-400">(${fmtHorasDec(t.recargoNocturnoMin)})</span></span><strong class="text-slate-700">${moneyS(t.costoRecargo)}</strong></span>
+                        <span class="flex justify-between gap-2"><span>Extras diurnas netas <span class="text-slate-400">(${fmtHorasDec(t.extraDiurnaMin)})</span></span><strong class="${(t.costoExtraDiurna || 0) < 0 ? 'text-rose-700' : 'text-slate-700'}">${moneyS(t.costoExtraDiurna)}</strong></span>
+                        <span class="flex justify-between gap-2"><span>Extras nocturnas <span class="text-slate-400">(${fmtHorasDec(t.extraNocturnaMin)})</span></span><strong class="text-slate-700">${moneyS(t.costoExtraNocturna)}</strong></span>
+                        ${t.costoSalida ? `<span class="text-3xs text-rose-700">Ya descontadas salidas anticipadas: −${pdfMoney(t.costoSalida)} (${fmtHorasDec(t.descuentoSalidaMin)})</span>` : ''}
                     </span>`,
                     indDelta(t.costoTotal || 0, p.costoTotal, 'down', moneyS, '$')),
                 card('Turnos sin cerrar', 'fa-door-open', String(t.sinCerrar),
@@ -9196,10 +9197,10 @@
                 costo: { title: 'Costo de extras y recargos por colaborador', hint: 'Con marcaciones reales, solo días con turno cerrado. Recargo nocturno al 35 %, extra diurna al 125 % y extra nocturna al 175 % del valor hora (salario ÷ divisor mensual). A las extras diurnas ya se les restaron las salidas anticipadas: si el saldo queda negativo se muestra en rojo y resta del total.',
                     head: ['Colaborador', 'Área', 'Días', 'Recargo nocturno', 'Extras diurnas netas', 'Salidas anticipadas (ya restadas)', 'Extras nocturnas', 'Total'],
                     rows: (det.costo || []).map(r => [who(r), escapeHtml(r.area), r.dias,
-                        `${moneyS(r.costoRecargo)}<span class="block text-3xs text-slate-400">${fmtMins(r.recargoMin)}</span>`,
-                        `<span class="${r.costoDiurna < 0 ? 'text-rose-700 font-semibold' : ''}">${moneyS(r.costoDiurna)}</span><span class="block text-3xs text-slate-400">${fmtMinsS(r.diurnaMin)}</span>`,
-                        r.salidaMin ? `<span class="text-rose-700">−${pdfMoney(r.costoSalida)}</span><span class="block text-3xs text-slate-400">${fmtMins(r.salidaMin)}</span>` : '-',
-                        `${moneyS(r.costoNocturna)}<span class="block text-3xs text-slate-400">${fmtMins(r.nocturnaMin)}</span>`,
+                        `${moneyS(r.costoRecargo)}<span class="block text-3xs text-slate-400">${fmtHorasDec(r.recargoMin)}</span>`,
+                        `<span class="${r.costoDiurna < 0 ? 'text-rose-700 font-semibold' : ''}">${moneyS(r.costoDiurna)}</span><span class="block text-3xs text-slate-400">${fmtHorasDec(r.diurnaMin)}</span>`,
+                        r.salidaMin ? `<span class="text-rose-700">−${pdfMoney(r.costoSalida)}</span><span class="block text-3xs text-slate-400">${fmtHorasDec(r.salidaMin)}</span>` : '-',
+                        `${moneyS(r.costoNocturna)}<span class="block text-3xs text-slate-400">${fmtHorasDec(r.nocturnaMin)}</span>`,
                         `<strong class="${r.total < 0 ? 'text-rose-700' : ''}">${moneyS(r.total)}</strong>`]),
                     foot: (() => { const t = d.total || {}; return ['TOTAL', '', '', moneyS(t.costoRecargo), moneyS(t.costoExtraDiurna), t.costoSalida ? '−' + pdfMoney(t.costoSalida) : '-', moneyS(t.costoExtraNocturna), `<strong class="${(t.costoTotal || 0) < 0 ? 'text-rose-700' : ''}">${moneyS(t.costoTotal)}</strong>`]; })() },
                 sinCerrar: { title: 'Turnos sin cerrar', hint: 'Marcaron entrada pero no la salida.',
@@ -9226,6 +9227,7 @@
             const d = lastIndicators, det = (d && d.details) || {};
             if (!d || !indSelectedCard) return;
             const h = (m) => Math.round((Number(m) || 0) / 6) / 10; // minutos -> horas con 1 decimal
+            const h2 = (m) => Math.round((Number(m) || 0) / 60 * 100) / 100; // minutos -> horas con 2 decimales
             const EST = { pendiente: 'Pendiente', justificada: 'Justificada', injustificada: 'Injustificada' };
             const doc = (id) => { const e = appState.employees.find(x => Number(x.id) === Number(id)); return e ? docLabel(e) : ''; };
             const X = {
@@ -9234,8 +9236,8 @@
                 perdido: ['Tiempo perdido', ['Colaborador', 'Documento', 'Área', 'Días', 'Min. retraso', 'Min. exceso almuerzo', 'Min. total', 'Horas total', 'Costo aprox. ($)'], (det.perdido || []).map(r => [r.name, doc(r.employeeId), r.area, r.dias, r.retraso, r.almuerzo, r.total, h(r.total), r.costo])],
                 extras: ['Horas extra', ['Colaborador', 'Documento', 'Área', 'Horas generadas', 'Horas desc. salida anticipada', 'Horas diurnas netas', 'Horas nocturnas', 'Horas netas', 'Valor aprox. ($)'], (det.extras || []).map(r => [r.name, doc(r.employeeId), r.area, h(r.generada), h(r.salida), h(r.diurna), h(r.nocturna), h(r.neto), r.valor || 0])],
                 costo: ['Costo extras y recargos', ['Colaborador', 'Documento', 'Área', 'Días', 'Horas recargo nocturno', 'Costo recargo nocturno ($)', 'Horas extra diurnas netas', 'Costo extras diurnas netas ($)', 'Horas salida anticipada (ya restadas)', 'Valor salida anticipada ($)', 'Horas extra nocturnas', 'Costo extras nocturnas ($)', 'Costo total ($)'],
-                    (det.costo || []).map(r => [r.name, doc(r.employeeId), r.area, r.dias, h(r.recargoMin), r.costoRecargo, h(r.diurnaMin), r.costoDiurna, h(r.salidaMin), r.costoSalida, h(r.nocturnaMin), r.costoNocturna, r.total])
-                        .concat([['TOTAL', '', '', '', h(d.total.recargoNocturnoMin), d.total.costoRecargo, h(d.total.extraDiurnaMin), d.total.costoExtraDiurna, h(d.total.descuentoSalidaMin), d.total.costoSalida, h(d.total.extraNocturnaMin), d.total.costoExtraNocturna, d.total.costoTotal]])],
+                    (det.costo || []).map(r => [r.name, doc(r.employeeId), r.area, r.dias, h2(r.recargoMin), r.costoRecargo, h2(r.diurnaMin), r.costoDiurna, h2(r.salidaMin), r.costoSalida, h2(r.nocturnaMin), r.costoNocturna, r.total])
+                        .concat([['TOTAL', '', '', '', h2(d.total.recargoNocturnoMin), d.total.costoRecargo, h2(d.total.extraDiurnaMin), d.total.costoExtraDiurna, h2(d.total.descuentoSalidaMin), d.total.costoSalida, h2(d.total.extraNocturnaMin), d.total.costoExtraNocturna, d.total.costoTotal]])],
                 sinCerrar: ['Turnos sin cerrar', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Estado'], (det.sinCerrar || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, EST[r.estado] || r.estado])],
                 manuales: ['Marcaciones manuales', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Estado'], (det.manuales || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, EST[r.estado] || r.estado])],
             }[indSelectedCard];
