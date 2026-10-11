@@ -257,13 +257,6 @@
                     <i class="fa-solid fa-chart-line text-blue-600 w-5"></i>
                     <span>Dashboard General</span>
                 </a>
-                <a href="#audit" onclick="switchView('audit')" id="nav-audit" data-perm="reports.view" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
-                    <div class="relative">
-                        <i class="fa-solid fa-shield-halved text-rose-500 w-5"></i>
-                        <span id="auditBadgeCounter" class="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-500"></span>
-                    </div>
-                    <span>Auditoría Legal CST</span>
-                </a>
                 <a href="#orgadmin" onclick="switchView('orgadmin')" id="nav-orgadmin" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition hidden">
                     <i class="fa-solid fa-user-shield text-sky-700 w-5"></i>
                     <span>Usuarios & Seguridad</span>
@@ -934,61 +927,6 @@
                             </div>
                         </div>
 
-                    </div>
-                </div>
-
-            </div>
-
-            <!-- AUDIT VIEW -->
-            <div id="view-audit" class="app-view hidden space-y-6">
-                
-                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div>
-                        <div class="flex items-center gap-2 mb-1">
-                            <span class="bg-rose-100 text-rose-800 text-3xs font-bold px-2 py-0.5 rounded uppercase">Compliance CST</span>
-                            <span class="text-xs text-slate-400">Inspección de Turnos y Jornadas</span>
-                        </div>
-                        <h3 class="font-bold text-slate-800 text-base">Auditoría Laboral Automática de Turnos</h3>
-                        <p class="text-xs text-slate-500">Detección de horas extras no autorizadas (>2h/día), jornadas excesivas y riesgo de sanciones.</p>
-                    </div>
-                    <button onclick="runAuditInspection()" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition flex items-center gap-2">
-                        <i class="fa-solid fa-arrows-rotate"></i> Re-auditar Registros
-                    </button>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="bg-rose-50 p-4 rounded-xl border border-rose-200">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold text-rose-800">Infracciones Graves</span>
-                            <i class="fa-solid fa-circle-exclamation text-rose-600"></i>
-                        </div>
-                        <span class="text-2xl font-black text-rose-950 mt-2 block" id="auditCriticalCount">0</span>
-                        <span class="text-3xs text-rose-700 mt-1 block">Superan 2 horas extras/día (Art. 22 Ley 50/1990)</span>
-                    </div>
-
-                    <div class="bg-amber-50 p-4 rounded-xl border border-amber-200">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold text-amber-800">Alertas Preventivas</span>
-                            <i class="fa-solid fa-triangle-exclamation text-amber-600"></i>
-                        </div>
-                        <span class="text-2xl font-black text-amber-950 mt-2 block" id="auditWarningCount">0</span>
-                        <span class="text-3xs text-amber-700 mt-1 block">Jornadas >10 horas continuas</span>
-                    </div>
-
-                    <div class="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold text-emerald-800">Turnos Conformes</span>
-                            <i class="fa-solid fa-circle-check text-emerald-600"></i>
-                        </div>
-                        <span class="text-2xl font-black text-emerald-950 mt-2 block" id="auditCompliantCount">0</span>
-                        <span class="text-3xs text-emerald-700 mt-1 block">Cumplen estrictamente la normativa CST</span>
-                    </div>
-                </div>
-
-                <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
-                    <h4 class="font-bold text-xs uppercase tracking-wider text-slate-700">Bitácora de Observaciones de Inspección</h4>
-                    <div id="auditFindingsContainer" class="space-y-3">
-                        <!-- Injected dynamically -->
                     </div>
                 </div>
 
@@ -5557,107 +5495,7 @@
             showAppToast('Salario base fijado en el SMLMV 2026 ($1.750.905 COP).');
         }
 
-        function runAuditInspection() {
-            let criticalCount = 0;
-            let warningCount = 0;
-            let compliantCount = 0;
-
-            const findingsContainer = document.getElementById('auditFindingsContainer');
-            if (!findingsContainer) return;
-            findingsContainer.innerHTML = '';
-
-            const activeShifts = appState.shifts.filter(s => !s.isOffDay);
-
-            if (activeShifts.length === 0) {
-                findingsContainer.innerHTML = `
-                    <div class="p-6 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                        <i class="fa-solid fa-shield-halved text-2xl mb-2 text-slate-300"></i>
-                        <p class="text-xs font-semibold">No hay turnos registrados para auditar</p>
-                        <p class="text-3xs text-slate-400 mt-1">Registre turnos para verificar el cumplimiento del Código Sustantivo del Trabajo.</p>
-                    </div>
-                `;
-                setSafeText('auditCriticalCount', '0');
-                setSafeText('auditWarningCount', '0');
-                setSafeText('auditCompliantCount', '0');
-                return;
-            }
-
-            activeShifts.forEach((s) => {
-                let emp = appState.employees.find(e => e.id === s.empId) || { name: 'Colaborador' };
-                let totalOvertimeHours = s.res.hed + s.res.hen + s.res.hedd + s.res.hend;
-                let isCritical = totalOvertimeHours > 2;
-                let isWarning = s.res.totalHours > 10 && !isCritical;
-
-                if (isCritical) {
-                    criticalCount++;
-                    let div = document.createElement('div');
-                    div.className = 'p-3.5 bg-rose-50/70 border border-rose-200 rounded-xl flex items-start gap-3 text-xs';
-                    div.innerHTML = `
-                        <div class="w-8 h-8 rounded-lg bg-rose-200 text-rose-800 flex items-center justify-center shrink-0 font-bold">
-                            <i class="fa-solid fa-triangle-exclamation"></i>
-                        </div>
-                        <div class="flex-1">
-                            <div class="flex justify-between items-center">
-                                <span class="font-bold text-rose-950">${emp.name} • ${s.date}</span>
-                                <span class="text-3xs font-bold text-rose-700 bg-rose-200/60 px-2 py-0.5 rounded">Exceso > 2 Horas Extras</span>
-                            </div>
-                            <p class="text-3xs text-rose-800 mt-1">
-                                Laboró <strong>${totalOvertimeHours.toFixed(2)} horas extras</strong> en este turno. El CST prohíbe superar 2 horas extras diarias.
-                            </p>
-                        </div>
-                    `;
-                    findingsContainer.appendChild(div);
-                } else if (isWarning) {
-                    warningCount++;
-                    let div = document.createElement('div');
-                    div.className = 'p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl flex items-start gap-3 text-xs';
-                    div.innerHTML = `
-                        <div class="w-8 h-8 rounded-lg bg-amber-200 text-amber-800 flex items-center justify-center shrink-0 font-bold">
-                            <i class="fa-solid fa-circle-exclamation"></i>
-                        </div>
-                        <div class="flex-1">
-                            <div class="flex justify-between items-center">
-                                <span class="font-bold text-amber-950">${emp.name} • ${s.date}</span>
-                                <span class="text-3xs font-bold text-amber-700 bg-amber-200/60 px-2 py-0.5 rounded">Jornada Extensa (>10h)</span>
-                            </div>
-                            <p class="text-3xs text-amber-800 mt-1">
-                                Duración total del turno: <strong>${s.res.totalHours.toFixed(2)} horas</strong>. Se recomienda monitorear la fatiga laboral.
-                            </p>
-                        </div>
-                    `;
-                    findingsContainer.appendChild(div);
-                } else {
-                    compliantCount++;
-                }
-            });
-
-            setSafeText('auditCriticalCount', criticalCount);
-            setSafeText('auditWarningCount', warningCount);
-            setSafeText('auditCompliantCount', compliantCount);
-
-            const auditBadge = document.getElementById('auditBadgeCounter');
-            if (auditBadge) {
-                if (criticalCount > 0) {
-                    auditBadge.className = 'absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-500 animate-ping';
-                    auditBadge.classList.remove('hidden');
-                } else if (warningCount > 0) {
-                    auditBadge.className = 'absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500';
-                    auditBadge.classList.remove('hidden');
-                } else {
-                    auditBadge.classList.add('hidden');
-                }
-            }
-
-            if (criticalCount === 0 && warningCount === 0) {
-                findingsContainer.innerHTML = `
-                    <div class="p-6 text-center text-emerald-700 bg-emerald-50 rounded-xl border border-emerald-200">
-                        <i class="fa-solid fa-circle-check text-3xl mb-2 text-emerald-600"></i>
-                        <p class="text-sm font-bold">¡100% de Cumplimiento Normativo!</p>
-                        <p class="text-3xs text-emerald-800 mt-1">Todos los turnos registrados cumplen con la Ley 2101 de 2021 y Ley 2466 de 2025.</p>
-                    </div>
-                `;
-            }
-        }
+// (Módulo "Auditoría Legal CST" eliminado: los límites legales podrán agregarse luego al Tablero Gerencial.)
 
         function renderReportsView() {
             // Los informes y certificados usan todo el historial del colaborador.
@@ -7750,7 +7588,6 @@
             }
 
             renderDashboardCharts();
-            runAuditInspection();
         }
 
         function renderDashboardCharts() {
@@ -7996,7 +7833,6 @@
                 shifts: 'Planilla & Cuadre Semanal',
                 payrollot: 'Liquidación de Extras & Recargos',
                 mine: 'Mi horario y marcaciones',
-                audit: 'Auditoría Legal CST',
                 reports: 'Informes & Certificados',
                 orgadmin: 'Usuarios & Seguridad',
                 attendance: 'Asistencia',
@@ -8012,7 +7848,6 @@
                 renderShiftsView();
             }
             if (viewId === 'payrollot') renderPayrollOvertimeView();
-            if (viewId === 'audit') runAuditInspection();
             if (viewId === 'reports') renderReportsView();
             if (viewId === 'orgadmin') loadOrgAdminPanel();
             if (viewId === 'attendance') initAttendanceView();
