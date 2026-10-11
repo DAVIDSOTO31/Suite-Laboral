@@ -8660,10 +8660,11 @@
             if (!lastWorkdaysReport.length) { showAppToast('Primero consulta el periodo que quieres exportar.'); return; }
             const from = document.getElementById('attWorkdaysFrom').value;
             const to = document.getElementById('attWorkdaysTo').value;
-            const rows = lastWorkdaysReport.map(a => [a.emp.name, docLabel(a.emp), a.emp.department || '', a.dates.length, a.complete, a.incomplete, a.dates.join(', ')]);
+            const dm = (iso) => { const [y, m, d] = iso.split('-'); return `${d}/${m}`; }; // solo día/mes (el periodo ya está en el nombre del archivo)
+            const rows = lastWorkdaysReport.map(a => [a.emp.name, docLabel(a.emp), a.emp.department || '', a.dates.length, a.complete, a.incomplete, a.dates.map(dm).join(', ')]);
             try {
                 await downloadXLSX(`Dias_laborados_${from}_al_${to}.xlsx`,
-                    ['Colaborador', 'Documento', 'Área', 'Días laborados', 'Jornada completa', 'Marcación incompleta', 'Fechas'], rows, 'Días laborados');
+                    ['Colaborador', 'Documento', 'Área', 'Días laborados', 'Jornada completa', 'Marcación incompleta', 'Fechas (día/mes)'], rows, 'Días laborados');
             } catch (e) { showAppToast(e.message); }
         }
 
@@ -8943,11 +8944,11 @@
             const from = document.getElementById('attNovFrom').value, to = document.getElementById('attNovTo').value;
             const empById = new Map(appState.employees.map(e => [Number(e.id), e]));
             const rows = lastNovedades.map(r => [r.name, empById.get(Number(r.employeeId)) ? docLabel(empById.get(Number(r.employeeId))) : '', r.department,
-                r.llegada_tarde, r.minutesLate, r.exceso_almuerzo, r.salida_anticipada, r.inasistencia, r.turno_sin_cerrar, r.marcacion_manual, r.etapa_extendida || 0, r.total,
+                r.llegada_tarde, r.minutesLate, r.exceso_almuerzo, r.minutesLunch || 0, r.salida_anticipada, r.inasistencia, r.turno_sin_cerrar, r.marcacion_manual, r.etapa_extendida || 0, r.total,
                 r.pendiente, r.justificada, r.injustificada]);
             try {
                 await downloadXLSX(`Novedades_${from}_al_${to}.xlsx`,
-                    ['Colaborador', 'Documento', 'Área', 'Llegadas tarde', 'Minutos de retraso', 'Exceso de almuerzo', 'Salidas anticipadas', 'No se presentó', 'Turno sin cerrar', 'Marcaciones manuales', 'Etapa extendida', 'Total novedades', 'Pendientes', 'Justificadas', 'Injustificadas'],
+                    ['Colaborador', 'Documento', 'Área', 'Llegadas tarde', 'Minutos de retraso', 'Exceso de almuerzo', 'Minutos de exceso de almuerzo', 'Salidas anticipadas', 'No se presentó', 'Turno sin cerrar', 'Marcaciones manuales', 'Etapa extendida', 'Total novedades', 'Pendientes', 'Justificadas', 'Injustificadas'],
                     rows, 'Novedades');
             } catch (e) { showAppToast(e.message); }
         }
