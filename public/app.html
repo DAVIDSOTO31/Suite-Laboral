@@ -1086,6 +1086,7 @@
                             <button onclick="attendanceLoadIndicators()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
                             <button onclick="exportIndicatorsXLSX()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel</button>
                             <button onclick="exportIndicatorsPdf()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-pdf text-rose-600"></i> Exportar PDF</button>
+                            <button onclick="openIndicatorGoals()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-bullseye text-sky-600"></i> Metas</button>
                         </div>
                         <p id="indPeriodNote" class="text-2xs text-slate-500 -mt-2">-</p>
                         <div id="indCards" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
@@ -1156,7 +1157,7 @@
                             </div>
                             <div id="indTrendTableBox" class="hidden mt-3 overflow-x-auto border border-slate-200 rounded-lg">
                                 <table class="w-full text-xs">
-                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr><th class="text-left px-3 py-2">Mes</th><th class="text-center px-3 py-2">Turnos evaluados</th><th class="text-center px-3 py-2">Ausentismo</th><th class="text-center px-3 py-2">Puntualidad</th><th class="text-center px-3 py-2">Horas extra netas</th><th class="text-center px-3 py-2">Días de incapacidad</th><th class="text-right px-3 py-2">Costo incapacidad</th></tr></thead>
+                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr><th class="text-left px-3 py-2">Mes</th><th class="text-center px-3 py-2">Turnos evaluados</th><th class="text-center px-3 py-2">Ausentismo</th><th class="text-center px-3 py-2">Puntualidad</th><th class="text-center px-3 py-2">Horas extra netas</th><th class="text-right px-3 py-2">Valor extras</th><th class="text-center px-3 py-2">Días de incapacidad</th><th class="text-right px-3 py-2">Costo incapacidad</th></tr></thead>
                                     <tbody id="indTrendBody"></tbody>
                                 </table>
                             </div>
@@ -2453,6 +2454,34 @@
                     <button onclick="saveRosterQuickAssignment()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow flex items-center gap-1.5">
                         <i class="fa-solid fa-check"></i> <span>Guardar Turno</span>
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Metas de los indicadores (semáforo) -->
+    <div id="modalIndGoals" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-4 border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-bullseye text-sky-600"></i> Metas de los indicadores</h3>
+                <button onclick="closeModal('modalIndGoals')" class="text-slate-400 hover:text-slate-600" aria-label="Cerrar"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <p class="text-2xs text-slate-600">Cada tarjeta se pinta en <strong class="text-emerald-700">verde</strong> si cumple la meta, <strong class="text-amber-700">amarillo</strong> si está cerca y <strong class="text-rose-700">rojo</strong> si no la cumple. Deja una casilla vacía para no usar meta en ese indicador.</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs" id="indGoalsForm">
+                <label class="block"><span class="font-semibold text-slate-700">Ausentismo máximo (%)</span><input type="number" step="0.1" min="0" max="100" id="goal_ausentismoMax" class="mt-1 w-full p-2 border rounded-lg"></label>
+                <label class="block"><span class="font-semibold text-slate-700">Puntualidad mínima (%)</span><input type="number" step="0.1" min="0" max="100" id="goal_puntualidadMin" class="mt-1 w-full p-2 border rounded-lg"></label>
+                <label class="block"><span class="font-semibold text-slate-700">Tiempo perdido máx. (min promedio por turno asistido)</span><input type="number" step="0.5" min="0" id="goal_perdidoMaxPorTurno" class="mt-1 w-full p-2 border rounded-lg"></label>
+                <label class="block"><span class="font-semibold text-slate-700">Valor de horas extra máx. por mes ($)</span><input type="number" step="1000" min="0" id="goal_extrasValorMaxMes" placeholder="Ej. 3000000" class="mt-1 w-full p-2 border rounded-lg"></label>
+                <label class="block"><span class="font-semibold text-slate-700">Turnos sin cerrar máx. (% de turnos asistidos)</span><input type="number" step="0.1" min="0" max="100" id="goal_sinCerrarMaxPct" class="mt-1 w-full p-2 border rounded-lg"></label>
+                <label class="block"><span class="font-semibold text-slate-700">Marcaciones manuales máx. (% de turnos asistidos)</span><input type="number" step="0.1" min="0" max="100" id="goal_manualesMaxPct" class="mt-1 w-full p-2 border rounded-lg"></label>
+            </div>
+            <p class="text-3xs text-slate-500">"Cerca de la meta" (amarillo): hasta un 25 % por encima del máximo permitido; en puntualidad, hasta 5 puntos por debajo del mínimo. La meta de horas extra es mensual y se ajusta sola a la duración del periodo consultado.</p>
+            <p id="indGoalsMsg" class="hidden text-xs text-rose-600 font-semibold"></p>
+            <div class="flex justify-between gap-2 border-t pt-3">
+                <button type="button" onclick="resetIndicatorGoals()" class="px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold">Usar metas recomendadas</button>
+                <div class="flex gap-2">
+                    <button onclick="closeModal('modalIndGoals')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                    <button id="indGoalsSaveBtn" onclick="saveIndicatorGoals()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow">Guardar metas</button>
                 </div>
             </div>
         </div>
@@ -9482,6 +9511,71 @@
         const fmtPct = (v) => v == null ? '—' : `${Number(v).toLocaleString('es-CO', { maximumFractionDigits: 1 })} %`;
         const fmtMins = (m) => formatHM((Number(m) || 0) / 60);
         const fmtMinsS = (m) => formatHMSigned((Number(m) || 0) / 60); // con signo (extras netas pueden quedar negativas)
+        // ---- Metas (semáforo) ----
+        const IND_GOAL_KEYS = ['ausentismoMax', 'puntualidadMin', 'perdidoMaxPorTurno', 'extrasValorMaxMes', 'sinCerrarMaxPct', 'manualesMaxPct'];
+        const IND_GOAL_DEFAULTS = { ausentismoMax: 3, puntualidadMin: 95, perdidoMaxPorTurno: 5, extrasValorMaxMes: null, sinCerrarMaxPct: 2, manualesMaxPct: 5 };
+        // Evalúa una tarjeta contra su meta: { st: 'ok'|'warn'|'bad'|null, meta: texto }.
+        function indGoalEval(key, t, d) {
+            const g = (d && d.goals) || {};
+            const days = d ? Math.round((new Date(d.to + 'T00:00:00') - new Date(d.from + 'T00:00:00')) / 86400000) + 1 : 30;
+            const maxRule = (v, meta, fmt) => {
+                if (meta == null || v == null) return { st: null };
+                const st = v <= meta ? 'ok' : v <= meta * 1.25 ? 'warn' : 'bad';
+                return { st, meta: `Meta: máx. ${fmt(meta)}`, val: fmt(v) };
+            };
+            const pctF = (v) => `${(Math.round(v * 10) / 10).toLocaleString('es-CO')} %`;
+            const asist = t.asistidos || 0;
+            switch (key) {
+                case 'ausentismo': return t.programados ? maxRule(t.ausentismo, g.ausentismoMax, pctF) : { st: null };
+                case 'puntualidad': {
+                    if (g.puntualidadMin == null || t.puntualidad == null) return { st: null };
+                    const st = t.puntualidad >= g.puntualidadMin ? 'ok' : t.puntualidad >= g.puntualidadMin - 5 ? 'warn' : 'bad';
+                    return { st, meta: `Meta: mín. ${pctF(g.puntualidadMin)}` };
+                }
+                case 'perdido': return asist ? maxRule(t.minutosPerdidos / asist, g.perdidoMaxPorTurno, (v) => `${(Math.round(v * 10) / 10).toLocaleString('es-CO')} min/turno`) : { st: null };
+                case 'extras': {
+                    if (g.extrasValorMaxMes == null) return { st: null };
+                    const meta = g.extrasValorMaxMes * days / 30;
+                    const r = maxRule(t.valorExtras || 0, meta, pdfMoney);
+                    if (days !== 30) r.meta += ` (proporcional a ${days} días)`;
+                    return r;
+                }
+                case 'sinCerrar': return asist ? maxRule(t.sinCerrar / asist * 100, g.sinCerrarMaxPct, pctF) : { st: null };
+                case 'manuales': return asist ? maxRule(t.manuales / asist * 100, g.manualesMaxPct, pctF) : { st: null };
+            }
+            return { st: null };
+        }
+        const IND_ST = {
+            ok: { label: 'Cumple la meta', chip: 'bg-emerald-100 text-emerald-800', bar: 'border-t-emerald-500', icon: 'fa-circle-check' },
+            warn: { label: 'Cerca de la meta', chip: 'bg-amber-100 text-amber-900', bar: 'border-t-amber-400', icon: 'fa-triangle-exclamation' },
+            bad: { label: 'No cumple la meta', chip: 'bg-rose-100 text-rose-800', bar: 'border-t-rose-500', icon: 'fa-circle-xmark' },
+        };
+        async function openIndicatorGoals() {
+            const canEdit = CAN('settings.manage');
+            let g = (lastIndicators && lastIndicators.goals) || null;
+            if (!g) { try { g = (await apiFetch('/api/attendance/indicator-goals')).goals; } catch (e) { g = IND_GOAL_DEFAULTS; } }
+            IND_GOAL_KEYS.forEach(k => { const el = document.getElementById('goal_' + k); el.value = g[k] == null ? '' : g[k]; el.disabled = !canEdit; });
+            document.getElementById('indGoalsSaveBtn').classList.toggle('hidden', !canEdit);
+            const msg = document.getElementById('indGoalsMsg');
+            msg.classList.toggle('hidden', canEdit);
+            msg.textContent = canEdit ? '' : 'Solo el administrador puede cambiar las metas.';
+            openModal('modalIndGoals');
+        }
+        function resetIndicatorGoals() {
+            IND_GOAL_KEYS.forEach(k => { const el = document.getElementById('goal_' + k); if (!el.disabled) el.value = IND_GOAL_DEFAULTS[k] == null ? '' : IND_GOAL_DEFAULTS[k]; });
+        }
+        async function saveIndicatorGoals() {
+            const body = {};
+            IND_GOAL_KEYS.forEach(k => { const v = document.getElementById('goal_' + k).value.trim(); body[k] = v === '' ? null : Number(v); });
+            try {
+                const r = await apiFetch('/api/attendance/indicator-goals', { method: 'PUT', body: JSON.stringify(body) });
+                if (lastIndicators) { lastIndicators.goals = r.goals; renderIndicators(lastIndicators); }
+                closeModal('modalIndGoals');
+                showAppToast('Metas guardadas.');
+            } catch (e) {
+                const msg = document.getElementById('indGoalsMsg'); msg.textContent = e.message; msg.classList.remove('hidden');
+            }
+        }
         // Tarjeta de Indicadores abierta (detalle desplegado debajo de las tarjetas).
         let indSelectedCard = null;
         function toggleIndCard(key) { indSelectedCard = indSelectedCard === key ? null : key; if (lastIndicators) renderIndicators(lastIndicators); }
@@ -9538,10 +9632,13 @@
             const card = (title, icon, value, sub, delta) => {
                 const key = cardKeys[cardIdx++];
                 const sel = indSelectedCard === key;
+                const ev = indGoalEval(key, t, d);
+                const stc = ev.st ? IND_ST[ev.st] : null;
                 return `
-                <button type="button" onclick="toggleIndCard('${key}')" aria-expanded="${sel}" title="Clic para ver el detalle" class="text-left border rounded-lg p-3 bg-white transition hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-sky-400 ${sel ? 'border-sky-500 ring-2 ring-sky-500 shadow-md' : 'border-slate-200'}">
+                <button type="button" onclick="toggleIndCard('${key}')" aria-expanded="${sel}" title="Clic para ver el detalle" class="text-left border rounded-lg p-3 bg-white transition hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-sky-400 ${stc ? 'border-t-4 ' + stc.bar : ''} ${sel ? 'border-sky-500 ring-2 ring-sky-500 shadow-md' : 'border-slate-200'}">
                     <p class="text-2xs font-bold text-slate-500 uppercase flex items-center gap-1.5"><i class="fa-solid ${icon} text-slate-400"></i> ${title} <i class="fa-solid ${sel ? 'fa-chevron-up' : 'fa-chevron-down'} ml-auto text-slate-400"></i></p>
                     <p class="text-3xl font-black text-slate-800 leading-tight mt-1">${value}</p>
+                    ${stc ? `<p class="mt-1"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-bold ${stc.chip}"><i class="fa-solid ${stc.icon}"></i> ${stc.label}</span> <span class="text-3xs text-slate-500">${escapeHtml(ev.meta)}</span></p>` : ''}
                     <p class="text-2xs text-slate-500">${sub}</p>
                     <p class="text-2xs mt-1.5">${delta}</p>
                 </button>`;
@@ -9559,7 +9656,7 @@
                     `≈ <strong>${pdfMoney(t.costoPerdido)}</strong> · retrasos ${minsFmt(t.minutosRetraso)} + exceso de almuerzo ${minsFmt(t.minutosAlmuerzo || 0)} (tiempo no recuperable)`,
                     indDelta(t.minutosPerdidos, p.minutosPerdidos, 'down', minsFmt, ' min')),
                 card('Horas extra (netas)', 'fa-business-time', fmtMinsS(t.extraTotalMin),
-                    `Lo que realmente se paga: generadas ${hFmt(t.extraGeneradaMin || 0)} − salidas anticipadas ${hFmt(t.descuentoSalidaMin || 0)} · Diurnas ${fmtMinsS(t.extraDiurnaMin)} · Nocturnas ${hFmt(t.extraNocturnaMin)}`,
+                    `≈ <strong>${pdfMoney(t.valorExtras || 0)}</strong> pagados · generadas ${hFmt(t.extraGeneradaMin || 0)} − salidas anticipadas ${hFmt(t.descuentoSalidaMin || 0)} · Diurnas ${fmtMinsS(t.extraDiurnaMin)} · Nocturnas ${hFmt(t.extraNocturnaMin)}`,
                     indDelta(t.extraTotalMin, p.extraTotalMin, 'none', fmtMinsS, ' min')),
                 card('Turnos sin cerrar', 'fa-door-open', String(t.sinCerrar),
                     'Marcaron entrada pero no la salida',
@@ -9575,11 +9672,11 @@
                     <td class="px-3 py-2 ${total ? 'uppercase text-2xs text-slate-500' : 'font-semibold'}">${escapeHtml(total ? 'Total' : a.name)}</td>
                     <td class="px-3 py-2 text-center">${a.programados}</td>
                     <td class="px-3 py-2 text-center">${a.ausencias}${a.ausenciasJustificadas ? ` <span class="text-3xs text-emerald-700">(${a.ausenciasJustificadas} just.)</span>` : ''}</td>
-                    <td class="px-3 py-2 text-center">${fmtPct(a.ausentismo)}</td>
-                    <td class="px-3 py-2 text-center">${fmtPct(a.puntualidad)}</td>
+                    <td class="px-3 py-2 text-center">${indCellSt('ausentismo', a, d, fmtPct(a.ausentismo))}</td>
+                    <td class="px-3 py-2 text-center">${indCellSt('puntualidad', a, d, fmtPct(a.puntualidad))}</td>
                     <td class="px-3 py-2 text-center">${fmtMins(a.minutosPerdidos)}</td>
                     <td class="px-3 py-2 text-right">${pdfMoney(a.costoPerdido)}</td>
-                    <td class="px-3 py-2 text-center">${fmtMinsS(a.extraTotalMin)}</td>
+                    <td class="px-3 py-2 text-center">${fmtMinsS(a.extraTotalMin)}<span class="block text-3xs text-slate-500">${pdfMoney(a.valorExtras || 0)}</span></td>
                     <td class="px-3 py-2 text-center">${a.incapacidadDias ? `${a.incapacidadDias} d <span class="block text-3xs text-slate-500">${pdfMoney(a.incapacidadCosto)}</span>` : '<span class="text-slate-300">0</span>'}</td>
                     <td class="px-3 py-2 text-center">${a.sinCerrar}</td>
                     <td class="px-3 py-2 text-center">${a.manuales}</td>
@@ -9589,7 +9686,7 @@
                 : '<tr><td colspan="11" class="px-3 py-6 text-center text-slate-400">No hay turnos terminados en este periodo.</td></tr>';
 
             const monthLabel = (m) => { const [y, mm] = m.split('-'); return `${MONTHS_ES[Number(mm) - 1].slice(0, 3)} ${y.slice(2)}`; };
-            document.getElementById('indTrendBody').innerHTML = d.trend.map(m => `<tr class="border-t border-slate-100"><td class="px-3 py-1.5">${monthLabel(m.month)}</td><td class="px-3 py-1.5 text-center">${m.programados}</td><td class="px-3 py-1.5 text-center">${fmtPct(m.ausentismo)}</td><td class="px-3 py-1.5 text-center">${fmtPct(m.puntualidad)}</td><td class="px-3 py-1.5 text-center">${formatHMSigned(m.extraHoras)}</td><td class="px-3 py-1.5 text-center">${m.incapacidadDias}</td><td class="px-3 py-1.5 text-right">${pdfMoney(m.incapacidadCosto)}</td></tr>`).join('');
+            document.getElementById('indTrendBody').innerHTML = d.trend.map(m => `<tr class="border-t border-slate-100"><td class="px-3 py-1.5">${monthLabel(m.month)}</td><td class="px-3 py-1.5 text-center">${m.programados}</td><td class="px-3 py-1.5 text-center">${fmtPct(m.ausentismo)}</td><td class="px-3 py-1.5 text-center">${fmtPct(m.puntualidad)}</td><td class="px-3 py-1.5 text-center">${formatHMSigned(m.extraHoras)}</td><td class="px-3 py-1.5 text-right">${pdfMoney(m.extraValor || 0)}</td><td class="px-3 py-1.5 text-center">${m.incapacidadDias}</td><td class="px-3 py-1.5 text-right">${pdfMoney(m.incapacidadCosto)}</td></tr>`).join('');
             const labels = d.trend.map(m => monthLabel(m.month));
             indDrawChart('indChartAus', 'line', labels, d.trend.map(m => m.ausentismo), (v) => fmtPct(v));
             indDrawChart('indChartPun', 'line', labels, d.trend.map(m => m.puntualidad), (v) => fmtPct(v));
@@ -9608,6 +9705,12 @@
                     <td class="px-3 py-2 text-center ${r.justificada ? 'font-semibold text-emerald-700' : 'text-slate-300'}">${r.justificada || 0}</td>
                 </tr>`).join('') : '<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">Ningún colaborador tuvo novedades en este periodo.</td></tr>';
         }
+        function indCellSt(key, a, d, text) {
+            const ev = indGoalEval(key, a, d);
+            if (!ev.st) return text;
+            const c = { ok: 'bg-emerald-100 text-emerald-800', warn: 'bg-amber-100 text-amber-900', bad: 'bg-rose-100 text-rose-800' }[ev.st];
+            return `<span class="px-2 py-0.5 rounded-full font-semibold ${c}" title="${IND_ST[ev.st].label} · ${escapeHtml(ev.meta)}">${text}</span>`;
+        }
         // ---- Detalle de cada tarjeta de Indicadores ----
         function renderIndCardDetail(d) {
             const box = document.getElementById('indCardDetail');
@@ -9625,7 +9728,7 @@
                 perdido: { title: 'Tiempo perdido por colaborador', hint: 'Solo retrasos y exceso de almuerzo (tiempo que no se recupera). La salida anticipada se descuenta de las horas extra.',
                     head: ['Colaborador', 'Área', 'Días', 'Retrasos', 'Exceso de almuerzo', 'Total', 'Costo aprox.'], rows: (det.perdido || []).map(r => [who(r), escapeHtml(r.area), r.dias, fmtMins(r.retraso), fmtMins(r.almuerzo), `<strong>${fmtMins(r.total)}</strong>`, pdfMoney(r.costo)]) },
                 extras: { title: 'Horas extra por colaborador', hint: 'Netas = extras generadas menos el tiempo descontado por salidas anticipadas (lo que realmente paga la empresa). Solo días con turno cerrado.',
-                    head: ['Colaborador', 'Área', 'Generadas', 'Salidas anticipadas', 'Diurnas netas', 'Nocturnas', 'Netas'], rows: (det.extras || []).map(r => [who(r), escapeHtml(r.area), fmtMins(r.generada), r.salida ? `<span class="text-rose-700">− ${fmtMins(r.salida)}</span>` : '-', fmtMinsS(r.diurna), fmtMins(r.nocturna), `<strong class="${r.neto < 0 ? 'text-rose-700' : ''}">${fmtMinsS(r.neto)}</strong>`]) },
+                    head: ['Colaborador', 'Área', 'Generadas', 'Salidas anticipadas', 'Diurnas netas', 'Nocturnas', 'Netas', 'Valor aprox.'], rows: (det.extras || []).map(r => [who(r), escapeHtml(r.area), fmtMins(r.generada), r.salida ? `<span class="text-rose-700">− ${fmtMins(r.salida)}</span>` : '-', fmtMinsS(r.diurna), fmtMins(r.nocturna), `<strong class="${r.neto < 0 ? 'text-rose-700' : ''}">${fmtMinsS(r.neto)}</strong>`, pdfMoney(r.valor || 0)]) },
                 sinCerrar: { title: 'Turnos sin cerrar', hint: 'Marcaron entrada pero no la salida.',
                     head: ['Colaborador', 'Área', 'Fecha', 'Estado'], rows: (det.sinCerrar || []).map(r => [who(r), escapeHtml(r.area), pdfDate(r.date), est(r.estado)]) },
                 manuales: { title: 'Marcaciones manuales', hint: 'Hechas a mano (suite o "Selección manual" del kiosco).',
@@ -9635,12 +9738,36 @@
             box.innerHTML = `<div class="border border-sky-200 rounded-lg overflow-hidden bg-white">
                 <div class="bg-sky-50 px-3 py-2 flex items-start justify-between gap-2">
                     <div><p class="font-bold text-sky-900 text-sm">${cfg.title} <span class="text-sky-700 font-semibold">(${cfg.rows.length})</span></p><p class="text-2xs text-sky-800">${cfg.hint}</p></div>
-                    <button type="button" onclick="toggleIndCard('${indSelectedCard}')" class="text-sky-700 hover:text-sky-900 p-1" aria-label="Cerrar detalle"><i class="fa-solid fa-xmark"></i></button>
+                    <div class="flex items-center gap-1 shrink-0">
+                        ${cfg.rows.length ? `<button type="button" onclick="exportIndCardDetail()" class="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-2xs font-semibold flex items-center gap-1"><i class="fa-solid fa-file-excel text-emerald-600"></i> Excel</button>` : ''}
+                        <button type="button" onclick="toggleIndCard('${indSelectedCard}')" class="text-sky-700 hover:text-sky-900 p-1" aria-label="Cerrar detalle"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
                 </div>
                 ${cfg.rows.length ? `<div class="overflow-x-auto max-h-[420px] overflow-y-auto"><table class="w-full text-xs"><thead class="bg-slate-50 text-slate-500 uppercase text-[11px] sticky top-0"><tr>${cfg.head.map((h, i) => `<th class="${i < 2 ? 'text-left' : 'text-center'} px-3 py-2">${h}</th>`).join('')}</tr></thead>
                     <tbody>${cfg.rows.map(r => `<tr class="border-t border-slate-100">${r.map((c, i) => `<td class="px-3 py-1.5 ${i < 2 ? 'text-left' : 'text-center'}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
                 : '<p class="px-3 py-5 text-center text-slate-400 text-xs">No hay registros en este periodo.</p>'}
             </div>`;
+        }
+        // Descarga en Excel el detalle de la tarjeta abierta (valores numéricos para filtrar y sumar).
+        async function exportIndCardDetail() {
+            const d = lastIndicators, det = (d && d.details) || {};
+            if (!d || !indSelectedCard) return;
+            const h = (m) => Math.round((Number(m) || 0) / 6) / 10; // minutos -> horas con 1 decimal
+            const EST = { pendiente: 'Pendiente', justificada: 'Justificada', injustificada: 'Injustificada' };
+            const doc = (id) => { const e = appState.employees.find(x => Number(x.id) === Number(id)); return e ? docLabel(e) : ''; };
+            const X = {
+                ausentismo: ['Ausencias', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Turno', 'Estado'], (det.ausencias || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, r.turno, EST[r.estado] || r.estado])],
+                puntualidad: ['Llegadas tarde', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Hora programada', 'Hora de llegada', 'Minutos de retraso'], (det.tardes || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, r.programada, r.real || '', r.min])],
+                perdido: ['Tiempo perdido', ['Colaborador', 'Documento', 'Área', 'Días', 'Min. retraso', 'Min. exceso almuerzo', 'Min. total', 'Horas total', 'Costo aprox. ($)'], (det.perdido || []).map(r => [r.name, doc(r.employeeId), r.area, r.dias, r.retraso, r.almuerzo, r.total, h(r.total), r.costo])],
+                extras: ['Horas extra', ['Colaborador', 'Documento', 'Área', 'Horas generadas', 'Horas desc. salida anticipada', 'Horas diurnas netas', 'Horas nocturnas', 'Horas netas', 'Valor aprox. ($)'], (det.extras || []).map(r => [r.name, doc(r.employeeId), r.area, h(r.generada), h(r.salida), h(r.diurna), h(r.nocturna), h(r.neto), r.valor || 0])],
+                sinCerrar: ['Turnos sin cerrar', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Estado'], (det.sinCerrar || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, EST[r.estado] || r.estado])],
+                manuales: ['Marcaciones manuales', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Estado'], (det.manuales || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, EST[r.estado] || r.estado])],
+            }[indSelectedCard];
+            if (!X) return;
+            try {
+                const safe = X[0].replace(/\s+/g, '_');
+                await downloadXLSX(`${safe}_${d.from}_al_${d.to}${d.area ? '_' + d.area.replace(/\s+/g, '_') : ''}.xlsx`, X[1], X[2], X[0].slice(0, 30));
+            } catch (e) { showAppToast('No se pudo generar el Excel: ' + e.message); }
         }
         // ---- Incapacidades (dentro de Indicadores) ----
         let indIncSortKey = 'dias';
@@ -9720,7 +9847,7 @@
         function indAreaSheetRows(d) {
             const row = (a, name) => [name, a.programados, a.asistidos, a.ausencias, a.ausenciasJustificadas, a.ausentismo, a.ausentismoInjustificado,
                 a.entradas, a.tarde, a.puntualidad, a.minutosRetraso, a.minutosAlmuerzo || 0, a.minutosPerdidos, a.costoPerdido,
-                Math.round((a.extraGeneradaMin || 0) / 6) / 10, Math.round((a.descuentoSalidaMin || 0) / 6) / 10, Math.round(a.extraDiurnaMin / 6) / 10, Math.round(a.extraNocturnaMin / 6) / 10, Math.round(a.extraTotalMin / 6) / 10, a.incapacidadDias || 0, a.incapacidadCosto || 0, a.sinCerrar, a.manuales];
+                Math.round((a.extraGeneradaMin || 0) / 6) / 10, Math.round((a.descuentoSalidaMin || 0) / 6) / 10, Math.round(a.extraDiurnaMin / 6) / 10, Math.round(a.extraNocturnaMin / 6) / 10, Math.round(a.extraTotalMin / 6) / 10, a.valorExtras || 0, a.incapacidadDias || 0, a.incapacidadCosto || 0, a.sinCerrar, a.manuales];
             return d.areas.map(a => row(a, a.name)).concat([row(d.total, 'TOTAL')]);
         }
         async function exportIndicatorsXLSX() {
@@ -9731,7 +9858,7 @@
                 const wb = XLSX.utils.book_new();
                 const empById0 = (id) => { const e = appState.employees.find(x => Number(x.id) === Number(id)); return e ? docLabel(e) : ''; };
                 const head = ['Área', 'Turnos evaluados', 'Asistidos', 'Ausencias', 'Ausencias justificadas', 'Ausentismo %', 'Ausentismo injustificado %',
-                    'Entradas', 'Llegadas tarde', 'Puntualidad %', 'Min. de retraso', 'Min. exceso de almuerzo', 'Min. perdidos (retraso + almuerzo)', 'Costo perdido ($)', 'Horas extra generadas', 'Horas descontadas por salida anticipada', 'Horas extra diurnas netas', 'Horas extra nocturnas', 'Horas extra netas', 'Días de incapacidad', 'Costo incapacidad ($)', 'Turnos sin cerrar', 'Marcaciones manuales'];
+                    'Entradas', 'Llegadas tarde', 'Puntualidad %', 'Min. de retraso', 'Min. exceso de almuerzo', 'Min. perdidos (retraso + almuerzo)', 'Costo perdido ($)', 'Horas extra generadas', 'Horas descontadas por salida anticipada', 'Horas extra diurnas netas', 'Horas extra nocturnas', 'Horas extra netas', 'Valor horas extra netas ($)', 'Días de incapacidad', 'Costo incapacidad ($)', 'Turnos sin cerrar', 'Marcaciones manuales'];
                 const info = [[`Indicadores de asistencia · ${appState.orgName || ''}`], [`Periodo: ${pdfDate(d.from)} al ${pdfDate(d.to)}${d.area ? ' · Área: ' + d.area : ''}`], []];
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...info, head, ...indAreaSheetRows(d)]), 'Por área');
                 const inc = d.incapacities || { total: {}, employees: [] };
@@ -9741,8 +9868,8 @@
                         e.periodos.map(x => x.desde === x.hasta ? x.desde : `${x.desde} a ${x.hasta}`).join('; ')]),
                     ['TOTAL', '', '', inc.total.episodios || 0, inc.total.dias || 0, '', inc.total.costoSalario || 0, inc.total.diasEmpresa || 0, inc.total.valorEmpresa || 0, ''],
                 ]), 'Incapacidades');
-                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Mes', 'Turnos evaluados', 'Ausentismo %', 'Puntualidad %', 'Horas extra', 'Días de incapacidad', 'Costo incapacidad ($)'],
-                    ...d.trend.map(m => [m.month, m.programados, m.ausentismo, m.puntualidad, m.extraHoras, m.incapacidadDias, m.incapacidadCosto])]), 'Tendencia 6 meses');
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Mes', 'Turnos evaluados', 'Ausentismo %', 'Puntualidad %', 'Horas extra netas', 'Valor horas extra ($)', 'Días de incapacidad', 'Costo incapacidad ($)'],
+                    ...d.trend.map(m => [m.month, m.programados, m.ausentismo, m.puntualidad, m.extraHoras, m.extraValor || 0, m.incapacidadDias, m.incapacidadCosto])]), 'Tendencia 6 meses');
                 const empById = new Map(appState.employees.map(e => [Number(e.id), e]));
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['#', 'Colaborador', 'Documento', 'Área', 'Total novedades', 'Injustificadas', 'Pendientes', 'Justificadas'],
                     ...d.top.map((r, i) => [i + 1, r.name, empById.get(Number(r.employeeId)) ? docLabel(empById.get(Number(r.employeeId))) : '', r.department, r.total, r.injustificada || 0, r.pendiente || 0, r.justificada || 0])]), 'Top 10 novedades');
