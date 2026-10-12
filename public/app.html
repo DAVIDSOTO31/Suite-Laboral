@@ -5922,32 +5922,41 @@
             const rows = cache ? cache.rows.filter(r => Math.abs(r.hedDays || 0) > 0.0001 || r.carryIn || Math.abs(r.hed) > 0.0001 || Math.abs(r.hen) > 0.0001) : [];
             if (!rows.length) { showAppToast('No hay horas extras en el periodo seleccionado.'); return; }
             const closed = cache.closures && cache.closures.extras;
+            const dom = appState.includeSundayHoliday;
+            const h2 = (v) => Math.round((Number(v) || 0) * 100) / 100;          // horas con 2 decimales (con signo)
+            const rateHed = (r) => r.hed ? r.hedPay / r.hed : (r.rateHed || r.hourlyRate * (1 + appState.settings.percHED));
+            // Valor de la extra diurna: saldo anterior + extras de los días. Si es positivo es lo que se paga;
+            // si es negativo es la deuda (valorada al 125 %) que se resta de las extras nocturnas.
+            const hedNet = (r) => (r.carryIn || 0) + (r.hedDays || 0);
+            const hedValue = (r) => hedNet(r) > 0 ? Math.round(r.hedPay) : Math.round(hedNet(r) * rateHed(r));
+            const henGross = (r) => (r.henPayGross != null ? r.henPayGross : r.henPay);
             const header = ['Colaborador', 'Documento', 'Área',
-                'Extra diurna de los días (h:mm)', 'Saldo anterior (h:mm)', 'Extra diurna a pagar (decimal)', 'Extra diurna a pagar (h:mm)',
-                'Valor hora extra diurna (COP)',
-                appState.includeSundayHoliday ? 'Valor extra diurna (COP, incluye tarifa dominical/festiva)' : 'Valor extra diurna 125% (COP)',
-                'Saldo negativo que se traslada (h:mm)',
-                'Extra nocturna (decimal)', 'Extra nocturna (h:mm)', 'Valor hora extra nocturna (COP)', appState.includeSundayHoliday ? 'Valor extra nocturna (COP, incluye tarifa dominical/festiva)' : 'Valor extra nocturna 175% (COP)',
-                'Horas diurnas debidas compensadas (h:mm)', 'Descuento por deuda en diurnas (COP)', 'Extra nocturna a pagar (COP)',
-                'Total horas extras (COP)'];
+                'Saldo anterior (h)',
+                'Extra diurna (h:mm)', 'Extra diurna (h)',
+                'Valor hora extra diurna 125%', dom ? 'Valor a pagar extra diurna (incluye tarifa dominical/festiva)' : 'Valor a pagar extra diurna',
+                'Saldo negativo que se traslada (h)',
+                'Extra nocturna (h)', 'Extra nocturna (h:mm)', 'Valor hora extra nocturna 175%', dom ? 'Valor extra nocturna (incluye tarifa dominical/festiva)' : 'Valor extra nocturna 175%',
+                'Horas diurnas debidas compensadas (h)', 'Descuento por deuda en diurnas', 'Extra nocturna a pagar',
+                'Total horas extras'];
+            const formats = [null, null, null, 'hours', null, 'hours', 'money', 'money', 'hours', 'hours', null, 'money', 'money', 'hours', 'money', 'money', 'money'];
             const data = rows.map(r => [r.emp.name, docLabel(r.emp), r.emp.department || '',
-                hmText(r.hedDays || 0), hmText(r.carryIn || 0), Number(r.hed.toFixed(2)), hmText(r.hed),
-                Math.round(r.hed ? r.hedPay / r.hed : (r.rateHed || r.hourlyRate * (1 + appState.settings.percHED))),
-                Math.round(r.hedPay), hmText(r.carryOut || 0),
-                Number(r.hen.toFixed(2)), hmText(r.hen),
-                Math.round(r.hen ? (r.henPayGross != null ? r.henPayGross : r.henPay) / r.hen : r.hourlyRate * (1 + appState.settings.percHEN)),
-                Math.round(r.henPayGross != null ? r.henPayGross : r.henPay),
-                hmText(r.offsetHours || 0), Math.round(r.offsetValue || 0), Math.round(r.henPay),
+                h2(r.carryIn), hmText(r.hedDays || 0), h2(r.hedDays),
+                Math.round(rateHed(r)), hedValue(r),
+                h2(r.carryOut),
+                h2(r.hen), hmText(r.hen),
+                Math.round(r.hen ? henGross(r) / r.hen : r.hourlyRate * (1 + appState.settings.percHEN)), Math.round(henGross(r)),
+                h2(r.offsetHours), -Math.round(r.offsetValue || 0) || 0, Math.round(r.henPay),
                 Math.round(r.hedPay + r.henPay)]);
             const sum = (f) => rows.reduce((a, r) => a + (r[f] || 0), 0);
             data.push(['TOTAL PERIODO' + (closed ? ' (CERRADO)' : ''), '', '',
-                hmText(sum('hedDays')), hmText(sum('carryIn')), Number(sum('hed').toFixed(2)), hmText(sum('hed')),
-                '', Math.round(sum('hedPay')), hmText(sum('carryOut')),
-                Number(sum('hen').toFixed(2)), hmText(sum('hen')), '', Math.round(rows.reduce((a, r) => a + (r.henPayGross != null ? r.henPayGross : r.henPay), 0)),
-                hmText(sum('offsetHours')), Math.round(sum('offsetValue')), Math.round(sum('henPay')),
+                h2(sum('carryIn')), hmText(sum('hedDays')), h2(sum('hedDays')),
+                '', rows.reduce((a, r) => a + hedValue(r), 0),
+                h2(sum('carryOut')),
+                h2(sum('hen')), hmText(sum('hen')), '', Math.round(rows.reduce((a, r) => a + henGross(r), 0)),
+                h2(sum('offsetHours')), -Math.round(sum('offsetValue')) || 0, Math.round(sum('henPay')),
                 Math.round(sum('hedPay') + sum('henPay'))]);
             try {
-                await downloadXLSX(`Horas_Extras_${cache.startDate}_al_${cache.endDate}${closed ? '_CERRADO' : ''}.xlsx`, header, data, 'Horas extras');
+                await downloadXLSX(`Horas_Extras_${cache.startDate}_al_${cache.endDate}${closed ? '_CERRADO' : ''}.xlsx`, header, data, 'Horas extras', formats);
                 showAppToast('Reporte de horas extras exportado.');
             } catch (e) { showAppToast(e.message); }
         }
@@ -8738,9 +8747,19 @@
             return xlsxLoadPromise;
         }
         // headerRow: array de textos de encabezado. dataRows: array de arrays (una fila por registro).
-        async function downloadXLSX(filename, headerRow, dataRows, sheetName) {
+        // formats (opcional): un formato por columna -> 'money' ($ con punto de miles, signo negativo)
+        // u 'hours' (horas con 2 decimales). Los valores siguen siendo números (se pueden sumar).
+        const XLSX_FORMATS = { money: '"$"#,##0;-"$"#,##0', hours: '0.00;-0.00' };
+        async function downloadXLSX(filename, headerRow, dataRows, sheetName, formats) {
             await loadXLSXLibrary();
             const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+            if (formats) {
+                dataRows.forEach((row, r) => formats.forEach((f, c) => {
+                    const cell = ws[XLSX.utils.encode_cell({ r: r + 1, c })];
+                    if (f && XLSX_FORMATS[f] && cell && cell.t === 'n') cell.z = XLSX_FORMATS[f];
+                }));
+                ws['!cols'] = headerRow.map((h, c) => ({ wch: Math.min(28, Math.max(10, String(h).length * 0.55 + 4, c < 3 ? 22 : 0)) }));
+            }
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Datos');
             XLSX.writeFile(wb, filename);
