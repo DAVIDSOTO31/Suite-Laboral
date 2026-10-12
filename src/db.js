@@ -492,6 +492,8 @@ if (!empColumns2.includes('count_worked_days')) db.exec('ALTER TABLE employees A
 // Vinculo usuario -> ficha de colaborador (para que el Empleado vea solo lo suyo).
 const userColumns = db.prepare('PRAGMA table_info(users)').all().map(c => c.name);
 if (!userColumns.includes('employee_id')) db.exec('ALTER TABLE users ADD COLUMN employee_id INTEGER NULL');
+// Nombre para el saludo de bienvenida (opcional; editable por Super Admin y por el administrador de la organizacion).
+if (!userColumns.includes('display_name')) db.exec('ALTER TABLE users ADD COLUMN display_name TEXT NULL');
 
 // ---------------------------------------------------------------------------
 // BOOTSTRAP: super admin role + super admin user (first run only)

@@ -42,13 +42,14 @@ function describeAudit(row, ctx = {}) {
 
     // ---------------- Usuarios ----------------
     case 'user.invite': return out('Usuarios', 'Invitación de usuario',
-      `Invitó a ${val(m.email)} a la suite como ${ROLE_ES[m.role] || m.role || 'usuario'}${m.employee ? `, vinculado al colaborador ${m.employee}` : ''}.`);
+      `Invitó a ${val(m.email)} a la suite como ${ROLE_ES[m.role] || m.role || 'usuario'}${m.employee ? `, vinculado al colaborador ${m.employee}` : ''}${m.nombreSaludo ? `, con nombre para el saludo "${m.nombreSaludo}"` : ''}.`);
     case 'user.update': {
       const who = m.usuario || userEmail(row.resource_id);
       const parts = [];
       if (m.rolNuevo || m.role) parts.push(`cambió su rol a ${ROLE_ES[m.rolNuevo || m.role] || m.rolNuevo || m.role}`);
       if (Object.prototype.hasOwnProperty.call(m, 'colaboradorVinculado')) parts.push(m.colaboradorVinculado ? `lo vinculó con el colaborador ${m.colaboradorVinculado}` : 'lo desvinculó de su ficha de colaborador');
       else if (Object.prototype.hasOwnProperty.call(m, 'employeeId')) parts.push(m.employeeId ? `lo vinculó con el colaborador ${empName(m.employeeId)}` : 'lo desvinculó de su ficha de colaborador');
+      if (Object.prototype.hasOwnProperty.call(m, 'nombreSaludo')) parts.push(m.nombreSaludo ? `cambió su nombre para el saludo a "${m.nombreSaludo}"` : 'quitó su nombre para el saludo (se usa el de su ficha)');
       return out('Usuarios', 'Usuario modificado', `Modificó el usuario ${who}: ${parts.join(' y ') || 'actualizó sus datos'}.`);
     }
     case 'user.activate': return out('Usuarios', 'Usuario activado', `Activó el usuario ${m.usuario || userEmail(row.resource_id)}.`);

@@ -46,6 +46,12 @@ function loadUserFromRequest(req) {
     // Ficha de colaborador vinculada a este usuario (null si no tiene).
     // Permite que el Empleado vea solo su propio horario y marcaciones.
     employeeId: user.employee_id != null ? Number(user.employee_id) : null,
+    // Nombre para el saludo de bienvenida: el escrito a mano (si existe) o el
+    // de la ficha de colaborador vinculada.
+    displayName: user.display_name || null,
+    employeeName: user.employee_id != null && user.organization_id
+      ? ((db.prepare('SELECT name FROM employees WHERE id = ? AND organization_id = ?').get(user.employee_id, user.organization_id) || {}).name || null)
+      : null,
     organization,
     isSuperAdmin: !!user.is_super_admin,
     permissions,
