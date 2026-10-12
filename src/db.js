@@ -564,6 +564,10 @@ function seedDemoDataForOrg(organizationId) {
 const empDocCols = db.prepare('PRAGMA table_info(employees)').all().map(c => c.name);
 if (!empDocCols.includes('document_type')) db.exec('ALTER TABLE employees ADD COLUMN document_type TEXT NULL');
 if (!empDocCols.includes('document_number')) db.exec('ALTER TABLE employees ADD COLUMN document_number TEXT NULL');
+// Celular del colaborador (opcional): indicativo de pais (por defecto +57) y
+// numero. Pensado para enviar mas adelante avisos y llamados de atencion por WhatsApp.
+if (!empDocCols.includes('phone_country')) db.exec('ALTER TABLE employees ADD COLUMN phone_country TEXT NULL');
+if (!empDocCols.includes('phone_number')) db.exec('ALTER TABLE employees ADD COLUMN phone_number TEXT NULL');
 
 // DIA 0 y SALDOS INICIALES (migracion de empresas a la suite).
 //  - org_settings.day_zero: fecha de corte de la organizacion. Se define una

@@ -60,7 +60,7 @@ function describeAudit(row, ctx = {}) {
     // ---------------- Colaboradores ----------------
     case 'employee.created': return out('Colaboradores', 'Colaborador creado',
       `Creó la ficha de ${val(m.colaborador)}${m.cargo ? `, ${m.cargo}` : ''}${m.area ? `, área ${m.area}` : ''}.`,
-      [m.documento ? `Documento: ${m.documento}` : null, m.correo ? `Correo: ${m.correo}` : null, m.salario ? `Salario: ${money(m.salario)}` : null].filter(Boolean));
+      [m.documento ? `Documento: ${m.documento}` : null, m.correo ? `Correo: ${m.correo}` : null, m.celular ? `Celular: ${m.celular}` : null, m.salario ? `Salario: ${money(m.salario)}` : null].filter(Boolean));
     case 'employee.updated': {
       const c = m.cambios || [];
       return out('Colaboradores', 'Ficha modificada', `Modificó la ficha de ${val(m.colaborador)}: ${c.map(x => x.campo.toLowerCase()).join(', ')}.`,
