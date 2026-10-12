@@ -120,6 +120,16 @@
         .org-logo-tile { width: 76px; height: 44px; }
         .org-logo-tile.has-logo { background: #ffffff; padding: 3px 5px; border-color: rgba(125, 211, 252, .7); }
         @media (min-width: 640px) { .org-logo-tile { width: 96px; height: 50px; } }
+        /* Saludo de bienvenida: franja delgada, solo en el primer módulo que se abre. */
+        .welcome-banner { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 14px; border-radius: 12px;
+            background: linear-gradient(90deg, #0f2a4a 0%, #1e4f7a 100%); color: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.12); }
+        .welcome-banner.hidden { display: none; }
+        .welcome-avatar { flex: 0 0 32px; width: 32px; height: 32px; border-radius: 9999px; display: flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.28); font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+        .welcome-text { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 0; }
+        .welcome-title { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+        .welcome-sub { font-size: 12px; color: #c7dbef; white-space: nowrap; }
+        @media (max-width: 639px) { .welcome-text { flex-direction: column; align-items: flex-start; } .welcome-title { font-size: 14px; } .welcome-sub { font-size: 11px; } }
         .org-logo-tile img { width: 100%; height: 100%; object-fit: contain; }
         .org-logo-tile .org-logo-overlay { opacity: 0; } .group:hover .org-logo-tile .org-logo-overlay { opacity: 1; }
         #notifPanel .notif-list::-webkit-scrollbar { width: 6px; } #notifPanel .notif-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
@@ -325,6 +335,15 @@
         <!-- MAIN VIEWPORT CONTENT -->
         <main class="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 lg:p-8 space-y-6">
             
+            <!-- Saludo de bienvenida (solo en el primer módulo que se abre; se oculta al cambiar de módulo) -->
+            <div id="welcomeBanner" class="welcome-banner hidden" role="status" aria-live="polite">
+                <div id="welcomeAvatar" class="welcome-avatar" aria-hidden="true"></div>
+                <div class="welcome-text">
+                    <span id="welcomeTitle" class="welcome-title"></span>
+                    <span id="welcomeSub" class="welcome-sub"></span>
+                </div>
+            </div>
+
             <!-- Breadcrumbs and Action Row -->
             <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-3 pb-3 border-b border-slate-200/70">
                 <div class="flex items-center gap-2 text-xs text-slate-500 font-medium">
@@ -1882,6 +1901,11 @@
                     <label class="block font-semibold text-slate-700 mb-1">Colaborador vinculado</label>
                     <select id="inviteEmployee" class="w-full p-2 border rounded-lg bg-white"></select>
                     <p class="text-3xs text-slate-400 mt-1">Si el correo coincide con el de un colaborador, se vincula solo.</p>
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Nombre para el saludo <span class="font-normal text-slate-400">(opcional)</span></label>
+                    <input type="text" id="inviteDisplayName" maxlength="60" placeholder="Ej. David Soto" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    <p class="text-3xs text-slate-400 mt-1">Aparece en el mensaje "¡Hola, …!" al abrir la suite. Si lo dejas vacío, se usa el nombre de su ficha de colaborador.</p>
                 </div>
             </div>
             <div class="flex justify-end gap-2 border-t pt-3">
@@ -7512,6 +7536,8 @@
         }
 
         function switchView(viewId) {
+            // El saludo solo acompaña al primer módulo que se abre.
+            if (WELCOME_VIEW && viewId !== WELCOME_VIEW) hideWelcomeBanner();
             if (viewId !== 'attendance') attendanceStopFacialMode();
             document.querySelectorAll('.app-view').forEach(v => v.classList.add('hidden'));
             const target = document.getElementById(`view-${viewId}`);
@@ -8026,6 +8052,43 @@
             if (has('attendance.view')) navAttendance.classList.remove('hidden');
         }
 
+        // ---- Saludo de bienvenida ----
+        // "¡Hola, David Soto! 👋" + "Buenas tardes · lunes 12 de octubre".
+        // Nombre: el escrito a mano para el saludo > el de la ficha del colaborador > el correo.
+        var WELCOME_VIEW = null;
+        function welcomeNameCase(name) {
+            const small = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'e']);
+            const s = String(name || '').trim().replace(/\s+/g, ' ');
+            // Solo se ajusta si viene TODO en mayúsculas o todo en minúsculas; si alguien lo escribió a su gusto, se respeta.
+            if (s !== s.toUpperCase() && s !== s.toLowerCase()) return s;
+            return s.toLowerCase().split(' ').map((w, i) => (i > 0 && small.has(w)) ? w : w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        }
+        function welcomeInitials(name) {
+            const small = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'e']);
+            const words = String(name || '').split(/\s+/).filter(w => w && !small.has(w.toLowerCase()));
+            return ((words[0] || '?').charAt(0) + (words.length > 1 ? words[1].charAt(0) : '')).toUpperCase();
+        }
+        function showWelcomeBanner(viewId) {
+            const box = document.getElementById('welcomeBanner');
+            if (!box || !CURRENT_USER) return;
+            const name = welcomeNameCase(CURRENT_USER.greetingName || String(CURRENT_USER.email || '').split('@')[0]);
+            const now = new Date();
+            const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Bogota', hour: 'numeric', hour12: false }).format(now)) % 24;
+            const saludo = hour < 12 ? 'Buenos días' : (hour < 19 ? 'Buenas tardes' : 'Buenas noches');
+            const fecha = new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'long', day: 'numeric', month: 'long' }).format(now).replace(',', '');
+            document.getElementById('welcomeAvatar').textContent = welcomeInitials(name);
+            document.getElementById('welcomeTitle').textContent = `¡Hola, ${name}! 👋`;
+            document.getElementById('welcomeTitle').title = name;
+            document.getElementById('welcomeSub').textContent = `${saludo} · ${fecha}`;
+            box.classList.remove('hidden');
+            WELCOME_VIEW = viewId;
+        }
+        function hideWelcomeBanner() {
+            const box = document.getElementById('welcomeBanner');
+            if (box) box.classList.add('hidden');
+            WELCOME_VIEW = null;
+        }
+
         async function appBootstrap() {
             let me;
             try {
@@ -8100,6 +8163,7 @@
             } else {
                 switchView('shifts');
             }
+            showWelcomeBanner(isSelfScope ? 'mine' : 'shifts');
             runLiveSimulation();
 
             BOOTSTRAPPED = true; // a partir de aquí, las mutaciones sí se sincronizan al servidor
@@ -8397,9 +8461,12 @@
                         ${Object.entries(ORG_ROLE_LABELS).map(([k, v]) => `<option value="${k}" ${k === current ? 'selected' : ''}>${v}</option>`).join('')}
                     </select>`;
                 };
+                ORG_USERS_CACHE = users;
                 usersBody.innerHTML = users.map(u => `
                     <tr class="border-t border-slate-100">
-                        <td class="px-4 py-2 font-medium">${escapeHtml(u.email)}</td>
+                        <td class="px-4 py-2 font-medium">${escapeHtml(u.email)}
+                            <span class="block text-3xs font-normal text-slate-500">Saludo: ${escapeHtml(u.displayName || u.employeeName || u.email.split('@')[0])}${u.displayName ? '' : (u.employeeName ? ' (de su ficha)' : ' (del correo)')}
+                            ${canEditUsers ? `<button type="button" onclick="editOrgUserDisplayName('${u.id}')" class="ml-1 text-sky-600 hover:underline font-semibold">Editar</button>` : ''}</span></td>
                         <td class="px-4 py-2 text-slate-500">${roleSelect(u)}</td>
                         <td class="px-4 py-2">${canEditUsers
                             ? `<select onchange="updateOrgUserField('${u.id}', 'employeeId', this.value)" class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white max-w-[200px]">${empOptions(u.employeeId)}</select>`
@@ -10453,8 +10520,23 @@
             loadOrgAdminPanel();
         }
 
+        // Nombre que verá la persona en el saludo de bienvenida. Vacío = el de su ficha o el del correo.
+        var ORG_USERS_CACHE = [];
+        async function editOrgUserDisplayName(userId) {
+            const u = ORG_USERS_CACHE.find(x => x.id === userId);
+            if (!u) return;
+            const val = prompt(`Nombre para el saludo de ${u.email}.\nDéjalo vacío para usar el de su ficha de colaborador${u.employeeName ? ' (' + u.employeeName + ')' : ''} o el del correo.`, u.displayName || '');
+            if (val === null) return;
+            try {
+                await apiFetch(`/api/org/users/${userId}`, { method: 'PUT', body: JSON.stringify({ displayName: val.trim() || null }) });
+                showAppToast(CURRENT_USER && CURRENT_USER.id === userId ? 'Nombre actualizado. Lo verás la próxima vez que abras la suite.' : 'Nombre para el saludo actualizado.');
+            } catch (e) { showAppToast('Error: ' + e.message); }
+            loadOrgAdminPanel();
+        }
+
         function openOrgUserModal() {
             document.getElementById('inviteEmail').value = '';
+            document.getElementById('inviteDisplayName').value = '';
             document.getElementById('inviteRole').value = 'empleado';
             const sel = document.getElementById('inviteEmployee');
             sel.innerHTML = '<option value="">— Automático por correo / sin vincular —</option>' +
@@ -10479,6 +10561,8 @@
                 await flushDataSync();
                 const body = { email, role };
                 if (empVal) body.employeeId = Number(empVal);
+                const displayName = document.getElementById('inviteDisplayName').value.trim();
+                if (displayName) body.displayName = displayName;
                 const d = await apiFetch('/api/org/users', { method: 'POST', body: JSON.stringify(body) });
                 closeModal('modalInviteUser');
                 alert(`Invitación enviada a ${email}${d.linkedEmployeeName ? ', vinculada a ' + d.linkedEmployeeName : ' (sin colaborador vinculado)'}.\n\nEnlace (por si prefieres enviarlo por WhatsApp):\n${d.inviteLink}`);

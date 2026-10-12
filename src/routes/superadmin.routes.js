@@ -1,6 +1,7 @@
 'use strict';
 const { db, uid, createDefaultRolesForOrg, getOrgRoleByName } = require('../db');
 const { sendJson, readBody, getClientIp } = require('../lib/http');
+const { cleanDisplayName } = require('../lib/display-name');
 const { logAction } = require('../lib/audit');
 const { randomToken, sha256Hex, hashPassword } = require('../lib/crypto');
 const { sendMail } = require('../lib/mailer');
@@ -125,7 +126,7 @@ function listUsers(req, res, query) {
   const rows = db.prepare(sql).all(...params);
   const users = rows.map(u => {
     const roles = db.prepare('SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ?').all(u.id).map(r => r.name);
-    return { id: u.id, email: u.email, status: u.status, organizationId: u.organization_id, organizationName: u.organization_name, roles, createdAt: u.created_at };
+    return { id: u.id, email: u.email, displayName: u.display_name || null, status: u.status, organizationId: u.organization_id, organizationName: u.organization_name, roles, createdAt: u.created_at };
   });
   sendJson(res, 200, { users });
 }
@@ -144,12 +145,13 @@ async function createUser(req, res) {
 
   // Invitation flow: no password is set/known by the admin. The user sets their own via a secure link.
   const userId = uid('user');
-  db.prepare(`INSERT INTO users (id, organization_id, email, status) VALUES (?, ?, ?, 'invited')`).run(userId, organizationId, email);
+  const displayName = cleanDisplayName(body.displayName);
+  db.prepare(`INSERT INTO users (id, organization_id, email, status, display_name) VALUES (?, ?, ?, 'invited', ?)`).run(userId, organizationId, email, displayName);
   const token = randomToken(32);
   db.prepare(`INSERT INTO invitations (id, organization_id, email, role_id, token_hash, expires_at, created_by) VALUES (?, ?, ?, ?, ?, datetime('now', '+3 days'), ?)`)
     .run(uid('inv'), organizationId, email, role.id, sha256Hex(token), req.user.id);
   const mail = await sendMail({ to: email, subject: `Invitacion a ${org.name}`, kind: 'invitation', link: `/accept-invite.html?token=${token}` });
-  logAction({ organizationId, userId: req.user.id, action: 'user.invite', resourceType: 'user', resourceId: userId, ip: getClientIp(req), metadata: { email, role: roleName } });
+  logAction({ organizationId, userId: req.user.id, action: 'user.invite', resourceType: 'user', resourceId: userId, ip: getClientIp(req), metadata: { email, role: roleName, ...(displayName ? { nombreSaludo: displayName } : {}) } });
   sendJson(res, 201, { ok: true, userId, inviteLink: mail.link, note: 'El enlace de invitacion tambien se imprimio en la consola del servidor.' });
 }
 
@@ -161,6 +163,7 @@ async function updateUser(req, res, params) {
   const updates = {};
   if (body.organizationId) updates.organization_id = body.organizationId;
   if (body.status) updates.status = body.status;
+  if (Object.prototype.hasOwnProperty.call(body, 'displayName')) updates.display_name = cleanDisplayName(body.displayName);
   const fields = Object.keys(updates);
   if (fields.length) {
     const setSql = fields.map(f => `${f} = ?`).join(', ');
@@ -174,7 +177,7 @@ async function updateUser(req, res, params) {
       db.prepare('INSERT INTO user_roles (user_id, role_id, organization_id) VALUES (?, ?, ?)').run(user.id, role.id, org);
     }
   }
-  logAction({ organizationId: updates.organization_id || user.organization_id, userId: req.user.id, action: 'user.update', resourceType: 'user', resourceId: user.id, ip: getClientIp(req), metadata: body });
+  logAction({ organizationId: updates.organization_id || user.organization_id, userId: req.user.id, action: 'user.update', resourceType: 'user', resourceId: user.id, ip: getClientIp(req), metadata: Object.prototype.hasOwnProperty.call(updates, 'display_name') ? { ...body, nombreSaludo: updates.display_name } : body });
   sendJson(res, 200, { ok: true });
 }
 

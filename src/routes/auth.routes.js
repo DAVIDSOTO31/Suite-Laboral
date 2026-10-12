@@ -17,6 +17,8 @@ function publicUser(u) {
     isSuperAdmin: u.isSuperAdmin,
     roles: u.roles,
     permissions: Array.from(u.permissions),
+    // Saludo de bienvenida: nombre escrito a mano > ficha del colaborador > correo.
+    greetingName: u.displayName || u.employeeName || String(u.email || '').split('@')[0],
   };
 }
 

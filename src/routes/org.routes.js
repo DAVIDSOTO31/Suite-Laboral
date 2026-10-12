@@ -1,6 +1,7 @@
 'use strict';
 const { db, uid, seedDemoDataForOrg, getOrgRoleByName } = require('../db');
 const { sendJson, readBody, getClientIp } = require('../lib/http');
+const { cleanDisplayName } = require('../lib/display-name');
 const { logAction } = require('../lib/audit');
 const { describeAudit } = require('../lib/audit-describe');
 const { randomToken, sha256Hex } = require('../lib/crypto');
@@ -661,7 +662,7 @@ function listOrgUsers(req, res) {
   const orgId = req.user.organizationId;
   if (!orgId) return sendJson(res, 400, { error: 'Solo disponible para cuentas de organizacion.' });
   const rows = db.prepare(`
-    SELECT u.id, u.email, u.status, u.created_at, u.employee_id AS employeeId, e.name AS employeeName
+    SELECT u.id, u.email, u.status, u.created_at, u.employee_id AS employeeId, e.name AS employeeName, u.display_name AS displayName
     FROM users u LEFT JOIN employees e ON e.id = u.employee_id AND e.organization_id = u.organization_id
     WHERE u.organization_id = ?`).all(orgId);
   const users = rows.map(u => ({
@@ -685,7 +686,8 @@ async function createOrgUser(req, res) {
   if (link.error) return sendJson(res, 400, { error: link.error });
 
   const userId = uid('user');
-  db.prepare(`INSERT INTO users (id, organization_id, email, status, employee_id) VALUES (?, ?, ?, 'invited', ?)`).run(userId, orgId, email, link.employeeId);
+  const displayName = cleanDisplayName(body.displayName);
+  db.prepare(`INSERT INTO users (id, organization_id, email, status, employee_id, display_name) VALUES (?, ?, ?, 'invited', ?, ?)`).run(userId, orgId, email, link.employeeId, displayName);
   const token = randomToken(32);
   db.prepare(`INSERT INTO invitations (id, organization_id, email, role_id, token_hash, expires_at, created_by) VALUES (?, ?, ?, ?, ?, datetime('now', '+3 days'), ?)`)
     .run(uid('inv'), orgId, email, role.id, sha256Hex(token), req.user.id);
@@ -699,7 +701,7 @@ async function createOrgUser(req, res) {
     const emp = db.prepare('SELECT name FROM employees WHERE id = ?').get(link.employeeId);
     linkedEmployeeName = emp ? emp.name : null;
   }
-  logAction({ organizationId: orgId, userId: req.user.id, action: 'user.invite', resourceType: 'user', resourceId: userId, ip: getClientIp(req), metadata: { email, role: roleName, employee: linkedEmployeeName } });
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'user.invite', resourceType: 'user', resourceId: userId, ip: getClientIp(req), metadata: { email, role: roleName, employee: linkedEmployeeName, ...(displayName ? { nombreSaludo: displayName } : {}) } });
   sendJson(res, 201, { ok: true, inviteLink: mail.link, linkedEmployeeName, note: 'El enlace de invitacion tambien se imprimio en la consola del servidor.' });
 }
 
@@ -735,6 +737,9 @@ async function updateOrgUser(req, res, params) {
     if (link.error) return sendJson(res, 400, { error: link.error });
     db.prepare(`UPDATE users SET employee_id = ?, updated_at = datetime('now') WHERE id = ?`).run(link.employeeId, target.id);
   }
+  if (Object.prototype.hasOwnProperty.call(body, 'displayName')) {
+    db.prepare(`UPDATE users SET display_name = ?, updated_at = datetime('now') WHERE id = ?`).run(cleanDisplayName(body.displayName), target.id);
+  }
   if (body.role) {
     const role = getOrgRoleByName(req.user.organizationId, body.role);
     if (role) {
@@ -744,6 +749,7 @@ async function updateOrgUser(req, res, params) {
   }
   const metaUpd = { usuario: target.email };
   if (body.role) metaUpd.rolNuevo = body.role;
+  if (Object.prototype.hasOwnProperty.call(body, 'displayName')) metaUpd.nombreSaludo = cleanDisplayName(body.displayName);
   if (Object.prototype.hasOwnProperty.call(body, 'employeeId')) {
     const emp = body.employeeId ? db.prepare('SELECT name FROM employees WHERE id = ? AND organization_id = ?').get(Number(body.employeeId), req.user.organizationId) : null;
     metaUpd.colaboradorVinculado = emp ? emp.name : null;
