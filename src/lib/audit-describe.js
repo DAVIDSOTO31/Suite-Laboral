@@ -18,7 +18,7 @@ function dayName(iso) {
   const d = new Date(String(iso).slice(0, 10) + 'T00:00:00Z');
   return `${DAYS[d.getUTCDay()]} ${dmy(iso)}`;
 }
-function money(v) { return '$' + Math.round(Number(v) || 0).toLocaleString('es-CO'); }
+function money(v) { const n = Math.round(Number(v) || 0); return (n < 0 ? '-' : '') + '$' + Math.abs(n).toLocaleString('es-CO'); }
 function hm(h) {
   const v = Number(h) || 0, sign = v < 0 ? '-' : '', t = Math.round(Math.abs(v) * 60);
   return `${sign}${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')} h`;
@@ -153,7 +153,7 @@ function describeAudit(row, ctx = {}) {
         m.recargoNocturno ? `Recargo nocturno: ${hm(m.recargoNocturno)}` : null, m.dominical ? `Dominical/festivo: ${hm(m.dominical)}` : null, m.nota ? `Nota: ${m.nota}` : null].filter(Boolean));
     case 'payroll.opening_balance_deleted': return out('Liquidación', 'Saldo inicial', `Eliminó el saldo inicial de ${empName(row.resource_id)}.`, m.motivo ? [`Motivo: ${m.motivo}`] : []);
     case 'payroll.adjustment': return out('Liquidación', 'Ajuste manual (anterior)', `Ajustó manualmente la liquidación de ${val(m.colaborador)} (${val(m.periodo)}).`,
-      [m.campo ? `${m.campo}: ${val(m.antes)} → ${val(m.despues)}` : null, m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));
+      [m.campo ? `${m.campo}: ${m.campo === 'total' ? money(m.antes) : val(m.antes)} → ${m.campo === 'total' ? money(m.despues) : val(m.despues)}` : null, m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));
     case 'payroll.adjustments_reset': return out('Liquidación', 'Ajuste manual (anterior)', `Quitó ${m.ajustesEliminados || 0} ajuste(s) manual(es) del periodo ${val(m.periodo)}.`, m.motivo ? [`Motivo: ${m.motivo}`] : []);
 
     // ---------------- Configuración ----------------
@@ -178,7 +178,8 @@ function describeAudit(row, ctx = {}) {
     case 'attendance.indicator_goals': {
       const N = { ausentismoMax: 'Ausentismo máximo (%)', puntualidadMin: 'Puntualidad mínima (%)', perdidoMaxPorTurno: 'Tiempo perdido máx. por turno (min)', extrasValorMaxMes: 'Valor de horas extra máx. por mes ($)', costoMaxMes: 'Costo de extras y recargos máx. por mes ($)', sinCerrarMaxPct: 'Turnos sin cerrar máx. (%)', manualesMaxPct: 'Marcaciones manuales máx. (%)' };
       const a = m.antes || {}, b = m.despues || {};
-      const d = Object.keys(N).filter(k => String(a[k] ?? '') !== String(b[k] ?? '')).map(k => `${N[k]}: ${a[k] ?? 'sin meta'} → ${b[k] ?? 'sin meta'}`);
+      const fv = (k, v) => v == null ? 'sin meta' : (/\(\$\)$/.test(N[k]) ? money(v) : v);
+      const d = Object.keys(N).filter(k => String(a[k] ?? '') !== String(b[k] ?? '')).map(k => `${N[k]}: ${fv(k, a[k])} → ${fv(k, b[k])}`);
       return out('Configuración', 'Metas de indicadores', d.length ? `Cambió las metas de los indicadores (${d.length}).` : 'Guardó las metas de los indicadores sin cambios.', d);
     }
     // ---------------- Super Admin ----------------
