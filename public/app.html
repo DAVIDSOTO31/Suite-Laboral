@@ -4690,7 +4690,7 @@
                             <span class="text-3xs text-slate-500">${retired ? `Retirado el ${pdfDate(emp.retiredAt)}` : `${emp.role} • ${emp.department || 'Cocina'}`}</span>
                         </div>
                     </div>
-                    ${emp.salary != null ? `<span class="text-3xs font-mono font-bold text-slate-600 bg-slate-200/70 px-2 py-0.5 rounded">$${(emp.salary/1000).toFixed(0)}k</span>` : ''}
+                    ${emp.salary != null ? `<span class="text-3xs font-mono font-bold text-slate-600 bg-slate-200/70 px-2 py-0.5 rounded">${pdfMoney(emp.salary)}</span>` : ''}
                 `;
                 listContainer.appendChild(card);
             };
@@ -5642,7 +5642,7 @@
             });
             const sumDomHours = rows.reduce((a, r) => a + (r.domHours || 0), 0);
             const domOn = !!appState.includeSundayHoliday;
-            const money = (v) => '$' + Math.round(v || 0).toLocaleString('es-CO');
+            const money = (v) => pdfMoney(v);
             const periodLabel = (cache.startDate && cache.endDate)
                 ? `Del ${cache.startDate.split('-').reverse().join('/')} al ${cache.endDate.split('-').reverse().join('/')}` : '';
 
@@ -6697,7 +6697,7 @@
             const t = Math.round(Math.abs(v) * 60);
             return `${sign}${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
         }
-        function pdfMoney(v) { return '$' + Math.round(Number(v) || 0).toLocaleString('es-CO'); }
+        function pdfMoney(v) { const n = Math.round(Number(v) || 0); return (n < 0 ? '-' : '') + '$' + Math.abs(n).toLocaleString('es-CO'); }
         function pdfDate(iso) { return (iso || '').split('-').reverse().join('/'); }
         function nextDayISO(iso) { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + 1); return formatDateISO(d); }
 
@@ -7059,7 +7059,7 @@
             if (!cache || !CAN('employees.edit_payroll')) return;
             const rows = cache.rows;
             const pending = (appState._payrollOtPending || { days: [] }).days.length;
-            const money = (v) => '$' + Math.round(v || 0).toLocaleString('es-CO');
+            const money = (v) => pdfMoney(v);
             let snapshot, summary;
             if (type === 'recargos') {
                 const emps = rows.filter(r => Math.abs(r.hon) > 0.0001 || (r.domHours || 0) > 0);
@@ -8756,16 +8756,32 @@
         // formats (opcional): un formato por columna -> 'money' ($ con punto de miles, signo negativo)
         // u 'hours' (horas con 2 decimales). Los valores siguen siendo números (se pueden sumar).
         const XLSX_FORMATS = { money: '"$"#,##0;-"$"#,##0', hours: '0.00;-0.00' };
+        // ¿La columna es de dinero? (por su título). Las de horas, minutos o días nunca lo son.
+        function xlsxIsMoneyHeader(h) {
+            const t = String(h || '').trim();
+            return /(\(cop\)|\(\$\)|\bcop\b|valor|costo|salario|devengado|descuento|a pagar|a liquidar|pagado)/i.test(t)
+                && !/^(horas?|min\.?|minutos|d[ií]as)\b/i.test(t) && !/\((h|h:mm|decimal)\)/i.test(t);
+        }
+        // Aplica formatos a una hoja: 'money' ($ y punto de miles) u 'hours'. Si no se indican,
+        // las columnas de dinero se detectan solas por su título. Los valores siguen siendo números.
+        function xlsxFormatSheet(ws, headerRow, headerIndex, rowCount, formats) {
+            const f = formats || headerRow.map(h => (xlsxIsMoneyHeader(h) ? 'money' : null));
+            for (let r = headerIndex + 1; r <= headerIndex + rowCount; r++) f.forEach((fmt, c) => {
+                const cell = ws[XLSX.utils.encode_cell({ r, c })];
+                if (fmt && XLSX_FORMATS[fmt] && cell && cell.t === 'n') cell.z = XLSX_FORMATS[fmt];
+            });
+            ws['!cols'] = headerRow.map((h, c) => ({ wch: Math.min(28, Math.max(10, String(h).length * 0.55 + 4, c < 3 ? 22 : 0)) }));
+        }
+        // Hoja con formato automático de dinero (para libros de varias hojas).
+        function xlsxSheet(aoa, headerIndex = 0) {
+            const ws = XLSX.utils.aoa_to_sheet(aoa);
+            xlsxFormatSheet(ws, aoa[headerIndex], headerIndex, aoa.length - headerIndex - 1);
+            return ws;
+        }
         async function downloadXLSX(filename, headerRow, dataRows, sheetName, formats) {
             await loadXLSXLibrary();
             const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
-            if (formats) {
-                dataRows.forEach((row, r) => formats.forEach((f, c) => {
-                    const cell = ws[XLSX.utils.encode_cell({ r: r + 1, c })];
-                    if (f && XLSX_FORMATS[f] && cell && cell.t === 'n') cell.z = XLSX_FORMATS[f];
-                }));
-                ws['!cols'] = headerRow.map((h, c) => ({ wch: Math.min(28, Math.max(10, String(h).length * 0.55 + 4, c < 3 ? 22 : 0)) }));
-            }
+            xlsxFormatSheet(ws, headerRow, 0, dataRows.length, formats);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Datos');
             XLSX.writeFile(wb, filename);
@@ -9699,18 +9715,21 @@
                 const head = ['Área', 'Turnos evaluados', 'Asistidos', 'Ausencias', 'Ausencias justificadas', 'Ausentismo %', 'Ausentismo injustificado %',
                     'Entradas', 'Llegadas tarde', 'Puntualidad %', 'Min. de retraso', 'Min. exceso de almuerzo', 'Min. perdidos (retraso + almuerzo)', 'Costo perdido ($)', 'Horas extra generadas', 'Horas descontadas por salida anticipada', 'Horas extra diurnas netas', 'Horas extra nocturnas', 'Horas extra netas', 'Valor horas extra netas ($)', 'Costo recargo nocturno ($)', 'Costo extras diurnas netas ($)', 'Costo extras nocturnas ($)', 'Costo de extras y recargos ($)', 'Días de incapacidad', 'Costo incapacidad ($)', 'Turnos sin cerrar', 'Marcaciones manuales'];
                 const info = [[`Indicadores de asistencia · ${appState.orgName || ''}`], [`Periodo: ${pdfDate(d.from)} al ${pdfDate(d.to)}${d.area ? ' · Área: ' + d.area : ''}`], []];
-                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...info, head, ...indAreaSheetRows(d)]), 'Por área');
+                const areaRows = indAreaSheetRows(d);
+                const wsArea = XLSX.utils.aoa_to_sheet([...info, head, ...areaRows]);
+                xlsxFormatSheet(wsArea, head, info.length, areaRows.length);
+                XLSX.utils.book_append_sheet(wb, wsArea, 'Por área');
                 const inc = d.incapacities || { total: {}, employees: [] };
-                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+                XLSX.utils.book_append_sheet(wb, xlsxSheet([
                     ['Colaborador', 'Documento', 'Área', 'N.º incapacidades', 'Días', 'Salario', 'Costo en salario ($)', 'Días a cargo empresa (est.)', 'Valor a cargo empresa (est.)', 'Periodos'],
                     ...inc.employees.map(e => [e.name, empById0(e.employeeId), e.department, e.episodios, e.dias, e.salary, e.costoSalario, e.diasEmpresa, e.valorEmpresa,
                         e.periodos.map(x => x.desde === x.hasta ? x.desde : `${x.desde} a ${x.hasta}`).join('; ')]),
                     ['TOTAL', '', '', inc.total.episodios || 0, inc.total.dias || 0, '', inc.total.costoSalario || 0, inc.total.diasEmpresa || 0, inc.total.valorEmpresa || 0, ''],
                 ]), 'Incapacidades');
-                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Mes', 'Turnos evaluados', 'Ausentismo %', 'Puntualidad %', 'Horas extra netas', 'Valor horas extra ($)', 'Costo de extras y recargos ($)', 'Días de incapacidad', 'Costo incapacidad ($)'],
+                XLSX.utils.book_append_sheet(wb, xlsxSheet([['Mes', 'Turnos evaluados', 'Ausentismo %', 'Puntualidad %', 'Horas extra netas', 'Valor horas extra ($)', 'Costo de extras y recargos ($)', 'Días de incapacidad', 'Costo incapacidad ($)'],
                     ...d.trend.map(m => [m.month, m.programados, m.ausentismo, m.puntualidad, m.extraHoras, m.extraValor || 0, m.costoTotal || 0, m.incapacidadDias, m.incapacidadCosto])]), 'Tendencia 6 meses');
                 const empById = new Map(appState.employees.map(e => [Number(e.id), e]));
-                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['#', 'Colaborador', 'Documento', 'Área', 'Total novedades', 'Injustificadas', 'Pendientes', 'Justificadas'],
+                XLSX.utils.book_append_sheet(wb, xlsxSheet([['#', 'Colaborador', 'Documento', 'Área', 'Total novedades', 'Injustificadas', 'Pendientes', 'Justificadas'],
                     ...d.top.map((r, i) => [i + 1, r.name, empById.get(Number(r.employeeId)) ? docLabel(empById.get(Number(r.employeeId))) : '', r.department, r.total, r.injustificada || 0, r.pendiente || 0, r.justificada || 0])]), 'Top 10 novedades');
                 XLSX.writeFile(wb, `Indicadores_asistencia_${d.from}_al_${d.to}.xlsx`);
             } catch (e) { showAppToast(e.message); }
