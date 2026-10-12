@@ -93,8 +93,8 @@ function getOrgData(req, res, query) {
   const settingsRow = db.prepare('SELECT * FROM org_settings WHERE organization_id = ?').get(orgId);
   const departments = db.prepare('SELECT id, name, icon FROM departments WHERE organization_id = ? ORDER BY position ASC').all(orgId);
   const presetRows = db.prepare('SELECT data_json FROM shift_presets WHERE organization_id = ?').all(orgId);
-  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, status, retired_at, retire_reason, retire_detail FROM employees WHERE organization_id = ?').all(orgId)
-    .map(({ night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, status, retired_at, retire_reason, retire_detail, ...e }) => ({ ...e, email: email || '', nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '', countWorkedDays: count_worked_days === 1, documentType: document_type || 'CC', documentNumber: document_number || '',
+  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status, retired_at, retire_reason, retire_detail FROM employees WHERE organization_id = ?').all(orgId)
+    .map(({ night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status, retired_at, retire_reason, retire_detail, ...e }) => ({ ...e, email: email || '', phoneCountry: phone_country || '+57', phoneNumber: phone_number || '', nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '', countWorkedDays: count_worked_days === 1, documentType: document_type || 'CC', documentNumber: document_number || '',
       status: status === 'retirado' ? 'retirado' : 'activo', retiredAt: retired_at || null, retireReason: retire_reason || null, retireDetail: retire_detail || null }));
   // Usuario de la suite vinculado a cada colaborador (solo para quien gestiona usuarios).
   if (can(req, 'users.view')) {
@@ -279,7 +279,7 @@ async function syncEmployeesAndShifts(req, res) {
     // Los empleados se ACTUALIZAN (no se borran y recrean) para no arrastrar en
     // cascada su historial de asistencia ni su perfil biometrico.
     const existing = new Map(
-      db.prepare('SELECT id, name, role, department, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, status FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
+      db.prepare('SELECT id, name, role, department, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
     );
     const incomingIds = new Set(body.employees.map(e => Number(e.id)));
     const toDelete = [...existing.keys()].filter(id => !incomingIds.has(id));
@@ -306,11 +306,11 @@ async function syncEmployeesAndShifts(req, res) {
     const settingsRow = db.prepare('SELECT minimum_wage FROM org_settings WHERE organization_id = ?').get(orgId);
     const defaultSalary = (settingsRow && settingsRow.minimum_wage) || 1750905;
     const upsert = db.prepare(`
-      INSERT INTO employees (id, organization_id, name, role, department, department_id, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO employees (id, organization_id, name, role, department, department_id, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, department = excluded.department, department_id = excluded.department_id, salary = excluded.salary,
         night_surcharge = excluded.night_surcharge, night_surcharge_reason = excluded.night_surcharge_reason, email = excluded.email, count_worked_days = excluded.count_worked_days,
-        document_type = excluded.document_type, document_number = excluded.document_number
+        document_type = excluded.document_type, document_number = excluded.document_number, phone_country = excluded.phone_country, phone_number = excluded.phone_number
     `);
     let payrollIgnored = false;
     // Correos ya usados por colaboradores que NO vienen en la lista (y se conservan).
@@ -353,6 +353,21 @@ async function syncEmployeesAndShifts(req, res) {
       }
       if (docNumber) usedDocs.set(`${docType}:${docNumber}`, Number(e.id));
 
+      // Celular (opcional): indicativo "+57" por defecto y numero solo con digitos.
+      // Colombia (+57): celular de 10 digitos que empieza por 3. Otros paises: 6 a 14 digitos.
+      let phoneCountry = String(e.phoneCountry || '+57').replace(/[^\d+]/g, '');
+      if (!phoneCountry.startsWith('+')) phoneCountry = '+' + phoneCountry;
+      let phoneNumber = String(e.phoneNumber || '').replace(/\D/g, '').slice(0, 15) || null;
+      if (phoneNumber) {
+        const okCountry = /^\+\d{1,4}$/.test(phoneCountry);
+        const okNumber = phoneCountry === '+57' ? /^3\d{9}$/.test(phoneNumber) : /^\d{6,14}$/.test(phoneNumber);
+        if (!okCountry || !okNumber) {
+          ignored.push(`celular no valido para "${String(e.name || '').slice(0, 60)}"`);
+          phoneCountry = prev ? (prev.phone_country || '+57') : '+57'; phoneNumber = prev ? prev.phone_number : null;
+        }
+      }
+      if (!phoneNumber) phoneCountry = null;
+
       const incomingNight = e.nightSurcharge === false ? 0 : 1;
       const incomingReason = incomingNight ? null : (String(e.nightSurchargeReason || '').slice(0, 300) || null);
       let salary, nightSurcharge, reason, countDays;
@@ -374,11 +389,11 @@ async function syncEmployeesAndShifts(req, res) {
         if (salaryChanged || incomingNight !== nightSurcharge) payrollIgnored = true;
       }
       const newName = String(e.name || '').slice(0, 120), newRole = String(e.role || '').slice(0, 120);
-      upsert.run(e.id, orgId, newName, newRole, e.department || null, e.departmentId || null, salary, nightSurcharge, reason, email || null, countDays, docNumber ? docType : null, docNumber);
+      upsert.run(e.id, orgId, newName, newRole, e.department || null, e.departmentId || null, salary, nightSurcharge, reason, email || null, countDays, docNumber ? docType : null, docNumber, phoneCountry, phoneNumber);
       // Auditoria: que se creo o que cambio exactamente en la ficha.
       if (!prev) {
         logAction({ organizationId: orgId, userId: req.user.id, action: 'employee.created', resourceType: 'employee', resourceId: String(e.id), ip: getClientIp(req),
-          metadata: { colaborador: newName, cargo: newRole, area: e.department || null, salario: salary, documento: docNumber ? `${docType} ${docNumber}` : null, correo: email || null } });
+          metadata: { colaborador: newName, cargo: newRole, area: e.department || null, salario: salary, documento: docNumber ? `${docType} ${docNumber}` : null, correo: email || null, celular: phoneNumber ? `${phoneCountry} ${phoneNumber}` : null } });
       } else {
         const cambios = [];
         const chk = (campo, a, b) => { if ((a == null ? '' : String(a)) !== (b == null ? '' : String(b))) cambios.push({ campo, antes: a == null || a === '' ? null : a, despues: b == null || b === '' ? null : b }); };
@@ -388,6 +403,7 @@ async function syncEmployeesAndShifts(req, res) {
         chk('Salario', Number(prev.salary), Number(salary));
         chk('Correo', prev.email, email || null);
         chk('Documento', prev.document_number ? `${prev.document_type || 'CC'} ${prev.document_number}` : null, docNumber ? `${docType} ${docNumber}` : null);
+        chk('Celular', prev.phone_number ? `${prev.phone_country || '+57'} ${prev.phone_number}` : null, phoneNumber ? `${phoneCountry} ${phoneNumber}` : null);
         if (cambios.length) logAction({ organizationId: orgId, userId: req.user.id, action: 'employee.updated', resourceType: 'employee', resourceId: String(e.id), ip: getClientIp(req), metadata: { colaborador: newName, cambios } });
       }
       // Trazabilidad: activar/desactivar el conteo de dias laborados.
