@@ -7286,27 +7286,33 @@
                 showAppToast('No hay datos de liquidación para exportar en el periodo seleccionado.');
                 return;
             }
+            const dom = appState.includeSundayHoliday;
+            const h2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+            const rateHed = (r) => r.hed ? r.hedPay / r.hed : (r.rateHed || r.hourlyRate * (1 + appState.settings.percHED));
+            // Extra diurna NETA del periodo (saldo anterior + días): positiva se paga, negativa es deuda (al 125 %).
+            const hedNet = (r) => (r.carryIn || 0) + (r.hedDays || 0);
+            const hedValue = (r) => hedNet(r) > 0 ? Math.round(r.hedPay) : (Math.round(hedNet(r) * rateHed(r)) || 0);
+            const henGross = (r) => Math.round(r.henPayGross != null ? r.henPayGross : r.henPay);
+            const extrasPay = (r) => Math.round((r.hedPay || 0) + (r.henPay || 0)); // nunca negativo: lo que no se cubre pasa al siguiente periodo
             const header = ['Colaborador', 'Documento', 'Área',
-                'Recargo Nocturno (horas)', 'Recargo Nocturno (COP)',
-                'Extra Diurna (horas)', 'Extra Diurna (COP)',
-                'Extra Nocturna (horas)', 'Extra Nocturna (COP)',
-                ...(appState.includeSundayHoliday ? ['Dominical/Festivo (horas)', 'Dominical/Festivo (COP)'] : []),
-                'Total a Liquidar (COP)', 'Días con marcación corregida'];
+                'Recargo nocturno (h)', 'Total a pagar recargo nocturno',
+                'Extra diurna (h)', 'Valor extra diurna',
+                'Extra nocturna (h)', 'Valor extra nocturna',
+                'Total a pagar horas extras', 'Deuda que pasa al siguiente periodo (h)',
+                ...(dom ? ['Dominical/Festivo (h)', 'Dominical/Festivo'] : []),
+                'Total a liquidar', 'Días con marcación corregida'];
+            const formats = [null, null, null, 'hours', 'money', 'hours', 'money', 'hours', 'money', 'money', 'hours', ...(dom ? ['hours', 'money'] : []), 'money', null];
             const dataRows = cache.rows.map(r => [r.emp.name, docLabel(r.emp), r.emp.department || '',
-                Number(r.hon.toFixed(2)), Math.round(r.honPay),
-                Number(r.hed.toFixed(2)), Math.round(r.hedPay),
-                Number(r.hen.toFixed(2)), Math.round(r.henPay),
-                ...(appState.includeSundayHoliday ? [Number((r.domHours || 0).toFixed(2)), Math.round(r.domPay || 0)] : []),
-                Math.round(r.total), r.correctedDays || 0]);
-            const t = (f) => cache.rows.reduce((a, r) => a + (r[f] || 0), 0);
-            dataRows.push(['TOTAL PERIODO', '', '',
-                Number(t('hon').toFixed(2)), Math.round(t('honPay')),
-                Number(t('hed').toFixed(2)), Math.round(t('hedPay')),
-                Number(t('hen').toFixed(2)), Math.round(t('henPay')),
-                ...(appState.includeSundayHoliday ? [Number(t('domHours').toFixed(2)), Math.round(t('domPay'))] : []),
-                Math.round(t('total')), '']);
+                h2(r.hon), Math.round(r.honPay),
+                h2(hedNet(r)), hedValue(r),
+                h2(r.hen), henGross(r),
+                extrasPay(r), h2(r.carryOut),
+                ...(dom ? [h2(r.domHours), Math.round(r.domPay || 0)] : []),
+                Math.round(r.honPay) + extrasPay(r) + (dom ? Math.round(r.domPay || 0) : 0), r.correctedDays || 0]);
+            const col = (i) => dataRows.reduce((a, row) => a + (Number(row[i]) || 0), 0);
+            dataRows.push(['TOTAL PERIODO', '', '', ...header.slice(3, -1).map((h, k) => formats[k + 3] === 'hours' ? h2(col(k + 3)) : Math.round(col(k + 3))), '']);
             try {
-                await downloadXLSX(`Liquidacion_Extras_Recargos_${cache.startDate || 'periodo'}_a_${cache.endDate || ''}.xlsx`, header, dataRows, 'Liquidacion');
+                await downloadXLSX(`Liquidacion_Extras_Recargos_${cache.startDate || 'periodo'}_a_${cache.endDate || ''}.xlsx`, header, dataRows, 'Liquidacion', formats);
                 showAppToast('Liquidación de extras y recargos exportada en formato Excel (.xlsx).');
             } catch (e) {
                 showAppToast(e.message);
