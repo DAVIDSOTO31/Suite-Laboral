@@ -415,7 +415,7 @@
                                 <select id="indArea" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[160px]"><option value="">Todas las áreas</option></select>
                             </div>
                             <button onclick="attendanceLoadIndicators()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
-                            <button onclick="exportIndicatorsXLSX()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel</button>
+                            <button id="indExportXlsBtn" onclick="exportIndicatorsXLSX()" title="Todos los indicadores del periodo" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-excel text-emerald-600"></i> <span id="indExportXlsLabel">Exportar Excel</span></button>
                             <button onclick="exportIndicatorsPdf()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-pdf text-rose-600"></i> Exportar PDF</button>
                             <button onclick="openIndicatorGoals()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-bullseye text-sky-600"></i> Metas</button>
                         </div>
@@ -9362,7 +9362,18 @@
         }
         // Tarjeta de Indicadores abierta (detalle desplegado debajo de las tarjetas).
         let indSelectedCard = null;
-        function toggleIndCard(key) { indSelectedCard = indSelectedCard === key ? null : key; if (lastIndicators) renderIndicators(lastIndicators); }
+        const IND_CARD_TITLES = { ausentismo: 'Tasa de ausentismo', puntualidad: 'Índice de puntualidad', perdido: 'Tiempo perdido', extras: 'Horas extra (netas)',
+            costo: 'Costo de extras y recargos', sinCerrar: 'Turnos sin cerrar', manuales: 'Marcaciones manuales' };
+        // El botón "Exportar Excel" descarga SOLO el indicador abierto; sin ninguno abierto, todos.
+        function updateIndExportButton() {
+            const lbl = document.getElementById('indExportXlsLabel'), btn = document.getElementById('indExportXlsBtn');
+            if (!lbl || !btn) return;
+            const t = indSelectedCard && IND_CARD_TITLES[indSelectedCard];
+            lbl.textContent = t ? `Excel: ${t}` : 'Exportar Excel';
+            btn.title = t ? `Solo el detalle de "${t}". Cierra la tarjeta para exportar todos los indicadores.` : 'Todos los indicadores del periodo';
+            btn.classList.toggle('border-sky-400', !!t); btn.classList.toggle('bg-sky-50', !!t);
+        }
+        function toggleIndCard(key) { indSelectedCard = indSelectedCard === key ? null : key; updateIndExportButton(); if (lastIndicators) renderIndicators(lastIndicators); }
         function indApplyPreset() {
             const preset = document.getElementById('indPreset').value;
             const today = bogotaTodayISO();
@@ -9570,6 +9581,7 @@
                 manuales: ['Marcaciones manuales', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Estado'], (det.manuales || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, EST[r.estado] || r.estado])],
             }[indSelectedCard];
             if (!X) return;
+            if (!X[2].length || (indSelectedCard === 'costo' && X[2].length <= 1)) { showAppToast(`"${IND_CARD_TITLES[indSelectedCard]}" no tiene registros en este periodo.`); return; }
             try {
                 const safe = X[0].replace(/\s+/g, '_');
                 await downloadXLSX(`${safe}_${d.from}_al_${d.to}${d.area ? '_' + d.area.replace(/\s+/g, '_') : ''}.xlsx`, X[1], X[2], X[0].slice(0, 30));
@@ -9709,6 +9721,7 @@
         async function exportIndicatorsXLSX() {
             const d = lastIndicators;
             if (!d) { showAppToast('Primero consulta el periodo.'); return; }
+            if (indSelectedCard) return exportIndCardDetail(); // solo el indicador abierto
             try {
                 await loadXLSXLibrary();
                 const wb = XLSX.utils.book_new();
