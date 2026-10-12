@@ -6023,7 +6023,7 @@
                 ${closed
                     ? `<p class="font-bold text-emerald-900 text-sm"><i class="fa-solid fa-lock"></i> Periodo cerrado · ${money(sumExt)}</p>
                        <p class="text-3xs text-emerald-800">Del ${fmt(closed.from)} al ${fmt(closed.to)} · cerrado el ${escapeHtml(closed.closedAt)} (hora Colombia) por ${escapeHtml(closed.closedBy || '-')}${closed.pendingDays ? ` · quedaron ${closed.pendingDays} día(s) pendiente(s) sin incluir` : ''}</p>`
-                    : `<p class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-lock-open text-slate-400"></i> Periodo abierto · ${money(sumExt)}</p>`}
+                    : `<p class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-lock-open text-slate-400"></i> Periodo abierto desde el ${fmt(cache.startDate)}</p>`}
                 <div class="flex flex-wrap items-end gap-2 mt-2">
                     <div>
                         <label class="block text-3xs font-bold text-slate-500 uppercase mb-0.5">Desde</label>
@@ -6963,67 +6963,68 @@
         // del último cierre (o desde la primera marcación) y se corta en la fecha
         // que elija el administrador (máximo ayer).
         function recargosBlock(cl, sumRec, money, fmt, canClose) {
+            // Misma estructura que el cuadro de horas extras (título, Desde/Hasta, botones y
+            // vista previa), en morado. Recargos es un periodo CONTINUO: "Desde" no se elige,
+            // siempre es el día siguiente al último cierre.
             const info = cl.recargosInfo || {};
             const cache = appState._payrollOtCache;
             const label = `Recargo nocturno${appState.includeSundayHoliday ? ' y dominical/festivo' : ''}`;
-            if (cl.recargos) {
-                const isLast = info.last && info.last.id === cl.recargos.id;
-                return `<div class="rounded-xl border border-emerald-300 bg-emerald-50 p-4">
-                    <div class="flex items-start justify-between gap-2">
-                        <div>
-                            <p class="text-3xs uppercase font-bold text-emerald-700">Cierre de recargos</p>
-                            <p class="font-bold text-emerald-900 text-sm"><i class="fa-solid fa-lock"></i> Periodo cerrado · ${money(sumRec)}</p>
-                            <p class="text-3xs text-emerald-800 mt-0.5">${label} del ${fmt(cl.recargos.from)} al ${fmt(cl.recargos.to)} · cerrado el ${escapeHtml(cl.recargos.closedAt)} (hora Colombia) por ${escapeHtml(cl.recargos.closedBy || '-')}</p>
-                            ${info.nextStart ? `<p class="text-3xs text-emerald-700">El periodo siguiente está abierto desde el ${fmt(info.nextStart)}.</p>` : ''}
-                        </div>
-                        <div class="flex flex-col gap-1.5 shrink-0">
-                            <button onclick="exportClosurePdf('recargos')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white"><i class="fa-solid fa-file-pdf"></i> PDF del cierre</button>
-                            <button onclick="openPayslipModal('recargos')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-50"><i class="fa-solid fa-receipt"></i> Colillas de pago</button>
-                            ${canClose && isLast ? `<button onclick="reopenPayrollPeriod('${cl.recargos.id}', 'recargos')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100"><i class="fa-solid fa-lock-open"></i> Reabrir</button>` : ''}
-                        </div>
-                    </div>
-                </div>`;
-            }
-            if (!info.nextStart) {
-                return `<div class="rounded-xl border border-slate-200 bg-white p-4"><p class="text-3xs uppercase font-bold text-slate-500">Cierre de recargos</p>
+            const closed = cl.recargos;
+            if (!closed && !info.nextStart) {
+                return `<div class="rounded-xl border border-purple-200 bg-white p-4"><p class="text-3xs uppercase font-bold text-purple-700">Cierre de recargos nocturnos</p>
                     <p class="text-xs text-slate-600 mt-1">El primer periodo de recargos se abrirá automáticamente con las primeras marcaciones de la organización.</p></div>`;
             }
-            const canCut = info.nextStart <= info.maxEnd;
-            const viewing = cache.startDate === info.nextStart && cache.endDate >= info.nextStart && cache.endDate <= info.maxEnd;
-            const cutDefault = viewing ? cache.endDate : info.maxEnd;
-            // Vista previa de lo que se va a cerrar (cuando la tabla muestra el periodo abierto).
-            let preview = '';
-            if (viewing) {
-                const withRec = cache.rows.filter(r => Math.abs(r.hon) > 0.0001 || (r.domHours || 0) > 0)
-                    .sort((a, b) => (b.honPay + (b.domPay || 0)) - (a.honPay + (a.domPay || 0)));
-                const shown = withRec.slice(0, 8);
-                preview = `<div class="mt-3 rounded-lg border border-purple-200 bg-purple-50 p-3">
-                    <p class="text-xs font-bold text-purple-900">Vista previa del cierre: del ${fmt(cache.startDate)} al ${fmt(cache.endDate)}</p>
+            const isLast = closed && info.last && info.last.id === closed.id;
+            const canCut = !closed && info.nextStart <= info.maxEnd;
+            const viewing = closed || (cache.startDate === info.nextStart && cache.endDate >= info.nextStart && cache.endDate <= info.maxEnd);
+            const fromVal = closed ? closed.from : info.nextStart;
+            const toVal = closed ? closed.to : (viewing ? cache.endDate : info.maxEnd);
+            const withRec = cache.rows.filter(r => Math.abs(r.hon) > 0.0001 || (r.domHours || 0) > 0)
+                .sort((a, b) => (b.honPay + (b.domPay || 0)) - (a.honPay + (a.domPay || 0)));
+            const shown = withRec.slice(0, 8);
+            const btn = 'text-xs font-semibold px-3 py-1.5 rounded-lg';
+            const preview = !viewing
+                ? `<p class="text-3xs text-slate-500 mt-2">Elige la fecha "Hasta" y presiona "Revisar" para ver quiénes y cuánto se va a cerrar.</p>`
+                : `<div class="mt-3 rounded-lg border ${closed ? 'border-emerald-200 bg-white' : 'border-purple-200 bg-purple-50/60'} p-3">
+                    <p class="text-xs font-bold ${closed ? 'text-emerald-900' : 'text-purple-900'}">${closed ? 'Valores congelados del cierre' : 'Vista previa'}: del ${fmt(cache.startDate)} al ${fmt(cache.endDate)}</p>
                     <p class="text-sm font-black text-purple-950 mt-0.5">${money(sumRec)} <span class="text-3xs font-semibold text-purple-700">· ${withRec.length} colaborador(es) con recargo</span></p>
-                    ${shown.length ? `<table class="w-full text-3xs mt-2"><tbody>${shown.map(r => `
+                    ${shown.length ? `<table class="w-full text-3xs mt-2"><thead><tr class="text-purple-800">
+                            <th class="text-left font-semibold">Colaborador</th><th class="text-right font-semibold">Horas</th><th class="text-right font-semibold">Valor</th>
+                        </tr></thead><tbody>${shown.map(r => `
                         <tr class="border-t border-purple-100">
                             <td class="py-1 font-semibold text-slate-700">${escapeHtml(r.emp.name)}</td>
-                            <td class="py-1 text-right font-mono text-purple-800">${formatHM(r.hon)}${(r.domHours || 0) > 0 ? ' + dom. ' + formatHM(r.domHours) : ''}</td>
+                            <td class="py-1 text-right font-mono">${formatHM(r.hon)}${(r.domHours || 0) > 0 ? ' + dom. ' + formatHM(r.domHours) : ''}</td>
                             <td class="py-1 text-right font-mono font-bold text-purple-900">${money(r.honPay + (r.domPay || 0))}</td>
                         </tr>`).join('')}</tbody></table>
-                        ${withRec.length > shown.length ? `<p class="text-3xs text-purple-700 mt-1">y ${withRec.length - shown.length} más · el detalle completo está en la tabla de abajo.</p>` : '<p class="text-3xs text-purple-700 mt-1">El detalle completo también está en la tabla de abajo.</p>'}`
+                        ${withRec.length > shown.length ? `<p class="text-3xs text-purple-700 mt-1">y ${withRec.length - shown.length} más · el detalle completo está en la tabla de abajo.</p>` : ''}`
                     : '<p class="text-3xs text-purple-700 mt-1">Nadie tiene recargo nocturno en este rango.</p>'}
                 </div>`;
-            }
-            return `<div class="rounded-xl border border-purple-200 bg-white p-4">
-                <p class="text-3xs uppercase font-bold text-purple-700">Cierre de recargos (periodo continuo)</p>
-                <p class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-lock-open text-slate-400"></i> Periodo abierto desde el ${fmt(info.nextStart)}</p>
-                <p class="text-3xs text-slate-500">${label}. ${info.last ? `Último cierre: del ${fmt(info.last.from)} al ${fmt(info.last.to)} · <button class="underline text-purple-700" onclick="setPayrollRange('${info.last.from}', '${info.last.to}')">ver</button>` : 'Aún no hay cierres de recargos.'}</p>
-                ${canCut ? `<div class="flex flex-wrap items-end gap-2 mt-2">
+            return `<div class="rounded-xl border ${closed ? 'border-emerald-300 bg-emerald-50' : 'border-purple-200 bg-white'} p-4">
+                <p class="text-3xs uppercase font-bold ${closed ? 'text-emerald-700' : 'text-purple-700'}">Cierre de recargos nocturnos</p>
+                ${closed
+                    ? `<p class="font-bold text-emerald-900 text-sm"><i class="fa-solid fa-lock"></i> Periodo cerrado · ${money(sumRec)}</p>
+                       <p class="text-3xs text-emerald-800">${label} del ${fmt(closed.from)} al ${fmt(closed.to)} · cerrado el ${escapeHtml(closed.closedAt)} (hora Colombia) por ${escapeHtml(closed.closedBy || '-')}</p>`
+                    : `<p class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-lock-open text-slate-400"></i> Periodo abierto desde el ${fmt(info.nextStart)}</p>`}
+                ${closed || canCut ? `<div class="flex flex-wrap items-end gap-2 mt-2">
                     <div>
-                        <label class="block text-3xs font-bold text-slate-500 uppercase mb-0.5">Fecha de corte</label>
-                        <input type="date" id="payrollRecCut" value="${cutDefault}" min="${info.nextStart}" max="${info.maxEnd}" onchange="if (this.value) setPayrollRange('${info.nextStart}', this.value)" class="text-xs p-1.5 border border-slate-300 rounded-lg">
+                        <label class="block text-3xs font-bold text-slate-500 uppercase mb-0.5">Desde</label>
+                        <input type="date" value="${fromVal}" disabled title="Los recargos son un periodo continuo: empiezan el día siguiente al último cierre" class="text-xs p-1.5 border border-slate-300 rounded-lg bg-slate-50 text-slate-600">
                     </div>
-                    <button onclick="setPayrollRange('${info.nextStart}', document.getElementById('payrollRecCut').value)" class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-purple-300 text-purple-800 hover:bg-purple-50"><i class="fa-solid fa-eye"></i> Revisar antes de cerrar</button>
-                    ${canClose ? `<button onclick="closeRecargosPeriod()" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white"><i class="fa-solid fa-lock"></i> Cerrar recargos</button>` : ''}
-                </div>
-                ${viewing ? preview : `<p class="text-3xs text-slate-500 mt-1">Elige la fecha de corte y presiona "Revisar antes de cerrar" para ver quiénes y cuánto se va a cerrar.</p>`}`
-                : `<p class="text-3xs text-slate-500 mt-1">El periodo abierto empezó hoy; podrás cerrarlo desde mañana.</p>`}
+                    <div>
+                        <label class="block text-3xs font-bold text-slate-500 uppercase mb-0.5">Hasta</label>
+                        <input type="date" id="payrollRecCut" value="${toVal}" ${closed ? 'disabled' : `min="${info.nextStart}" max="${info.maxEnd}"`} class="text-xs p-1.5 border border-slate-300 rounded-lg ${closed ? 'bg-slate-50 text-slate-600' : ''}">
+                    </div>
+                    ${closed ? '' : `<button onclick="setPayrollRange('${info.nextStart}', document.getElementById('payrollRecCut').value)" class="${btn} border border-purple-300 text-purple-800 hover:bg-purple-50"><i class="fa-solid fa-eye"></i> Revisar</button>`}
+                    <button onclick="exportPayrollNightXLSX()" class="${btn} border border-slate-300 text-slate-700 hover:bg-slate-50"><i class="fa-solid fa-file-excel text-emerald-600"></i> Excel</button>
+                    ${closed ? `<button onclick="exportClosurePdf('recargos')" class="${btn} bg-rose-600 hover:bg-rose-700 text-white"><i class="fa-solid fa-file-pdf"></i> PDF del cierre</button>
+                    <button onclick="openPayslipModal('recargos')" class="${btn} bg-white border border-rose-300 text-rose-700 hover:bg-rose-50"><i class="fa-solid fa-receipt"></i> Colillas de pago</button>` : ''}
+                    ${canClose && isLast ? `<button onclick="reopenPayrollPeriod('${closed.id}', 'recargos')" class="${btn} bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100"><i class="fa-solid fa-lock-open"></i> Reabrir</button>` : ''}
+                    ${canClose && !closed ? `<button onclick="closeRecargosPeriod()" class="${btn} bg-slate-800 hover:bg-slate-900 text-white"><i class="fa-solid fa-lock"></i> Cerrar periodo</button>` : ''}
+                </div>` : `<p class="text-3xs text-slate-500 mt-1">El periodo abierto empezó hoy; podrás cerrarlo desde mañana.</p>`}
+                ${closed
+                    ? (info.nextStart ? `<p class="text-3xs text-emerald-700 mt-1">El periodo siguiente está abierto desde el ${fmt(info.nextStart)} · <button class="underline" onclick="setPayrollRange('${info.nextStart}', '${info.maxEnd >= info.nextStart ? info.maxEnd : info.nextStart}')">ver</button></p>` : '')
+                    : `<p class="text-3xs text-slate-500 mt-1">${label}. ${info.last ? `Último cierre: del ${fmt(info.last.from)} al ${fmt(info.last.to)} · <button class="underline text-purple-700" onclick="setPayrollRange('${info.last.from}', '${info.last.to}')">ver</button>` : 'Aún no hay cierres de recargos.'}</p>`}
+                ${closed || canCut ? preview : ''}
             </div>`;
         }
         // Muestra un rango personalizado en la liquidación.
