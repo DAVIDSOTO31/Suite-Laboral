@@ -157,10 +157,19 @@ function primeSpeech() {
 }
 // "David Soto. Entrada confirmada." (concordancia: entrada/salida -> confirmada;
 // inicio/fin de almuerzo y etapas -> confirmado).
+// Nombre para la VOZ: "ANDRES LONDOÑO" -> "Andres Londoño". Los sintetizadores
+// (sobre todo en Android) leen las palabras en MAYÚSCULAS como siglas y las
+// deletrean letra por letra. En pantalla el nombre se sigue viendo igual.
+function spokenName(name) {
+  const small = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'e']);
+  return String(name || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es-CO').split(' ')
+    .map((w, i) => (i > 0 && small.has(w)) ? w : w.charAt(0).toLocaleUpperCase('es-CO') + w.slice(1))
+    .join(' ');
+}
 function confirmationText(r) {
   const label = markLabel(r.markType, r.isSplit) || 'Marcación';
   const fem = /^(entrada|salida)$/i.test(label);
-  return `${r.employeeName}. ${label} ${fem ? 'confirmada' : 'confirmado'}.`;
+  return `${spokenName(r.employeeName)}. ${label} ${fem ? 'confirmada' : 'confirmado'}.`;
 }
 function speakText(text) {
   if (!voiceEnabled()) return;
@@ -558,7 +567,7 @@ async function doManualMark() {
     enqueueOffline({ kind: 'manual', employeeId: Number(sel.value), employeeName: name, reason, ...(ev ? { evidence: ev } : {}) });
     reasonEl.value = '';
     renderOfflineResult(name);
-    speakText(`${name}. Marcación guardada.`);
+    speakText(`${spokenName(name)}. Marcación guardada.`);
   };
   if (!navigator.onLine) { saveOfflineManual(); return; }
   try {
@@ -583,7 +592,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-envivo1';
+const KIOSK_VERSION = '2026.10-voz1';
 let cameraState = 'desconocido';
 let batteryRef = null;
 async function detectCameraState() {
