@@ -34,6 +34,7 @@ function describeAudit(row, ctx = {}) {
   switch (row.action) {
     // ---------------- Sesión ----------------
     case 'auth.login': return out('Sesión', 'Inicio de sesión', 'Inició sesión en la suite.');
+    case 'backup.verified': return out('Configuración', 'Verificación de copia de seguridad', `Verificó la copia de seguridad en la nube: ${m.resultado || 'sin resultado'}.${m.mensaje ? ' ' + m.mensaje : ''}`);
     case 'auth.logout': return out('Sesión', 'Cierre de sesión', 'Cerró sesión.');
     case 'auth.login_failed': return out('Sesión', 'Intento fallido', `Intento de inicio de sesión fallido con el correo ${val(m.email)}.`, [], m.email || 'Desconocido');
     case 'auth.invite_accepted': return out('Sesión', 'Invitación aceptada', 'Aceptó la invitación y creó su contraseña.');

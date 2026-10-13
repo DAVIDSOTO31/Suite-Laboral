@@ -64,6 +64,17 @@
     <div class="bg-white rounded-xl border border-slate-200 p-4"><p class="text-xs font-bold text-slate-600">Organizaciones inactivas</p><p id="kpiOrgsInactive" class="text-2xl font-bold text-rose-600">-</p></div>
     <div class="bg-white rounded-xl border border-slate-200 p-4"><p class="text-xs font-bold text-slate-600">Usuarios totales</p><p id="kpiUsersTotal" class="text-2xl font-bold text-slate-700">-</p></div>
     <div class="bg-white rounded-xl border border-slate-200 p-4"><p class="text-xs font-bold text-slate-600">Usuarios activos</p><p id="kpiUsersActive" class="text-2xl font-bold text-sky-600">-</p></div>
+    <!-- Copia de seguridad en la nube -->
+    <div class="bg-white rounded-xl border border-slate-200 p-4" style="grid-column: 1 / -1">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div style="max-width: 640px">
+          <p class="text-sm font-bold text-slate-800"><i class="fa-solid fa-cloud-arrow-up text-violet-600 mr-1"></i>Copia de seguridad en la nube</p>
+          <p class="text-xs text-slate-500 mt-1">Trae la copia guardada en la nube a un archivo aparte, revisa que no esté dañada y compara sus registros con la base de datos actual. No modifica nada de la suite. Puede tardar hasta un minuto.</p>
+        </div>
+        <button id="backupVerifyBtn" onclick="verifyBackupCopy()" class="px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold whitespace-nowrap"><i class="fa-solid fa-shield-halved mr-1"></i>Verificar copia de seguridad</button>
+      </div>
+      <div id="backupVerifyResult" class="mt-3"></div>
+    </div>
   </section>
 
   <!-- ORGANIZATIONS -->
@@ -262,6 +273,62 @@ async function loadDashboard() {
   document.getElementById('kpiOrgsInactive').textContent = d.organizations.inactive;
   document.getElementById('kpiUsersTotal').textContent = d.users.total;
   document.getElementById('kpiUsersActive').textContent = d.users.active;
+}
+
+// ---- Verificar copia de seguridad (Litestream -> R2) ----
+function fmtBogota(iso) {
+  if (!iso) return '-';
+  return new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+}
+function agoText(iso) {
+  if (!iso) return '';
+  const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+  if (s < 60) return 'hace menos de un minuto';
+  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
+  return `hace ${Math.round(s / 86400)} día(s)`;
+}
+async function verifyBackupCopy() {
+  const btn = document.getElementById('backupVerifyBtn');
+  const box = document.getElementById('backupVerifyResult');
+  btn.disabled = true; btn.style.opacity = '.6';
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Verificando…';
+  box.innerHTML = '<p class="text-xs text-slate-500">Restaurando la copia de la nube en un archivo aparte y comparando… no cierres esta ventana.</p>';
+  try {
+    const r = await api('/api/superadmin/backup/verify', { method: 'POST' });
+    const tone = r.ok ? ['#ecfdf5', '#a7f3d0', '#065f46', 'fa-circle-check', 'Copia de seguridad correcta']
+      : (r.configured === false || r.busy ? ['#f8fafc', '#e2e8f0', '#334155', 'fa-circle-info', 'Sin verificar'] : ['#fff1f2', '#fecdd3', '#9f1239', 'fa-triangle-exclamation', 'Revisar la copia de seguridad']);
+    const statusCell = (st) => st === 'igual' ? '<span style="color:#047857;font-weight:600">✔ Coincide</span>'
+      : st === 'reciente' ? '<span style="color:#b45309;font-weight:600">≈ Cambios de los últimos segundos</span>'
+      : '<span style="color:#be123c;font-weight:600">✖ No coincide</span>';
+    const facts = r.configured === false || r.busy ? '' : `
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs mt-3">
+        <div><p class="text-slate-500">Última subida a la nube</p><p class="font-semibold">${esc(fmtBogota(r.latestUploadAt))}${r.latestUploadAt ? `<span class="block font-normal text-slate-500">${esc(agoText(r.latestUploadAt))}</span>` : ''}</p></div>
+        <div><p class="text-slate-500">Estado del archivo</p><p class="font-semibold">${r.integrity === 'ok' ? 'Sin daños' : esc(r.integrity || '-')}</p></div>
+        <div><p class="text-slate-500">Tamaño de la copia</p><p class="font-semibold">${r.sizeBytes ? (r.sizeBytes / 1048576).toFixed(2).replace('.', ',') + ' MB' : '-'}</p></div>
+        <div><p class="text-slate-500">Verificado</p><p class="font-semibold">${esc(fmtBogota(r.checkedAt))}<span class="block font-normal text-slate-500">en ${((r.durationMs || 0) / 1000).toFixed(1).replace('.', ',')} s</span></p></div>
+      </div>`;
+    const table = (r.tables || []).length ? `
+      <div class="overflow-x-auto mt-3 border border-slate-200 rounded-lg">
+        <table class="w-full text-xs">
+          <thead class="bg-slate-50 text-slate-600 font-bold"><tr>
+            <th class="text-left px-3 py-2">Información</th><th class="text-right px-3 py-2">Base actual</th><th class="text-right px-3 py-2">Copia en la nube</th><th class="text-left px-3 py-2">Resultado</th>
+          </tr></thead>
+          <tbody>${r.tables.map(t => `<tr class="border-t border-slate-100">
+            <td class="px-3 py-1.5">${esc(t.label)}</td>
+            <td class="px-3 py-1.5 text-right">${t.live == null ? '-' : t.live.toLocaleString('es-CO')}</td>
+            <td class="px-3 py-1.5 text-right">${t.backup == null ? '-' : t.backup.toLocaleString('es-CO')}</td>
+            <td class="px-3 py-1.5">${statusCell(t.status)}</td></tr>`).join('')}</tbody>
+        </table>
+      </div>` : '';
+    box.innerHTML = `<div style="background:${tone[0]};border:1px solid ${tone[1]};color:${tone[2]};border-radius:10px;padding:10px 12px" class="text-sm">
+        <p class="font-bold"><i class="fa-solid ${tone[3]} mr-1"></i>${tone[4]}</p><p class="text-xs mt-0.5">${esc(r.message)}</p></div>${facts}${table}`;
+  } catch (e) {
+    box.innerHTML = `<p class="text-xs" style="color:#be123c">No se pudo verificar: ${esc(e.message)}</p>`;
+  } finally {
+    btn.disabled = false; btn.style.opacity = '';
+    btn.innerHTML = '<i class="fa-solid fa-shield-halved mr-1"></i>Verificar copia de seguridad';
+  }
 }
 
 async function loadOrgs() {
