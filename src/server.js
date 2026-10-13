@@ -145,6 +145,11 @@ route('GET', '/api/attendance/corrections', [requirePermission('attendance.view'
 // "Mis marcaciones": cada usuario ve solo las de su propia ficha de colaborador.
 route('GET', '/api/attendance/my-history', [requirePermission('self.view')], (req, res, params, query) => attendance.listMyHistory(req, res, query));
 route('GET', '/api/attendance/alerts', [requirePermission('attendance.view_alerts')], (req, res, params, query) => attendance.listAlerts(req, res, query));
+route('GET', '/api/attendance/evidence', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listMarkEvidence(req, res, query));
+route('GET', '/api/attendance/evidence/:id/photo', [requirePermission('attendance.view')], (req, res, params) => attendance.getMarkEvidencePhoto(req, res, params));
+route('GET', '/api/attendance/evidence-settings', [requirePermission('attendance.view')], (req, res, params, query) => attendance.getEvidenceSettings(req, res, query));
+route('PUT', '/api/attendance/evidence-settings', [requirePermission('settings.manage')], (req, res) => attendance.saveEvidenceSettings(req, res));
+route('POST', '/api/attendance/devices/:id/env-reset', [requirePermission('attendance.manage_devices')], (req, res, params) => attendance.resetDeviceEnv(req, res, params));
 // Tablero "Hoy" y gestion de novedades (justificar / injustificar con nota y soporte).
 route('GET', '/api/attendance/today', [requirePermission('attendance.view')], (req, res, params, query) => attendance.todayBoard(req, res, query));
 route('GET', '/api/attendance/novedades', [requirePermission('attendance.view_alerts')], (req, res, params, query) => attendance.novedadesSummary(req, res, query));

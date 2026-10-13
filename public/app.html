@@ -1059,6 +1059,22 @@
                             </div>
                             <button type="button" onclick="saveDeviceAlertSettings()" id="devAlertsSaveBtn" class="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold">Guardar</button>
                         </div>
+                        <div class="border border-fuchsia-200 bg-fuchsia-50/40 rounded-lg p-3 mb-4 text-xs">
+                            <p class="font-bold text-slate-800 flex items-center gap-1.5"><i class="fa-solid fa-camera text-fuchsia-600"></i> Evidencia de las marcaciones del kiosco</p>
+                            <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <label class="flex items-start gap-2 cursor-pointer">
+                                    <input type="checkbox" id="evPhotoChk" class="mt-0.5 w-4 h-4 accent-fuchsia-600" onchange="saveEvidenceSettings()">
+                                    <span><span class="font-semibold text-slate-800">Foto de evidencia en cada marcación</span>
+                                    <span class="block text-2xs text-slate-500">Una foto pequeña (≈ 10 KB) al marcar, también en selección manual y sin conexión. Se ve con el botón <i class="fa-solid fa-camera"></i> en Historial y Alertas. <strong>Se borra sola a los 30 días.</strong> <span id="evStoredInfo"></span></span></span>
+                                </label>
+                                <label class="flex items-start gap-2 cursor-pointer">
+                                    <input type="checkbox" id="evEnvChk" class="mt-0.5 w-4 h-4 accent-fuchsia-600" onchange="saveEvidenceSettings()">
+                                    <span><span class="font-semibold text-slate-800">Alerta de entorno diferente</span>
+                                    <span class="block text-2xs text-slate-500">Cada kiosco aprende cómo se ve su lugar (primeras 15 marcaciones en al menos 2 días). Después, si una marcación se hace con otro fondo, llega la alerta <strong>"Marcación sospechosa"</strong>. La marcación se registra igual.</span></span>
+                                </label>
+                            </div>
+                            <p class="text-3xs text-slate-500 mt-2">Ley 1581 de 2012: informa a los colaboradores que el kiosco toma una foto de evidencia por 30 días. El kiosco lo muestra en pantalla. Solo administradores y supervisores pueden verla.</p>
+                        </div>
                         <div class="overflow-x-auto border border-slate-200 rounded-lg">
                             <table class="w-full text-xs">
                                 <thead class="bg-slate-50 text-slate-500 uppercase"><tr>
@@ -1168,7 +1184,7 @@
                         <h3 class="font-bold text-slate-800 mb-2">Registrar rostro — <span id="attEnrollEmployeeName"></span></h3>
                         <label class="flex items-start gap-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3">
                             <input type="checkbox" id="attEnrollConsent" class="mt-0.5">
-                            <span>El colaborador autoriza expresamente el uso de su rostro (dato biométrico) para fines de control de asistencia laboral, conforme a la Ley 1581 de 2012 de protección de datos personales (Habeas Data).</span>
+                            <span>El colaborador autoriza expresamente el uso de su rostro (dato biométrico) para fines de control de asistencia laboral, conforme a la Ley 1581 de 2012 de protección de datos personales (Habeas Data). También autoriza que, si la empresa lo activa, el kiosco tome una foto de evidencia en cada marcación, que se conserva 30 días y luego se elimina automáticamente.</span>
                         </label>
                         <video id="attEnrollVideo" autoplay muted playsinline class="w-full rounded-lg bg-slate-900 mb-2" style="max-height:260px; object-fit:cover;"></video>
                         <p id="attEnrollStatus" class="text-center text-xs font-semibold text-slate-600 mb-3">Marca la casilla para activar la cámara.</p>
@@ -1288,6 +1304,7 @@
                                     <option value="turno_sin_cerrar">Turno sin cerrar</option>
                                     <option value="marcacion_manual">Marcación manual</option>
                                     <option value="etapa_extendida">Etapa extendida (turno partido)</option>
+                                    <option value="entorno_diferente">Marcación sospechosa (entorno diferente)</option>
                                 </select>
                             </div>
                             <div>
@@ -1888,6 +1905,20 @@
     </div>
 
     <!-- MODAL: Invitar usuario a la suite -->
+    <div id="modalEvidence" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-3xl w-full p-5 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-start border-b pb-3 mb-3">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-camera text-fuchsia-600"></i> Fotos de evidencia</h3>
+                    <p id="evModalSub" class="text-xs text-slate-500"></p>
+                </div>
+                <button onclick="closeModal('modalEvidence')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div id="evModalBody" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+            <p class="text-3xs text-slate-400 mt-3">Las fotos se borran solas a los 30 días. La marcación se conserva.</p>
+        </div>
+    </div>
+
     <div id="modalInviteUser" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
         <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-200">
             <div class="flex justify-between items-center border-b pb-3">
@@ -8206,6 +8237,7 @@
             turno_sin_cerrar: { icon: 'fa-door-open', cls: 'bg-yellow-100 text-yellow-800' },
             marcacion_manual: { icon: 'fa-hand-pointer', cls: 'bg-violet-100 text-violet-700' },
             etapa_extendida: { icon: 'fa-arrows-left-right', cls: 'bg-cyan-100 text-cyan-800' },
+            entorno_diferente: { icon: 'fa-user-secret', cls: 'bg-fuchsia-100 text-fuchsia-800' },
         };
         let notifData = { items: [], unread: 0 };
         let notifTimer = null;
@@ -8595,6 +8627,7 @@
             inasistencia: ['No se presentó', 'bg-slate-800 text-white'],
             turno_sin_cerrar: ['Turno sin cerrar', 'bg-amber-400 text-amber-950'],
             etapa_extendida: ['Etapa extendida', 'bg-cyan-600 text-white'],
+            entorno_diferente: ['Marcación sospechosa', 'bg-fuchsia-700 text-white'],
         };
         function alertTypeBadge(type) {
             const [label, cls] = ALERT_TYPE_STYLES[type] || [type, 'bg-slate-100 text-slate-600'];
@@ -9133,7 +9166,7 @@
                 if (document.getElementById('attHistoryOnlyNovelty')?.checked) rows = rows.filter(attDayHasNovelty);
                 body.innerHTML = rows.map(r => `
                     <tr class="border-t border-slate-100">
-                        <td class="px-3 py-2 font-medium">${escapeHtml(r.employee_name)}</td>
+                        <td class="px-3 py-2 font-medium">${escapeHtml(r.employee_name)}${r.evidence_count ? evidenceBtn(r.employee_id, r.shift_date, r.employee_name, r.evidence_env_diff > 0) : ''}</td>
                         <td class="px-3 py-2 whitespace-nowrap">${r.shift_date}</td>
                         <td class="px-3 py-2">${r.scheduled_entrada || '-'}</td>
                         <td class="px-3 py-2">${r.entrada_real || '-'}</td>
@@ -9192,7 +9225,7 @@
                 body.innerHTML = rows.map(r => `
                     <tr class="border-t border-slate-100 align-top">
                         <td class="px-3 py-2 whitespace-nowrap">${r.created_at}${r.shift_date ? `<span class="block text-3xs text-slate-400">Turno del ${r.shift_date.split('-').reverse().join('/')}</span>` : ''}</td>
-                        <td class="px-3 py-2 font-medium">${escapeHtml(r.employee_name)}</td>
+                        <td class="px-3 py-2 font-medium">${escapeHtml(r.employee_name)}${r.evidence_count ? evidenceBtn(r.employee_id, r.shift_date, r.employee_name, r.alert_type === 'entorno_diferente') : ''}</td>
                         <td class="px-3 py-2">${alertTypeBadge(r.alert_type)}</td>
                         <td class="px-3 py-2">${r.scheduled_time || '-'}</td>
                         <td class="px-3 py-2">${r.actual_time || '-'}</td>
@@ -9210,6 +9243,7 @@
             }
             if (r.alert_type === 'inasistencia') return `<span class="text-slate-700">Sin ninguna marcación en el turno ${escapeHtml(m.turno || '')}</span>`;
             if (r.alert_type === 'etapa_extendida') return `<span class="text-slate-700">${escapeHtml(m.etapa || 'Etapa extendida')}: ${attMinutesLabel(r.diff_minutes)}</span><span class="block text-3xs text-slate-500">Puede convertir en extra la última parte del turno. Justifícala si estaba autorizada.</span>`;
+            if (r.alert_type === 'entorno_diferente') return `<span class="text-slate-700">Marcó en un <strong>entorno diferente</strong> al de siempre${m.dispositivo ? ` (kiosco ${escapeHtml(m.dispositivo)})` : ''}${m.markType ? ' · ' + escapeHtml(ATTENDANCE_MARK_LABELS[m.markType] || m.markType) : ''}.</span><span class="block text-3xs text-slate-500">Revisa la foto: el fondo no se parece al lugar donde está el kiosco.</span>`;
             if (r.alert_type === 'turno_sin_cerrar') return `<span class="text-slate-700">Marcó entrada${m.entrada ? ' a las ' + escapeHtml(m.entrada) : ''} pero no la salida (turno ${escapeHtml(m.turno || '')})</span>`;
             return attMinutesLabel(r.diff_minutes);
         }
@@ -9256,6 +9290,76 @@
                     ${r.mgmt_by ? `<span class="block text-3xs text-slate-400">Revisó: ${escapeHtml(r.mgmt_by)} · ${escapeHtml(r.mgmt_at || '')}</span>` : (Number(r.mgmt_auto) === 1 ? `<span class="block text-3xs text-slate-400">Revisó: la suite (automático) · ${escapeHtml(r.mgmt_at || '')}</span>` : '')}
                     ${editBtn}
                 </div></div>`;
+        }
+        // ---- Evidencia de marcaciones: fotos (30 días) y entorno del kiosco ----
+        let lastEvidenceSettings = null;
+        function evidenceBtn(empId, date, name, suspicious) {
+            const n = escapeHtml(String(name || '')).replace(/'/g, '&#39;');
+            return `<button type="button" onclick="openMarkEvidence(${Number(empId)}, '${date}', '${n}')" title="Ver fotos de evidencia del día" class="ml-1.5 inline-flex items-center justify-center w-6 h-6 rounded-full align-middle ${suspicious ? 'bg-fuchsia-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}"><i class="fa-solid fa-camera text-[11px]"></i></button>`;
+        }
+        function renderEvidenceCards(rows) {
+            const box = document.getElementById('evModalBody');
+            if (!rows.length) { box.className = ''; box.innerHTML = '<p class="py-6 text-center text-slate-400 text-sm">No hay fotos para este día (pudieron borrarse al cumplir 30 días).</p>'; return; }
+            box.className = 'grid grid-cols-2 md:grid-cols-4 gap-3';
+            const envChip = (r) => r.envStatus === 'diferente' ? '<span class="inline-block px-1.5 py-0.5 rounded bg-fuchsia-600 text-white text-3xs font-bold"><i class="fa-solid fa-user-secret"></i> Entorno diferente</span>'
+                : r.envStatus === 'normal' ? '<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-3xs font-bold"><i class="fa-solid fa-check"></i> Entorno habitual</span>'
+                : r.envStatus === 'aprendiendo' ? '<span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-3xs font-semibold">Aprendiendo el entorno</span>' : '';
+            box.innerHTML = rows.map(r => `<figure class="border ${r.envStatus === 'diferente' ? 'border-fuchsia-400 ring-2 ring-fuchsia-200' : 'border-slate-200'} rounded-lg overflow-hidden bg-slate-50">
+                ${r.hasPhoto ? `<a href="/api/attendance/evidence/${encodeURIComponent(r.id)}/photo" target="_blank" rel="noopener"><img src="/api/attendance/evidence/${encodeURIComponent(r.id)}/photo" alt="Foto de ${escapeHtml(r.markLabel)}" loading="lazy" class="w-full aspect-[4/3] object-cover bg-slate-200"></a>`
+                    : '<div class="w-full aspect-[4/3] flex items-center justify-center text-slate-400 text-2xs bg-slate-100">Sin foto</div>'}
+                <figcaption class="p-2 text-2xs space-y-0.5">
+                    <p class="font-bold text-slate-800">${escapeHtml(r.markLabel)}</p>
+                    <p class="text-slate-500">${escapeHtml(r.time)}${r.device ? ' · ' + escapeHtml(r.device) : ''}</p>
+                    <p class="text-slate-500">${escapeHtml(r.method)}</p>
+                    ${envChip(r)}
+                </figcaption></figure>`).join('');
+        }
+        async function openMarkEvidence(empId, date, name) {
+            document.getElementById('evModalSub').textContent = `${name} · ${String(date).split('-').reverse().join('/')}`;
+            document.getElementById('evModalBody').innerHTML = '<p class="py-6 text-center text-slate-400 text-sm">Cargando…</p>';
+            openModal('modalEvidence');
+            try { const r = await apiFetch(`/api/attendance/evidence?employeeId=${encodeURIComponent(empId)}&date=${encodeURIComponent(date)}`); renderEvidenceCards(r.rows); }
+            catch (e) { document.getElementById('evModalBody').innerHTML = `<p class="py-6 text-center text-rose-600 text-sm">${escapeHtml(e.message)}</p>`; }
+        }
+        async function openOfflineEvidence(offlineId) {
+            const r0 = lastOfflineMarks.find(x => x.id === offlineId) || {};
+            document.getElementById('evModalSub').textContent = `Marcación sin conexión · ${r0.device_name || ''} · ${r0.captured_local || ''}`;
+            document.getElementById('evModalBody').innerHTML = '<p class="py-6 text-center text-slate-400 text-sm">Cargando…</p>';
+            openModal('modalEvidence');
+            try { const r = await apiFetch(`/api/attendance/evidence?offlineId=${encodeURIComponent(offlineId)}`); renderEvidenceCards(r.rows); }
+            catch (e) { document.getElementById('evModalBody').innerHTML = `<p class="py-6 text-center text-rose-600 text-sm">${escapeHtml(e.message)}</p>`; }
+        }
+        async function loadEvidenceSettings() {
+            try {
+                const s = await apiFetch('/api/attendance/evidence-settings');
+                lastEvidenceSettings = s;
+                const p = document.getElementById('evPhotoChk'), e = document.getElementById('evEnvChk');
+                if (p) { p.checked = !!s.photo; p.disabled = !CAN('settings.manage'); }
+                if (e) { e.checked = !!s.env; e.disabled = !CAN('settings.manage'); }
+                const info = document.getElementById('evStoredInfo');
+                if (info) info.textContent = s.storedPhotos ? `Hoy hay ${s.storedPhotos.toLocaleString('es-CO')} foto(s) guardada(s) (${s.storedBytes >= 1048576 ? (s.storedBytes / 1048576).toLocaleString('es-CO', { maximumFractionDigits: 1 }) + ' MB' : Math.max(1, Math.round(s.storedBytes / 1024)).toLocaleString('es-CO') + ' KB'}).` : '';
+            } catch (e) { /* sin permiso */ }
+        }
+        async function saveEvidenceSettings() {
+            const photo = document.getElementById('evPhotoChk').checked, env = document.getElementById('evEnvChk').checked;
+            try {
+                const r = await apiFetch('/api/attendance/evidence-settings', { method: 'PUT', body: JSON.stringify({ photo, env }) });
+                lastEvidenceSettings = Object.assign({}, lastEvidenceSettings || {}, r);
+                showAppToast(`Guardado. Foto de evidencia: ${r.photo ? 'activada' : 'desactivada'} · Entorno diferente: ${r.env ? 'activado' : 'desactivado'}. Los kioscos lo aplican en su siguiente señal (≈ 1 min).`);
+                attendanceLoadDevices();
+            } catch (e) { showAppToast('Error: ' + e.message); loadEvidenceSettings(); }
+        }
+        function deviceEnvCell(d) {
+            if (!lastEvidenceSettings || !lastEvidenceSettings.env || !d.env) return '';
+            const e = d.env;
+            return e.learned
+                ? '<span class="block mt-1 text-3xs font-semibold text-emerald-700"><i class="fa-solid fa-mountain-sun"></i> Entorno aprendido</span>'
+                : `<span class="block mt-1 text-3xs font-semibold text-slate-500" title="Necesita ${e.marksNeeded} marcaciones en al menos ${e.daysNeeded} días"><i class="fa-solid fa-mountain-sun"></i> Aprendiendo entorno (${Math.min(e.marks, e.marksNeeded)}/${e.marksNeeded} marcaciones · ${Math.min(e.days, e.daysNeeded)}/${e.daysNeeded} días)</span>`;
+        }
+        async function attendanceResetDeviceEnv(deviceId, name) {
+            if (!confirm(`¿Reaprender el entorno del kiosco "${name}"?\n\nÚsalo solo si moviste el kiosco a otro lugar a propósito. Durante las próximas 15 marcaciones (al menos 2 días) no habrá alertas de entorno diferente mientras aprende el nuevo lugar.`)) return;
+            try { await apiFetch(`/api/attendance/devices/${encodeURIComponent(deviceId)}/env-reset`, { method: 'POST' }); showAppToast('Listo: el kiosco volverá a aprender su entorno.'); attendanceLoadDevices(); }
+            catch (e) { showAppToast('Error: ' + e.message); }
         }
         function toggleAlertMgmtInfo(alertId) {
             const box = document.getElementById(`mgmtInfo-${alertId}`);
@@ -10462,21 +10566,24 @@
                 }, 60000);
                 loadDeviceAlertSettings();
             }
+            loadEvidenceSettings();
             attendanceLoadOfflineMarks();
             try {
-                const { devices } = await apiFetch('/api/attendance/devices');
+                const { devices, evidence } = await apiFetch('/api/attendance/devices');
+                if (evidence) { lastEvidenceSettings = Object.assign({}, lastEvidenceSettings || {}, evidence); }
                 body.dataset.loaded = '1';
                 body.innerHTML = devices.map(d => `
                     <tr class="border-t border-slate-100 align-top">
                         <td class="px-3 py-2 font-medium">${escapeHtml(d.name)}</td>
                         <td class="px-3 py-2">${d.active ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-2xs font-semibold">Activo</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-2xs font-semibold">Desactivado</span>'}</td>
-                        <td class="px-3 py-2">${deviceHealthCell(d)}</td>
+                        <td class="px-3 py-2">${deviceHealthCell(d)}${deviceEnvCell(d)}</td>
                         <td class="px-3 py-2">${d.assignedCount} colaborador(es)</td>
                         <td class="px-3 py-2 whitespace-nowrap">${d.lastUsedAt || 'Nunca'}</td>
                         <td class="px-3 py-2 flex flex-wrap gap-1.5">
                             <button onclick="attendanceOpenAssignModal('${d.id}', '${escapeHtml(d.name)}')" class="text-xs px-2 py-1 rounded bg-sky-50 text-sky-700 hover:bg-sky-100">Asignar colaboradores</button>
                             <button onclick="attendanceOpenDeviceEvents('${d.id}')" class="text-xs px-2 py-1 rounded bg-slate-50 text-slate-700 hover:bg-slate-100">Historial</button>
                             <button onclick="attendanceRotateDevice('${d.id}')" class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100">Nuevo token</button>
+                            ${lastEvidenceSettings && lastEvidenceSettings.env ? `<button onclick="attendanceResetDeviceEnv('${d.id}', '${escapeHtml(d.name)}')" title="Úsalo si moviste el kiosco a otro lugar a propósito" class="text-xs px-2 py-1 rounded bg-fuchsia-50 text-fuchsia-700 hover:bg-fuchsia-100">Reaprender entorno</button>` : ''}
                             ${d.active ? `<button onclick="attendanceDeactivateDevice('${d.id}')" class="text-xs px-2 py-1 rounded bg-rose-50 text-rose-600 hover:bg-rose-100">Desactivar</button>` : ''}
                         </td>
                     </tr>`).join('') || `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Aún no hay dispositivos registrados.</td></tr>`;
@@ -10526,7 +10633,7 @@
                         <td class="px-3 py-2 whitespace-nowrap">${escapeHtml(r.captured_local)}</td>
                         <td class="px-3 py-2">${escapeHtml(r.device_name)}</td>
                         <td class="px-3 py-2">${r.kind === 'face' ? 'Reconocimiento facial' : 'Selección manual'}${r.reason ? `<span class="block text-3xs text-slate-500">Motivo: ${escapeHtml(r.reason)}</span>` : ''}</td>
-                        <td class="px-3 py-2">${r.employee_name ? escapeHtml(r.employee_name) : '<span class="text-slate-400">Sin identificar</span>'}${r.mark_type ? `<span class="block text-3xs text-slate-500">${escapeHtml(ATTENDANCE_MARK_LABELS[r.mark_type] || r.mark_type)}</span>` : ''}</td>
+                        <td class="px-3 py-2">${r.employee_name ? escapeHtml(r.employee_name) : '<span class="text-slate-400">Sin identificar</span>'}${r.mark_type ? `<span class="block text-3xs text-slate-500">${escapeHtml(ATTENDANCE_MARK_LABELS[r.mark_type] || r.mark_type)}</span>` : ''}${r.evidence_id ? `<button type="button" onclick="openOfflineEvidence('${r.id}')" class="block mt-1 text-3xs font-semibold text-sky-700 hover:underline"><i class="fa-solid fa-camera"></i> Ver foto</button>` : ''}</td>
                         <td class="px-3 py-2"><span class="px-2 py-0.5 rounded-full ${cls} text-2xs font-bold whitespace-nowrap">${label}</span>${r.problem ? `<span class="block text-3xs text-slate-500 mt-0.5 max-w-[260px]">${escapeHtml(r.problem)}</span>` : ''}${r.resolution_note ? `<span class="block text-3xs text-slate-500 mt-0.5">${escapeHtml(r.resolved_by_email || '')}: ${escapeHtml(r.resolution_note)}</span>` : ''}</td>
                         <td class="px-3 py-2">${open && canResolve ? `<div class="flex flex-wrap gap-1"><button onclick="openOfflineResolve('${r.id}','apply')" class="px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 font-semibold">Asignar y registrar</button><button onclick="openOfflineResolve('${r.id}','discard')" class="px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold">Descartar</button></div>` : ''}</td>
                     </tr>`;

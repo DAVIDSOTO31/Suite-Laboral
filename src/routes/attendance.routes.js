@@ -6,6 +6,7 @@
 const { db, uid } = require('../db');
 const { sendJson, readBody, getClientIp } = require('../lib/http');
 const { logAction } = require('../lib/audit');
+const evidenceLib = require('../lib/mark-evidence');
 const { randomToken, sha256Hex } = require('../lib/crypto');
 const rules = require('../lib/attendance-rules');
 const bogota = require('../lib/bogota-time');
@@ -414,10 +415,11 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
     }
   }
 
+  const markId = uid('mark');
   db.prepare(`
     INSERT INTO attendance_marks (id, organization_id, employee_id, shift_date, mark_type, scheduled_time, actual_at, method, marked_by_user_id, manual_reason)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(uid('mark'), orgId, employeeId, shiftDateISO, markType, shift.startTime || null, nowIso, method, userId, reason);
+  `).run(markId, orgId, employeeId, shiftDateISO, markType, shift.startTime || null, nowIso, method, userId, reason);
 
   if (isManual) {
     const prevDay = db.prepare('SELECT manual_marks FROM attendance_days WHERE employee_id = ? AND shift_date = ?').get(employeeId, shiftDateISO);
@@ -455,6 +457,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
       shift: { startTime: shift.startTime, endTime: shift.endTime },
       status: statusLabel,
       alert,
+      markId, shiftDate: shiftDateISO, actualAt: nowIso,
     },
   };
 }
@@ -501,7 +504,75 @@ function listHistory(req, res, query) {
     } catch { /* fila invalida: se ignora */ }
   }
   for (const row of rows) row.is_split = splitKeys.has(`${row.employee_id}|${row.shift_date}`) ? 1 : 0;
+  // Fotos de evidencia de cada dia (para el boton de la camara).
+  const evid = new Map(db.prepare(`SELECT employee_id, shift_date, COUNT(*) AS n, SUM(CASE WHEN env_status = 'diferente' THEN 1 ELSE 0 END) AS dif
+      FROM mark_photos WHERE organization_id = ? AND shift_date BETWEEN ? AND ? GROUP BY employee_id, shift_date`).all(orgId, from, to)
+    .map(r => [`${r.employee_id}|${r.shift_date}`, r]));
+  for (const row of rows) { const e = evid.get(`${row.employee_id}|${row.shift_date}`); row.evidence_count = e ? e.n : 0; row.evidence_env_diff = e ? e.dif : 0; }
   sendJson(res, 200, { rows });
+}
+
+// ---------------------------------------------------------------------------
+// EVIDENCIA DE MARCACIONES (fotos 30 dias + entorno del kiosco)
+// ---------------------------------------------------------------------------
+const EV_MARK_LABELS = { entrada: 'Entrada', inicio_almuerzo: 'Salida a almuerzo', fin_almuerzo: 'Regreso de almuerzo', salida: 'Salida' };
+const EV_METHOD_LABELS = { 'kiosk-facial': 'Kiosco · rostro', 'kiosk-manual': 'Kiosco · selección manual', 'kiosk-facial-offline': 'Kiosco · rostro (sin conexión)', 'kiosk-manual-offline': 'Kiosco · manual (sin conexión)' };
+function evidenceRowOut(r) {
+  return {
+    id: r.id, markType: r.mark_type, markLabel: EV_MARK_LABELS[r.mark_type] || r.mark_type || 'Marcación sin conexión',
+    method: EV_METHOD_LABELS[r.method] || r.method || '', time: r.taken_at ? (() => { const s = bogotaLabel(Date.parse(r.taken_at)); return `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)} ${s.slice(11, 16)}`; })() : '',
+    hasPhoto: !!r.has_photo, envStatus: r.env_status || null, envDistance: r.env_distance, device: r.device_name || '',
+  };
+}
+// GET /api/attendance/evidence?employeeId=&date=  (fotos de un dia)  |  ?offlineId=
+function listMarkEvidence(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const sel = `SELECT p.id, p.mark_type, p.method, p.taken_at, p.env_status, p.env_distance, (p.data IS NOT NULL) AS has_photo, d.device_name
+    FROM mark_photos p LEFT JOIN attendance_devices d ON d.id = p.device_id WHERE p.organization_id = ?`;
+  let rows;
+  if (query.offlineId) rows = db.prepare(`${sel} AND p.offline_id = ? ORDER BY p.taken_at`).all(orgId, String(query.offlineId));
+  else {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(query.date || '') || !query.employeeId) return sendJson(res, 400, { error: 'Indica el colaborador y la fecha.' });
+    rows = db.prepare(`${sel} AND p.employee_id = ? AND p.shift_date = ? ORDER BY p.taken_at`).all(orgId, Number(query.employeeId), query.date);
+  }
+  sendJson(res, 200, { rows: rows.map(evidenceRowOut), days: evidenceLib.PHOTO_DAYS });
+}
+// GET /api/attendance/evidence/:id/photo  (la imagen, solo de esta organizacion)
+function getMarkEvidencePhoto(req, res, params) {
+  const orgId = req.user.organizationId;
+  const r = db.prepare('SELECT mime, data FROM mark_photos WHERE id = ? AND organization_id = ?').get(String(params.id), orgId);
+  if (!r || !r.data) return sendJson(res, 404, { error: 'La foto no existe o ya se borró (se guardan 30 días).' });
+  const buf = Buffer.from(r.data);
+  res.writeHead(200, { 'Content-Type': r.mime === 'image/webp' ? 'image/webp' : 'image/jpeg', 'Content-Length': buf.length, 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
+  res.end(buf);
+}
+// GET/PUT /api/attendance/evidence-settings  { photo, env }
+function getEvidenceSettings(req, res, query) {
+  const orgId = resolveOrgId(req, query || {});
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const stored = db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS b FROM mark_photos WHERE organization_id = ? AND data IS NOT NULL').get(orgId);
+  sendJson(res, 200, { ...evidenceLib.getSettings(orgId), storedPhotos: stored.n, storedBytes: stored.b });
+}
+async function saveEvidenceSettings(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const before = evidenceLib.getSettings(orgId);
+  const after = evidenceLib.setSettings(orgId, { photo: body.photo, env: body.env });
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.evidence_settings', ip: getClientIp(req),
+    metadata: { fotoAntes: before.photo, foto: after.photo, entornoAntes: before.env, entorno: after.env } });
+  sendJson(res, 200, { ok: true, ...after });
+}
+// POST /api/attendance/devices/:id/env-reset  (el kiosco cambio de lugar a proposito)
+function resetDeviceEnv(req, res, params) {
+  const orgId = req.user.organizationId;
+  const device = db.prepare('SELECT * FROM attendance_devices WHERE id = ? AND organization_id = ?').get(String(params.id), orgId);
+  if (!device) return sendJson(res, 404, { error: 'Dispositivo no encontrado.' });
+  evidenceLib.resetEnv(device.id);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.device_env_reset', resourceType: 'attendance_device', resourceId: device.id, ip: getClientIp(req), metadata: { deviceName: device.device_name } });
+  sendJson(res, 200, { ok: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -550,14 +621,15 @@ function listAlerts(req, res, query) {
   // El apartado de Alertas muestra las novedades (las de "hora_extra" se
   // siguen calculando para la Liquidacion, pero no se muestran aqui).
   // Filtros opcionales: tipo, colaborador y estado de gestion.
-  const types = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'marcacion_manual', 'inasistencia', 'turno_sin_cerrar', 'etapa_extendida'];
+  const types = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'marcacion_manual', 'inasistencia', 'turno_sin_cerrar', 'etapa_extendida', 'entorno_diferente'];
   const type = query.type && types.includes(query.type) ? query.type : null;
   const employeeId = query.employeeId ? Number(query.employeeId) : null;
   const status = ['pendiente', 'justificada', 'injustificada'].includes(query.status) ? query.status : null;
   const rows = db.prepare(`
     SELECT a.*, e.name as employee_name,
            COALESCE(m.status, 'pendiente') AS mgmt_status, m.category AS mgmt_category, m.note AS mgmt_note,
-           m.attachment_name AS mgmt_attachment_name, m.managed_at AS mgmt_at, u.email AS mgmt_by, COALESCE(m.auto_marked, 0) AS mgmt_auto
+           m.attachment_name AS mgmt_attachment_name, m.managed_at AS mgmt_at, u.email AS mgmt_by, COALESCE(m.auto_marked, 0) AS mgmt_auto,
+           (SELECT COUNT(*) FROM mark_photos ph WHERE ph.organization_id = a.organization_id AND ph.employee_id = a.employee_id AND ph.shift_date = a.shift_date) AS evidence_count
     FROM attendance_alerts a
     JOIN employees e ON e.id = a.employee_id
     LEFT JOIN alert_management m ON m.alert_id = a.id
@@ -580,7 +652,7 @@ function listAlerts(req, res, query) {
 // servidor, sobre los perfiles de la MISMA organizacion unicamente.
 // ---------------------------------------------------------------------------
 const FACE_MATCH_THRESHOLD = 0.5; // distancia euclidiana maxima para aceptar una coincidencia (mientras mas bajo, mas estricto)
-const FACE_CONSENT_TEXT = 'El colaborador autoriza expresamente el uso de su rostro (dato biometrico) para fines de control de asistencia laboral, conforme a la Ley 1581 de 2012 de proteccion de datos personales (Habeas Data).';
+const FACE_CONSENT_TEXT = 'El colaborador autoriza expresamente el uso de su rostro (dato biometrico) para fines de control de asistencia laboral, conforme a la Ley 1581 de 2012 de proteccion de datos personales (Habeas Data). Tambien autoriza que, si la empresa lo activa, el kiosco tome una foto de evidencia en cada marcacion, que se conserva 30 dias y luego se elimina automaticamente.';
 
 function euclideanDistance(a, b) {
   let sum = 0;
@@ -722,7 +794,7 @@ function listDevices(req, res, query) {
   const counts = Object.fromEntries(
     db.prepare(`SELECT device_id, COUNT(*) as n FROM attendance_device_employees WHERE device_id IN (SELECT id FROM attendance_devices WHERE organization_id = ?) GROUP BY device_id`).all(orgId).map(r => [r.device_id, r.n])
   );
-  sendJson(res, 200, { devices: devices.map(d => ({ ...deviceOutputRow(d), assignedCount: counts[d.id] || 0 })) });
+  sendJson(res, 200, { devices: devices.map(d => ({ ...deviceOutputRow(d), assignedCount: counts[d.id] || 0, env: evidenceLib.envStatusForDevice(d) })), evidence: evidenceLib.getSettings(orgId) });
 }
 
 // POST /api/attendance/devices  Body: { deviceName }
@@ -829,6 +901,22 @@ function authenticateDevice(req, res, touch = true) {
   return device;
 }
 
+// Evidencia de una marcacion del kiosco (foto + entorno). Si el fondo no se
+// parece al de siempre, se crea la alerta "entorno_diferente". Nunca impide
+// la marcacion.
+function applyMarkEvidence(device, result, method, evidence, extra = {}) {
+  if (!evidence || result.httpStatus !== 200 || !result.body || !result.body.markId) return;
+  const b = result.body;
+  const ev = evidenceLib.saveEvidence({ device, employeeId: extra.employeeId, markId: b.markId, shiftDate: b.shiftDate, markType: b.markType, method, takenAt: b.actualAt }, evidence);
+  if (ev.env && ev.env.status === 'diferente') {
+    try {
+      insertAlert(device.organization_id, extra.employeeId, b.shiftDate, 'entorno_diferente', null, b.actualTime, null, {
+        employeeName: b.employeeName, markType: b.markType, dispositivo: device.device_name, distancia: ev.env.distance, metodo: method,
+      });
+    } catch (e) { console.error('[entorno]', e.message); }
+  }
+}
+
 // GET /api/kiosk/employees-today
 function kioskEmployeesToday(req, res) {
   const device = authenticateDevice(req, res);
@@ -848,7 +936,8 @@ function kioskEmployeesToday(req, res) {
     const nextMark = rules.nextExpectedMarkType(marksDone);
     return { id: emp.id, name: emp.name, hasShift: true, isSplit: !!shift.isSplit, nextMark, completed: nextMark === null };
   });
-  sendJson(res, 200, { deviceName: device.device_name, employees: result });
+  const ev = evidenceLib.getSettings(orgId);
+  sendJson(res, 200, { deviceName: device.device_name, employees: result, evidence: { photo: ev.photo, env: ev.env } });
 }
 
 // POST /api/kiosk/mark  Body: { employeeId }
@@ -861,6 +950,7 @@ async function kioskMark(req, res) {
   const allowed = db.prepare('SELECT 1 FROM attendance_device_employees WHERE device_id = ? AND employee_id = ?').get(device.id, employeeId);
   if (!allowed) return sendJson(res, 403, { error: 'Este colaborador no esta autorizado para marcar en este dispositivo.' });
   const result = performMark(device.organization_id, employeeId, null, 'kiosk-manual', getClientIp(req), body.reason);
+  applyMarkEvidence(device, result, 'kiosk-manual', body.evidence, { employeeId });
   sendJson(res, result.httpStatus, result.body);
 }
 
@@ -893,6 +983,7 @@ async function kioskMarkByFace(req, res) {
     return sendJson(res, 404, { error: 'Rostro no reconocido en este dispositivo.', state: 'no_reconocido' });
   }
   const result = performMark(device.organization_id, best.employeeId, null, 'kiosk-facial', getClientIp(req));
+  applyMarkEvidence(device, result, 'kiosk-facial', body.evidence, { employeeId: best.employeeId });
   sendJson(res, result.httpStatus, result.body);
 }
 
@@ -1082,7 +1173,7 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(AUTO_UNJUST_F
 const AUTO_UNJUST_START = String((db.prepare('SELECT applied_at FROM app_migrations WHERE name = ?').get(AUTO_UNJUST_FEATURE) || {}).applied_at || '');
 const AUTO_UNJUST_HOURS = 24;
 const AUTO_UNJUST_NOTE = 'Marcada automáticamente como injustificada: nadie la gestionó en 24 horas.';
-const AUTO_UNJUST_TYPES = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'marcacion_manual', 'inasistencia', 'turno_sin_cerrar', 'etapa_extendida'];
+const AUTO_UNJUST_TYPES = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'marcacion_manual', 'inasistencia', 'turno_sin_cerrar', 'etapa_extendida', 'entorno_diferente'];
 function autoMarkStaleAlerts(orgId) {
   const stale = db.prepare(`
     SELECT a.id, a.organization_id FROM attendance_alerts a
@@ -2042,7 +2133,8 @@ async function kioskHeartbeat(req, res) {
       hb_online_since_ms = CASE WHEN offline_since_ms IS NOT NULL OR hb_online_since_ms IS NULL THEN ? ELSE hb_online_since_ms END,
       offline_since_ms = NULL, offline_notified = 0, battery_notified_date = ? WHERE id = ?`)
     .run(nowMs, bat, charging, camera, pending, version, ua, nowMs, batteryNotified, device.id);
-  sendJson(res, 200, { ok: true, serverTime: new Date(nowMs).toISOString() });
+  const evCfg = evidenceLib.getSettings(device.organization_id);
+  sendJson(res, 200, { ok: true, serverTime: new Date(nowMs).toISOString(), evidence: { photo: evCfg.photo, env: evCfg.env } });
 }
 
 // Revisa cada minuto los kioscos que dejaron de enviar senal.
@@ -2181,7 +2273,7 @@ async function kioskSync(req, res) {
       if (!problem && !allowed) problem = 'El colaborador ya no está autorizado en este dispositivo.';
     }
 
-    let status, markType = null, empName = null;
+    let status, markType = null, empName = null, appliedResult = null;
     if (!problem && kind === 'face' && !employeeId) {
       status = 'no_reconocido'; problem = 'El rostro no coincide con ningún colaborador asignado a este dispositivo.';
     } else if (!problem) {
@@ -2193,16 +2285,24 @@ async function kioskSync(req, res) {
       } else {
         const method = kind === 'face' ? 'kiosk-facial-offline' : 'kiosk-manual-offline';
         const r = performMark(device.organization_id, employeeId, null, method, getClientIp(req), reason, { at: new Date(capturedMs) });
-        if (r.httpStatus === 200) { status = 'aplicada'; markType = r.body.markType; empName = r.body.employeeName; }
+        if (r.httpStatus === 200) { status = 'aplicada'; markType = r.body.markType; empName = r.body.employeeName; appliedResult = { r, method }; }
         else { status = 'revision'; problem = r.body.error || 'No se pudo registrar.'; }
       }
     } else {
       status = 'revision';
     }
+    const offlineId = uid('offm');
     db.prepare(`INSERT INTO offline_marks (id, organization_id, device_id, client_id, kind, employee_id, descriptor_json, reason, captured_device, captured_at, skew_ms, status, problem, mark_type)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(uid('offm'), device.organization_id, device.id, clientId, kind, employeeId, status === 'aplicada' || status === 'duplicada' ? null : descriptorJson,
+      .run(offlineId, device.organization_id, device.id, clientId, kind, employeeId, status === 'aplicada' || status === 'duplicada' ? null : descriptorJson,
         reason, String(it.capturedAt).slice(0, 40), new Date(capturedMs).toISOString(), skewNow, status, problem, markType);
+    // Evidencia guardada en el equipo sin conexion: va con la marcacion si se
+    // registro; si quedo por revisar, con el registro sin conexion (asi el
+    // administrador ve la foto antes de decidir).
+    if (it.evidence) {
+      if (appliedResult) applyMarkEvidence(device, appliedResult.r, appliedResult.method, it.evidence, { employeeId });
+      else if (status !== 'duplicada') evidenceLib.saveEvidence({ device, employeeId, offlineId, method: kind === 'face' ? 'kiosk-facial-offline' : 'kiosk-manual-offline', takenAt: new Date(capturedMs).toISOString() }, { photo: it.evidence.photo });
+    }
     counts[status] = (counts[status] || 0) + 1;
     results.push({ clientId, status, markType, employeeName: empName, message: problem });
   }
@@ -2221,7 +2321,8 @@ function listOfflineMarks(req, res, query) {
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   const pendingOnly = query.view !== 'all';
   const rows = db.prepare(`SELECT o.id, o.kind, o.employee_id, o.reason, o.captured_at, o.status, o.problem, o.mark_type, o.received_at, o.resolved_at, o.resolution_note,
-      d.device_name, e.name AS employee_name, u.email AS resolved_by_email
+      d.device_name, e.name AS employee_name, u.email AS resolved_by_email,
+      (SELECT p.id FROM mark_photos p WHERE p.offline_id = o.id AND p.data IS NOT NULL LIMIT 1) AS evidence_id
     FROM offline_marks o JOIN attendance_devices d ON d.id = o.device_id
     LEFT JOIN employees e ON e.id = o.employee_id LEFT JOIN users u ON u.id = o.resolved_by
     WHERE o.organization_id = ? ${pendingOnly ? "AND o.status IN ('no_reconocido','revision')" : ''}
@@ -2306,6 +2407,7 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(HOURS_ENGINE_
 }
 
 module.exports = {
+  listMarkEvidence, getMarkEvidencePhoto, getEvidenceSettings, saveEvidenceSettings, resetDeviceEnv,
   getIndicatorGoalsRoute, saveIndicatorGoals,
   recalculateFinalizedDays,
   listEmployeesToday, registerMark, listHistory, listMyHistory, listAlerts, registerCorrection, listCorrections, listFaceProfiles, enrollFaceProfile, deactivateFaceProfile, registerMarkByFace,
