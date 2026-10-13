@@ -1500,7 +1500,7 @@ function buildIncapacityEpisodes(incapDays, workKeys) {
 
 function emptyBucket(name) {
   return { name, programados: 0, asistidos: 0, ausencias: 0, ausenciasJustificadas: 0, entradas: 0, tarde: 0,
-    minutosRetraso: 0, minutosAlmuerzo: 0, minutosPerdidos: 0, costoPerdido: 0, extraDiurnaMin: 0, extraNocturnaMin: 0,
+    minutosRetraso: 0, minutosAlmuerzo: 0, minutosPerdidos: 0, costoPerdido: 0, almuerzosExceso: 0, costoRetraso: 0, costoAlmuerzo: 0, extraDiurnaMin: 0, extraNocturnaMin: 0,
     extraGeneradaMin: 0, descuentoSalidaMin: 0, valorExtras: 0, sinCerrar: 0, manuales: 0,
     // Costo de extras y recargos (dias con turno cerrado, marcaciones reales).
     recargoNocturnoMin: 0, costoRecargo: 0, costoExtraDiurna: 0, costoExtraNocturna: 0, costoSalida: 0, costoTotal: 0 };
@@ -1565,8 +1565,11 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
       b.asistidos++; b.entradas++;
       if (retraso > 0) { b.tarde++; b.minutosRetraso += retraso; }
       b.minutosAlmuerzo += almuerzo;
+      if (almuerzo > 0) b.almuerzosExceso++;
       b.minutosPerdidos += lost;
       b.costoPerdido += lost * valorMinuto;
+      b.costoRetraso += retraso * valorMinuto;
+      b.costoAlmuerzo += almuerzo * valorMinuto;
     }
     if (det) {
       if (retraso > 0) det.tardes.push({ employeeId: emp.id, name: emp.name, area: emp.department, date: s.date, programada: s.startTime, real: d.entrada_real, min: retraso });
@@ -1772,6 +1775,8 @@ function indicators(req, res, query) {
       // Para las graficas del tablero (conclusiones concretas por mes).
       ausencias: t.ausencias, ausenciasJustificadas: t.ausenciasJustificadas, ausentismoInjustificado: t.ausentismoInjustificado,
       entradas: t.entradas, tarde: t.tarde, minutosRetraso: t.minutosRetraso, incapacidadEpisodios: inc.episodios,
+      asistidos: t.asistidos, minutosAlmuerzo: t.minutosAlmuerzo, almuerzosExceso: t.almuerzosExceso, minutosPerdidos: t.minutosPerdidos,
+      costoPerdido: t.costoPerdido, costoRetraso: Math.round(t.costoRetraso || 0), costoAlmuerzo: Math.round(t.costoAlmuerzo || 0),
       parcial: m.label === today.slice(0, 7) };
   });
 
