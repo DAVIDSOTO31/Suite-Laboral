@@ -9806,14 +9806,23 @@
             const perCosto = tr.map(m => m.programados ? (m.costoPerdido || 0) : null);
             indMakeChart('indChartPer', { type: 'bar', data: { labels, datasets: [
                 { type: 'bar', label: 'Llegadas tarde (h)', data: perTarde, backgroundColor: IND_C.red, stack: 'p', borderRadius: 3, maxBarThickness: 34, yAxisID: 'y', order: 2 },
-                { type: 'bar', label: 'Exceso de almuerzo (h)', data: perAlm, backgroundColor: IND_C.amber, stack: 'p', borderRadius: 3, maxBarThickness: 34, yAxisID: 'y', order: 2 },
-                { type: 'line', label: 'Costo aprox. ($)', data: perCosto, borderColor: IND_C.slate, backgroundColor: IND_C.slate, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, cubicInterpolationMode: 'monotone', spanGaps: true, yAxisID: 'y1', order: 1 },
+                { type: 'bar', label: 'Exceso de almuerzo (h)', data: perAlm, backgroundColor: '#ffd60a', stack: 'p', borderRadius: 3, maxBarThickness: 34, yAxisID: 'y', order: 2 },
+                { type: 'line', label: 'Costo aprox. ($)', data: perCosto, borderColor: '#0f172a', backgroundColor: '#0f172a', pointBackgroundColor: '#0f172a', pointBorderColor: '#0f172a', borderWidth: 2, pointRadius: 4, pointHoverRadius: 6, cubicInterpolationMode: 'monotone', spanGaps: true, yAxisID: 'y1', order: 1 },
             ] }, options: {
+                // Al tocar o pasar el cursor sobre un color se ve SOLO ese dato (p. ej. el amarillo = horas por exceso de almuerzo de ese mes).
+                interaction: { mode: 'nearest', intersect: true },
                 scales: { x: Object.assign({ stacked: true }, xAxis), y: yAxis({ stacked: true, ticks: { color: IND_C.tick, font: { size: 10 }, maxTicksLimit: 5, callback: (v) => `${indNum1(v)} h` } }),
                     y1: yAxis({ position: 'right', grid: { display: false }, ticks: { color: IND_C.slate, font: { size: 10 }, maxTicksLimit: 5, callback: (v) => Math.abs(v) >= 1e6 ? `$${indNum1(v / 1e6)} M` : Math.abs(v) >= 1e3 ? `$${Math.round(v / 1e3)} mil` : `$${v}` } }) },
                 plugins: { tooltip: { callbacks: {
-                    label: (c) => c.raw == null ? `${c.dataset.label}: sin turnos` : c.dataset.yAxisID === 'y1' ? `Costo aprox.: ${pdfMoney(c.raw)}` : `${c.dataset.label.replace(' (h)', '')}: ${indHoras(c.raw)}`,
-                    footer: (items) => { const m = tr[items[0].dataIndex]; return m && m.programados ? `${m.tarde || 0} llegada(s) tarde · ${m.almuerzosExceso || 0} exceso(s) de almuerzo · ${indNum1(m.asistidos ? (m.minutosPerdidos || 0) / m.asistidos : 0)} min por turno` : ''; } } } } } });
+                    title: (items) => { const m = tr[items[0].dataIndex]; return m ? `${MONTHS_ES[Number(m.month.slice(5)) - 1]} ${m.month.slice(0, 4)}${m.parcial ? ' (en curso)' : ''}` : ''; },
+                    label: (c) => {
+                        const m = tr[c.dataIndex] || {};
+                        if (c.raw == null) return `${c.dataset.label.replace(' (h)', '').replace(' ($)', '')}: sin turnos`;
+                        if (c.datasetIndex === 0) return `Llegadas tarde: ${indHoras(c.raw)} (${m.tarde || 0} ${(m.tarde || 0) === 1 ? 'llegada' : 'llegadas'} · ${pdfMoney(m.costoRetraso || 0)})`;
+                        if (c.datasetIndex === 1) return `Exceso de almuerzo: ${indHoras(c.raw)} (${m.almuerzosExceso || 0} ${(m.almuerzosExceso || 0) === 1 ? 'vez' : 'veces'} · ${pdfMoney(m.costoAlmuerzo || 0)})`;
+                        return `Costo aprox. del tiempo perdido: ${pdfMoney(c.raw)}`;
+                    },
+                    footer: (items) => { const m = tr[items[0].dataIndex]; return m && m.programados ? `Total perdido en el mes: ${indHoras(hDec(m.minutosPerdidos))} · ${indNum1(m.asistidos ? (m.minutosPerdidos || 0) / m.asistidos : 0)} min por turno` : ''; } } } } } });
             if (!last.programados || !last.asistidos) indInsight('indInsPer', '', `En ${lastName}${curTag} aún no hay turnos trabajados para medir.`);
             else if (!last.minutosPerdidos) indInsight('indInsPer', 'ok', `<strong>${lastName}${curTag}: 0 h perdidas.</strong> Nadie llegó tarde ni se excedió en el almuerzo.`);
             else {
