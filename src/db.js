@@ -687,6 +687,10 @@ CREATE TABLE IF NOT EXISTS alert_management (
 );
 CREATE INDEX IF NOT EXISTS idx_alert_mgmt_org ON alert_management(organization_id);
 `);
+// Novedades que la suite marco sola como injustificadas (24 h sin gestion).
+if (!db.prepare('PRAGMA table_info(alert_management)').all().some(c => c.name === 'auto_marked')) {
+  db.exec('ALTER TABLE alert_management ADD COLUMN auto_marked INTEGER NOT NULL DEFAULT 0');
+}
 
 // ---------------------------------------------------------------------------
 // INDICADORES DE ASISTENCIA: configuracion del resumen diario por correo.

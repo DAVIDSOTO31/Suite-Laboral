@@ -117,6 +117,8 @@ function describeAudit(row, ctx = {}) {
       return out('Asistencia', 'Corrección de marcación', `Corrigió las marcaciones de ${val(m.colaborador)} del ${dayName(m.fecha)}.`,
         c.map(x => `${MARK_FIELD_ES[x.marcacion] || x.marcacion}: ${x.antes || 'sin marcar'} → ${x.despues}`).concat(m.motivo ? [`Motivo: ${m.motivo}`] : []));
     }
+    case 'attendance.alerts_auto_unjustified': return out('Asistencia', 'Novedades injustificadas automáticamente',
+      `La suite marcó como injustificada(s) ${m.cantidad || 0} novedad(es) que nadie gestionó en ${m.horas || 24} horas. Se pueden cambiar a justificada en Asistencia → Alertas.`, [], 'Sistema (automático)');
     case 'attendance.alert_managed': {
       const TIPO = { llegada_tarde: 'llegada tarde', exceso_almuerzo: 'exceso de almuerzo', salida_anticipada: 'salida anticipada', inasistencia: 'no se presentó', turno_sin_cerrar: 'turno sin cerrar', marcacion_manual: 'marcación manual', etapa_extendida: 'etapa extendida' };
       return out('Asistencia', 'Gestión de novedad',
