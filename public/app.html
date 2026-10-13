@@ -1624,10 +1624,13 @@
                     <input type="date" id="publishTo" oninput="updatePublishSummary()" class="w-full p-2 border rounded-lg">
                 </div>
             </div>
-            <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+            <label id="publishNotifyRow" class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
                 <input type="checkbox" id="publishNotify" checked class="w-4 h-4 accent-emerald-600">
                 Enviar a cada colaborador su horario por correo
             </label>
+            <p id="publishInSuiteNote" class="hidden text-xs bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-emerald-800">
+                <i class="fa-solid fa-mobile-screen mr-1"></i> Al publicar, cada colaborador verá su horario ingresando a la suite, en <strong>"Mi horario y marcaciones"</strong>. Por ahora no se envía por correo.
+            </p>
             <div id="publishSummary" class="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-600"></div>
             <div class="flex justify-end gap-2 border-t pt-3">
                 <button onclick="closeModal('modalPublish')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
@@ -6294,7 +6297,10 @@
             const days = getWeekDaysArray(appState.rosterCurrentMonday).map(d => d.dateISO);
             document.getElementById('publishFrom').value = days[0];
             document.getElementById('publishTo').value = days[6];
-            document.getElementById('publishNotify').checked = true;
+            const mailOn = appState.shiftEmailsEnabled === true;
+            document.getElementById('publishNotify').checked = mailOn;
+            document.getElementById('publishNotifyRow').classList.toggle('hidden', !mailOn);
+            document.getElementById('publishInSuiteNote').classList.toggle('hidden', mailOn);
             updatePublishSummary();
             openModal('modalPublish');
         }
@@ -6309,18 +6315,18 @@
             for (let d = new Date(from + 'T00:00:00'); formatDateISO(d) <= to; d.setDate(d.getDate() + 1)) { if (isDatePublishedCO(formatDateISO(d))) already.push(formatDateISO(d)); }
             box.innerHTML = `<strong>${inRange.length}</strong> turno(s) de <strong>${emps.size}</strong> colaborador(es) en el rango.
                 ${already.length ? `<br>${already.length} día(s) del rango ya estaban publicados.` : ''}
-                <br>${withEmail} colaborador(es) tienen correo para recibir su horario${emps.size - withEmail > 0 ? `; ${emps.size - withEmail} no tienen correo registrado` : ''}.`;
+                ${appState.shiftEmailsEnabled !== true ? '' : `<br>${withEmail} colaborador(es) tienen correo para recibir su horario${emps.size - withEmail > 0 ? `; ${emps.size - withEmail} no tienen correo registrado` : ''}.`}`;
         }
         async function submitPublish() {
             const from = document.getElementById('publishFrom').value, to = document.getElementById('publishTo').value;
             if (!from || !to || from > to) { showAppToast('Revisa las fechas.'); return; }
-            const notify = document.getElementById('publishNotify').checked;
+            const notify = appState.shiftEmailsEnabled === true && document.getElementById('publishNotify').checked;
             try {
                 await flushDataSync();
                 const r = await apiFetch('/api/shifts/publish', { method: 'POST', body: JSON.stringify({ from, to, notify }) });
                 appState.publications = r.publications || appState.publications;
                 closeModal('modalPublish');
-                showAppToast(`Cuadro publicado del ${from.split('-').reverse().join('/')} al ${to.split('-').reverse().join('/')}.` + (notify ? ` Se envió el horario a ${r.notified} colaborador(es)${r.withoutEmail ? `; ${r.withoutEmail} sin correo` : ''}.` : ''));
+                showAppToast(`Cuadro publicado del ${from.split('-').reverse().join('/')} al ${to.split('-').reverse().join('/')}.` + (notify ? ` Se envió el horario a ${r.notified} colaborador(es)${r.withoutEmail ? `; ${r.withoutEmail} sin correo` : ''}.` : ' Los colaboradores ya lo pueden ver en la suite.'));
                 renderWeeklyRoster();
             } catch (e) { showAppToast('No se pudo publicar: ' + e.message); }
         }
@@ -6504,7 +6510,7 @@
                     <td class="px-3 py-2 font-semibold">${escapeHtml(c.employeeName || '-')}</td>
                     <td class="px-3 py-2 whitespace-nowrap">${fmt(c.date)}</td>
                     <td class="px-3 py-2"><span class="text-slate-500">${escapeHtml(c.before)}</span> → <strong>${escapeHtml(c.after)}</strong></td>
-                    <td class="px-3 py-2">${c.notified ? '<span class="text-emerald-700 font-semibold">Correo enviado</span>' : '<span class="text-slate-400">Sin correo</span>'}</td>
+                    <td class="px-3 py-2">${c.notified ? '<span class="text-emerald-700 font-semibold">Correo enviado</span>' : (appState.shiftEmailsEnabled === true ? '<span class="text-slate-400">Sin correo</span>' : '<span class="text-slate-500">Visible en la suite</span>')}</td>
                 </tr>`).join('') || '<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">No hay cambios después de publicar en esta semana.</td></tr>';
             } catch (e) {
                 body.innerHTML = `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">${escapeHtml(e.message)}</td></tr>`;
@@ -7800,7 +7806,9 @@
         // sus propias funciones; ver README para el detalle de este enfoque)
         function handleSyncResult(r) {
             if (r && r.shiftChanges) {
-                showAppToast(`${r.shiftChanges} cambio(s) en días ya publicados: quedaron en el historial y se avisó por correo a los colaboradores.`);
+                showAppToast(appState.shiftEmailsEnabled === true
+                    ? `${r.shiftChanges} cambio(s) en días ya publicados: quedaron en el historial y se avisó por correo a los colaboradores.`
+                    : `${r.shiftChanges} cambio(s) en días ya publicados: quedaron en el historial y los colaboradores los ven al ingresar a la suite.`);
             }
             if (r && Array.isArray(r.ignored) && r.ignored.length) {
                 showAppToast('Algunos cambios no se guardaron: ' + r.ignored.join('; ') + '.');
@@ -8139,6 +8147,7 @@
             appState.dataVersion = Number(data.dataVersion) || 0;
             appState.shiftsLoadedFrom = data.shiftsFrom || '0000-01-01';
             appState.dataRetention = data.dataRetention || null;
+            appState.shiftEmailsEnabled = data.shiftEmailsEnabled === true;
             appState.viewer = data.viewer || { scope: 'all', employeeId: null };
             appState.publications = data.publications || [];
             appState.rotationPatterns = data.rotationPatterns || [];
