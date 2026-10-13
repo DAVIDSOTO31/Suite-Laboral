@@ -6,6 +6,11 @@ const { logAction } = require('../lib/audit');
 const { describeAudit } = require('../lib/audit-describe');
 const { randomToken, sha256Hex } = require('../lib/crypto');
 const { sendMail } = require('../lib/mailer');
+// Correos de turnos (publicación y cambios en días ya publicados): APAGADOS por
+// ahora para cuidar el cupo del plan gratuito de Brevo (300 correos/mes). Los
+// colaboradores ven su horario entrando a la suite ("Mi horario y marcaciones").
+// Para volver a encenderlos: variable de entorno SHIFT_EMAILS=1 en Render.
+const SHIFT_EMAILS_ENABLED = process.env.SHIFT_EMAILS === '1';
 
 // Resolves which organization a request should act on. Normal users are always
 // pinned to their own organization_id. A super admin MAY act on behalf of a
@@ -148,6 +153,7 @@ function getOrgData(req, res, query) {
     dataVersion: getDataVersion(orgId),
     shiftsFrom,
     dataRetention: getRetentionInfo(orgId),
+    shiftEmailsEnabled: SHIFT_EMAILS_ENABLED,
     isEmpty: scope === 'all' && employees.length === 0 && departments.length === 0,
   });
 }
@@ -514,7 +520,7 @@ async function syncEmployeesAndShifts(req, res) {
                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
     const byEmp = new Map();
     for (const c of shiftChanges) {
-      const email = employeeEmail(orgId, c.employeeId);
+      const email = SHIFT_EMAILS_ENABLED ? employeeEmail(orgId, c.employeeId) : null;
       insChange.run(uid('chg'), orgId, c.employeeId, c.date, c.before, c.after, req.user.id, email ? 1 : 0);
       if (email) { if (!byEmp.has(email)) byEmp.set(email, []); byEmp.get(email).push(c); }
     }
@@ -1173,7 +1179,7 @@ async function publishShifts(req, res) {
   if (!ISO_DATE.test(from || '') || !ISO_DATE.test(to || '') || from > to) return sendJson(res, 400, { error: 'Rango de fechas invalido.' });
   const days = (Date.parse(to) - Date.parse(from)) / 86400000 + 1;
   if (days > 62) return sendJson(res, 400, { error: 'Se pueden publicar maximo 62 dias a la vez.' });
-  const notify = body.notify !== false;
+  const notify = SHIFT_EMAILS_ENABLED && body.notify !== false;
   const id = uid('pub');
   db.prepare('INSERT INTO shift_publications (id, organization_id, date_from, date_to, notified, published_by) VALUES (?, ?, ?, ?, ?, ?)')
     .run(id, orgId, from, to, notify ? 1 : 0, req.user.id);
@@ -1204,7 +1210,7 @@ async function publishShifts(req, res) {
   }
   logAction({ organizationId: orgId, userId: req.user.id, action: 'shifts.published', resourceType: 'shift_publication', resourceId: id, ip: getClientIp(req),
     metadata: { desde: from, hasta: to, notificados: sent, sinCorreo: withoutEmail } });
-  sendJson(res, 201, { ok: true, id, notified: sent, withoutEmail, publications: getPublications(orgId) });
+  sendJson(res, 201, { ok: true, id, notified: sent, withoutEmail, emailsEnabled: SHIFT_EMAILS_ENABLED, publications: getPublications(orgId) });
 }
 
 // GET /api/shifts/changes?from=&to=  (cambios en turnos ya publicados)
