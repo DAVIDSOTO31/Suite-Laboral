@@ -180,6 +180,7 @@ route('GET', '/api/attendance/devices', [requirePermission('attendance.manage_de
 route('POST', '/api/attendance/devices', [requirePermission('attendance.manage_devices')], (req, res) => attendance.createDevice(req, res));
 route('POST', '/api/attendance/devices/:id/rotate', [requirePermission('attendance.manage_devices')], (req, res, params) => attendance.rotateDeviceToken(req, res, params));
 route('POST', '/api/attendance/devices/:id/deactivate', [requirePermission('attendance.manage_devices')], (req, res, params) => attendance.deactivateDevice(req, res, params));
+route('DELETE', '/api/attendance/devices/:id', [requirePermission('attendance.manage_devices')], (req, res, params) => attendance.deleteDevice(req, res, params));
 route('GET', '/api/attendance/devices/:id/employees', [requirePermission('attendance.manage_devices')], (req, res, params, query) => attendance.getDeviceAssignments(req, res, params, query));
 route('POST', '/api/attendance/devices/:id/employees', [requirePermission('attendance.manage_devices')], (req, res, params) => attendance.setDeviceAssignments(req, res, params));
 // Salud de los dispositivos: historial de eventos y avisos por correo.
