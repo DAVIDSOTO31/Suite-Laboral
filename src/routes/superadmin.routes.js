@@ -281,7 +281,20 @@ function listAuditLogs(req, res, query) {
   });
 }
 
+// POST /api/superadmin/backup/verify
+// Restaura la copia de la nube en un archivo aparte y la compara con la base real.
+async function verifyBackupCopy(req, res) {
+  const { verifyBackup } = require('../lib/backup-verify');
+  const result = await verifyBackup();
+  if (result.configured !== false && !result.busy) {
+    logAction({ organizationId: null, userId: req.user.id, action: 'backup.verified', resourceType: 'backup', ip: getClientIp(req),
+      metadata: { resultado: result.ok ? 'correcta' : 'con problemas', mensaje: result.message } });
+  }
+  sendJson(res, 200, result);
+}
+
 module.exports = {
+  verifyBackupCopy,
   dashboard, listOrganizations, createOrganization, updateOrganization, toggleOrganizationStatus,
   deleteOrganization, getOrganizationDetail, listUsers, createUser, updateUser, toggleUserStatus,
   deleteUser, resetUserPassword, listRolesForOrg, listAuditLogs,

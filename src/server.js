@@ -79,6 +79,7 @@ router.post('/api/auth/accept-invite', (req, res) => authRoutes.acceptInvite(req
 
 // ---- Super Admin endpoints ----
 route('GET', '/api/superadmin/dashboard', [requireSuperAdmin], (req, res) => superadmin.dashboard(req, res));
+route('POST', '/api/superadmin/backup/verify', [requireSuperAdmin], (req, res) => superadmin.verifyBackupCopy(req, res));
 route('GET', '/api/superadmin/organizations', [requireSuperAdmin], (req, res, params, query) => superadmin.listOrganizations(req, res, query));
 route('POST', '/api/superadmin/organizations', [requireSuperAdmin], (req, res) => superadmin.createOrganization(req, res));
 route('GET', '/api/superadmin/organizations/:id', [requireSuperAdmin], (req, res, params) => superadmin.getOrganizationDetail(req, res, params));
