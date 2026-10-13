@@ -120,6 +120,15 @@
         .org-logo-tile { width: 76px; height: 44px; }
         .org-logo-tile.has-logo { background: #ffffff; padding: 3px 5px; border-color: rgba(125, 211, 252, .7); }
         @media (min-width: 640px) { .org-logo-tile { width: 96px; height: 50px; } }
+        /* Gráficas del tablero: título en forma de pregunta + conclusión concreta arriba de la gráfica. */
+        .ind-chart-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; background: #fff; }
+        .ind-chart-title { font-size: 12px; font-weight: 700; color: #334155; display: flex; align-items: center; gap: 6px; }
+        .ind-chart-title i { color: #94a3b8; }
+        .ind-insight { margin: 6px 0 8px; padding: 6px 10px; border-radius: 8px; font-size: 12px; line-height: 1.35; background: #f8fafc; color: #334155; border-left: 4px solid #94a3b8; }
+        .ind-insight.ok { background: #ecfdf5; border-left-color: #10b981; color: #065f46; }
+        .ind-insight.warn { background: #fffbeb; border-left-color: #f59e0b; color: #78350f; }
+        .ind-insight.bad { background: #fff1f2; border-left-color: #e11d48; color: #881337; }
+        .ind-insight strong { font-weight: 700; }
         /* Saludo de bienvenida: franja delgada, solo en el primer módulo que se abre. */
         .welcome-banner { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 14px; border-radius: 12px;
             background: linear-gradient(90deg, #0f2a4a 0%, #1e4f7a 100%); color: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.12); }
@@ -500,12 +509,13 @@
                                 <h4 class="font-bold text-slate-700 text-sm">Tendencia de los últimos 6 meses</h4>
                                 <button type="button" onclick="document.getElementById('indTrendTableBox').classList.toggle('hidden')" class="text-2xs font-semibold text-sky-700 hover:underline">Ver / ocultar tabla</button>
                             </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Ausentismo (%)</p><div class="relative h-44"><canvas id="indChartAus"></canvas></div></div>
-                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Puntualidad (%)</p><div class="relative h-44"><canvas id="indChartPun"></canvas></div></div>
-                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Horas extra</p><div class="relative h-44"><canvas id="indChartExt"></canvas></div></div>
-                                <div class="border border-slate-200 rounded-lg p-3"><p class="text-2xs font-bold text-slate-500 uppercase mb-1">Días de incapacidad</p><div class="relative h-44"><canvas id="indChartInc"></canvas></div></div>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                <div class="ind-chart-card"><p class="ind-chart-title"><i class="fa-solid fa-user-xmark"></i> Ausentismo: ¿cuántos faltaron y cuántos sin justificación?</p><div id="indInsAus" class="ind-insight"></div><div class="relative h-52"><canvas id="indChartAus"></canvas></div></div>
+                                <div class="ind-chart-card"><p class="ind-chart-title"><i class="fa-solid fa-clock"></i> Puntualidad: ¿se cumple la meta cada mes?</p><div id="indInsPun" class="ind-insight"></div><div class="relative h-52"><canvas id="indChartPun"></canvas></div></div>
+                                <div class="ind-chart-card"><p class="ind-chart-title"><i class="fa-solid fa-business-time"></i> Horas extra y lo que cuestan</p><div id="indInsExt" class="ind-insight"></div><div class="relative h-52"><canvas id="indChartExt"></canvas></div></div>
+                                <div class="ind-chart-card"><p class="ind-chart-title"><i class="fa-solid fa-briefcase-medical"></i> Incapacidades: días y costo en salario</p><div id="indInsInc" class="ind-insight"></div><div class="relative h-52"><canvas id="indChartInc"></canvas></div></div>
                             </div>
+                            <p class="text-3xs text-slate-400 mt-2">* Mes en curso: los datos van hasta hoy. Pasa el cursor (o toca) cada barra para ver el detalle del mes.</p>
                             <div id="indTrendTableBox" class="hidden mt-3 overflow-x-auto border border-slate-200 rounded-lg">
                                 <table class="w-full text-xs">
                                     <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr><th class="text-left px-3 py-2">Mes</th><th class="text-center px-3 py-2">Turnos evaluados</th><th class="text-center px-3 py-2">Ausentismo</th><th class="text-center px-3 py-2">Puntualidad</th><th class="text-center px-3 py-2">Horas extra netas</th><th class="text-right px-3 py-2">Valor extras</th><th class="text-right px-3 py-2">Costo extras y recargos</th><th class="text-center px-3 py-2">Días de incapacidad</th><th class="text-right px-3 py-2">Costo incapacidad</th></tr></thead>
@@ -1257,7 +1267,7 @@
                 <div id="attSubtab-alerts" class="hidden">
                     <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                         <h3 class="font-bold text-slate-800 text-base mb-1">Alertas de asistencia</h3>
-                        <p class="text-xs text-slate-500 mb-4">Generadas automáticamente por el sistema. Son inmutables: no se pueden editar ni eliminar desde ningún rol. La <strong>gestión</strong> (justificada / injustificada, nota y soporte) se guarda aparte, sin tocar la alerta.</p>
+                        <p class="text-xs text-slate-500 mb-4">Generadas automáticamente por el sistema. Son inmutables: no se pueden editar ni eliminar desde ningún rol. La <strong>gestión</strong> (justificada / injustificada, nota y soporte) se guarda aparte, sin tocar la alerta. Si nadie la gestiona en <strong>24 horas</strong>, la suite la marca sola como <strong>injustificada</strong>; después se puede cambiar a justificada.</p>
                         <div class="flex flex-wrap items-end gap-3 mb-4">
                             <div>
                                 <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Desde</label>
@@ -9228,15 +9238,22 @@
                     ${r.mgmt_note ? `<span class="block text-3xs text-slate-500 max-w-[220px]">${escapeHtml(r.mgmt_note)}</span>` : ''}
                     ${editBtn}</div>`;
             }
+            // Injustificada automática (24 h sin gestión): se indica y se puede justificar con un clic.
+            const autoTag = (st === 'injustificada' && Number(r.mgmt_auto) === 1)
+                ? `<div class="flex flex-wrap items-center gap-1 mt-0.5">
+                        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-3xs font-semibold" title="Nadie la gestionó en 24 horas"><i class="fa-solid fa-robot"></i> Automática (24 h)</span>
+                        <button type="button" onclick="openAlertMgmt('${r.id}', 'justificada')" class="inline-block px-2 py-0.5 rounded-full border border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-700 text-2xs font-bold">Justificar</button>
+                   </div>` : '';
             // Justificada / injustificada: el detalle (motivo, soporte, quién la revisó) se ve al hacer clic en el estado.
             return `<div class="space-y-0.5">
                 <button type="button" onclick="toggleAlertMgmtInfo('${r.id}')" title="Ver detalle de la revisión" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border ${cls} text-2xs font-bold hover:opacity-80">${label} <i id="mgmtCaret-${r.id}" class="fa-solid fa-chevron-down text-[9px]"></i></button>
+                ${autoTag}
                 <div id="mgmtInfo-${r.id}" class="hidden space-y-0.5 pt-0.5">
                     ${r.mgmt_category ? `<span class="block text-3xs font-semibold text-slate-600">${escapeHtml(r.mgmt_category)}</span>` : ''}
                     ${r.mgmt_note ? `<span class="block text-3xs text-slate-500 max-w-[220px]">${escapeHtml(r.mgmt_note)}</span>` : ''}
                     ${!r.mgmt_note && !r.mgmt_category ? '<span class="block text-3xs text-slate-400 italic">Sin comentario</span>' : ''}
                     ${r.mgmt_attachment_name ? `<button type="button" onclick="openAlertAttachment('${r.id}')" class="block text-3xs font-semibold text-sky-700 hover:underline"><i class="fa-solid fa-paperclip"></i> ${escapeHtml(r.mgmt_attachment_name)}</button>` : ''}
-                    ${r.mgmt_by ? `<span class="block text-3xs text-slate-400">Revisó: ${escapeHtml(r.mgmt_by)} · ${escapeHtml(r.mgmt_at || '')}</span>` : ''}
+                    ${r.mgmt_by ? `<span class="block text-3xs text-slate-400">Revisó: ${escapeHtml(r.mgmt_by)} · ${escapeHtml(r.mgmt_at || '')}</span>` : (Number(r.mgmt_auto) === 1 ? `<span class="block text-3xs text-slate-400">Revisó: la suite (automático) · ${escapeHtml(r.mgmt_at || '')}</span>` : '')}
                     ${editBtn}
                 </div></div>`;
         }
@@ -9260,7 +9277,7 @@
                 if (btn) { btn.disabled = false; btn.textContent = 'Injustificada'; }
             }
         }
-        function openAlertMgmt(alertId) {
+        function openAlertMgmt(alertId, presetStatus) {
             const r = lastAlertRows.find(x => x.id === alertId);
             if (!r) return;
             document.getElementById('mgmtAlertId').value = r.id;
@@ -9268,11 +9285,13 @@
             document.getElementById('mgmtDetail').innerHTML = `${alertTypeBadge(r.alert_type)}
                 <span class="block mt-1">Programado: <strong>${r.scheduled_time || '-'}</strong> · Real: <strong>${r.actual_time || '-'}</strong> · ${alertDetailCell(r)}</span>`;
             const st = r.mgmt_status || 'pendiente';
-            document.querySelectorAll('input[name="mgmtStatus"]').forEach(i => { i.checked = i.value === (st === 'pendiente' && !r.mgmt_note ? '' : st); });
+            const preset = presetStatus || (st === 'pendiente' && !r.mgmt_note ? '' : st);
+            document.querySelectorAll('input[name="mgmtStatus"]').forEach(i => { i.checked = i.value === preset; });
             const cat = document.getElementById('mgmtCategory');
             if (r.mgmt_category && ![...cat.options].some(o => o.value === r.mgmt_category)) cat.add(new Option(r.mgmt_category, r.mgmt_category));
             cat.value = r.mgmt_category || '';
-            document.getElementById('mgmtNote').value = r.mgmt_note || '';
+            // La nota automática no se arrastra al justificar: se escribe el motivo real.
+            document.getElementById('mgmtNote').value = Number(r.mgmt_auto) === 1 ? '' : (r.mgmt_note || '');
             document.getElementById('mgmtFile').value = '';
             const cur = document.getElementById('mgmtCurrentFile');
             cur.dataset.remove = '';
@@ -9552,7 +9571,6 @@
                 </button>`;
             };
             const minsFmt = (m) => fmtMins(m);
-            const hFmt = (m) => fmtMins(m);
             document.getElementById('indCards').innerHTML = [
                 card('Tasa de ausentismo', 'fa-user-xmark', fmtPct(t.ausentismo),
                     `${t.ausencias} ausencia(s) de ${t.programados} turno(s) · injustificado: ${fmtPct(t.ausentismoInjustificado)}`,
@@ -9563,9 +9581,9 @@
                 card('Tiempo perdido', 'fa-hourglass-half', minsFmt(t.minutosPerdidos),
                     `≈ <strong>${pdfMoney(t.costoPerdido)}</strong> · retrasos ${minsFmt(t.minutosRetraso)} + exceso de almuerzo ${minsFmt(t.minutosAlmuerzo || 0)} (tiempo no recuperable)`,
                     indDelta(t.minutosPerdidos, p.minutosPerdidos, 'down', minsFmt, ' min')),
-                card('Horas extra (netas)', 'fa-business-time', fmtMinsS(t.extraTotalMin),
-                    `≈ <strong>${pdfMoney(t.valorExtras || 0)}</strong> pagados · generadas ${hFmt(t.extraGeneradaMin || 0)} − salidas anticipadas ${hFmt(t.descuentoSalidaMin || 0)} · Diurnas ${fmtMinsS(t.extraDiurnaMin)} · Nocturnas ${hFmt(t.extraNocturnaMin)}`,
-                    indDelta(t.extraTotalMin, p.extraTotalMin, 'down', fmtMinsS, ' min')),
+                card('Horas extra (netas)', 'fa-business-time', `<span class="${(t.extraTotalMin || 0) < 0 ? 'text-rose-700' : ''}">${fmtHorasDec(t.extraTotalMin)}</span>`,
+                    `≈ <strong>${pdfMoney(t.valorExtras || 0)}</strong> pagados · generadas ${fmtHorasDec(t.extraGeneradaMin || 0)} − salidas anticipadas ${fmtHorasDec(t.descuentoSalidaMin || 0)} · Diurnas ${fmtHorasDec(t.extraDiurnaMin)} · Nocturnas ${fmtHorasDec(t.extraNocturnaMin)}`,
+                    indDelta(t.extraTotalMin, p.extraTotalMin, 'down', fmtHorasDec, ' h')),
                 card('Costo de extras y recargos', 'fa-sack-dollar', `<span class="${(t.costoTotal || 0) < 0 ? 'text-rose-700' : ''}">${moneyS(t.costoTotal)}</span>`,
                     `<span class="grid grid-cols-1 gap-0.5 mt-0.5">
                         <span class="flex justify-between gap-2"><span>Recargo nocturno <span class="text-slate-400">(${fmtHorasDec(t.recargoNocturnoMin)})</span></span><strong class="text-slate-700">${moneyS(t.costoRecargo)}</strong></span>
@@ -9592,7 +9610,7 @@
                     <td class="px-3 py-2 text-center">${indCellSt('puntualidad', a, d, fmtPct(a.puntualidad))}</td>
                     <td class="px-3 py-2 text-center">${fmtMins(a.minutosPerdidos)}</td>
                     <td class="px-3 py-2 text-right">${pdfMoney(a.costoPerdido)}</td>
-                    <td class="px-3 py-2 text-center">${fmtMinsS(a.extraTotalMin)}<span class="block text-3xs text-slate-500">${pdfMoney(a.valorExtras || 0)}</span></td>
+                    <td class="px-3 py-2 text-center">${fmtHorasDec(a.extraTotalMin)}<span class="block text-3xs text-slate-500">${pdfMoney(a.valorExtras || 0)}</span></td>
                     <td class="px-3 py-2 text-right">${indCellSt('costo', a, d, `<strong class="${(a.costoTotal || 0) < 0 ? 'text-rose-700' : ''}">${moneyS(a.costoTotal)}</strong>`)}<span class="block text-3xs text-slate-500" title="Recargo nocturno · extras diurnas netas · extras nocturnas">RN ${moneyS(a.costoRecargo)} · ED ${moneyS(a.costoExtraDiurna)} · EN ${moneyS(a.costoExtraNocturna)}</span></td>
                     <td class="px-3 py-2 text-center">${a.incapacidadDias ? `${a.incapacidadDias} d <span class="block text-3xs text-slate-500">${pdfMoney(a.incapacidadCosto)}</span>` : '<span class="text-slate-300">0</span>'}</td>
                     <td class="px-3 py-2 text-center">${a.sinCerrar}</td>
@@ -9603,12 +9621,8 @@
                 : '<tr><td colspan="12" class="px-3 py-6 text-center text-slate-400">No hay turnos terminados en este periodo.</td></tr>';
 
             const monthLabel = (m) => { const [y, mm] = m.split('-'); return `${MONTHS_ES[Number(mm) - 1].slice(0, 3)} ${y.slice(2)}`; };
-            document.getElementById('indTrendBody').innerHTML = d.trend.map(m => `<tr class="border-t border-slate-100"><td class="px-3 py-1.5">${monthLabel(m.month)}</td><td class="px-3 py-1.5 text-center">${m.programados}</td><td class="px-3 py-1.5 text-center">${fmtPct(m.ausentismo)}</td><td class="px-3 py-1.5 text-center">${fmtPct(m.puntualidad)}</td><td class="px-3 py-1.5 text-center">${formatHMSigned(m.extraHoras)}</td><td class="px-3 py-1.5 text-right">${pdfMoney(m.extraValor || 0)}</td><td class="px-3 py-1.5 text-right font-semibold ${(m.costoTotal || 0) < 0 ? 'text-rose-700' : ''}">${moneyS(m.costoTotal)}</td><td class="px-3 py-1.5 text-center">${m.incapacidadDias}</td><td class="px-3 py-1.5 text-right">${pdfMoney(m.incapacidadCosto)}</td></tr>`).join('');
-            const labels = d.trend.map(m => monthLabel(m.month));
-            indDrawChart('indChartAus', 'line', labels, d.trend.map(m => m.ausentismo), (v) => fmtPct(v));
-            indDrawChart('indChartPun', 'line', labels, d.trend.map(m => m.puntualidad), (v) => fmtPct(v));
-            indDrawChart('indChartExt', 'bar', labels, d.trend.map(m => m.extraHoras), (v) => formatHMSigned(v));
-            indDrawChart('indChartInc', 'bar', labels, d.trend.map(m => m.incapacidadDias), (v) => `${v} día(s)`);
+            document.getElementById('indTrendBody').innerHTML = d.trend.map(m => `<tr class="border-t border-slate-100"><td class="px-3 py-1.5">${monthLabel(m.month)}</td><td class="px-3 py-1.5 text-center">${m.programados}</td><td class="px-3 py-1.5 text-center">${fmtPct(m.ausentismo)}</td><td class="px-3 py-1.5 text-center">${fmtPct(m.puntualidad)}</td><td class="px-3 py-1.5 text-center">${fmtHorasDec((m.extraHoras || 0) * 60)}</td><td class="px-3 py-1.5 text-right">${pdfMoney(m.extraValor || 0)}</td><td class="px-3 py-1.5 text-right font-semibold ${(m.costoTotal || 0) < 0 ? 'text-rose-700' : ''}">${moneyS(m.costoTotal)}</td><td class="px-3 py-1.5 text-center">${m.incapacidadDias}</td><td class="px-3 py-1.5 text-right">${pdfMoney(m.incapacidadCosto)}</td></tr>`).join('');
+            indDrawTrendCharts(d, monthLabel);
             renderIncapacities(d);
 
             document.getElementById('indTopBody').innerHTML = d.top.length ? d.top.map((r, i) => `
@@ -9645,7 +9659,7 @@
                 perdido: { title: 'Tiempo perdido por colaborador', hint: 'Solo retrasos y exceso de almuerzo (tiempo que no se recupera). La salida anticipada se descuenta de las horas extra.',
                     head: ['Colaborador', 'Área', 'Días', 'Retrasos', 'Exceso de almuerzo', 'Total', 'Costo aprox.'], rows: (det.perdido || []).map(r => [who(r), escapeHtml(r.area), r.dias, fmtMins(r.retraso), fmtMins(r.almuerzo), `<strong>${fmtMins(r.total)}</strong>`, pdfMoney(r.costo)]) },
                 extras: { title: 'Horas extra por colaborador', hint: 'Netas = extras generadas menos el tiempo descontado por salidas anticipadas (lo que realmente paga la empresa). Solo días con turno cerrado.',
-                    head: ['Colaborador', 'Área', 'Generadas', 'Salidas anticipadas', 'Diurnas netas', 'Nocturnas', 'Netas', 'Valor aprox.'], rows: (det.extras || []).map(r => [who(r), escapeHtml(r.area), fmtMins(r.generada), r.salida ? `<span class="text-rose-700">− ${fmtMins(r.salida)}</span>` : '-', fmtMinsS(r.diurna), fmtMins(r.nocturna), `<strong class="${r.neto < 0 ? 'text-rose-700' : ''}">${fmtMinsS(r.neto)}</strong>`, pdfMoney(r.valor || 0)]) },
+                    head: ['Colaborador', 'Área', 'Generadas', 'Salidas anticipadas', 'Diurnas netas', 'Nocturnas', 'Netas', 'Valor aprox.'], rows: (det.extras || []).map(r => [who(r), escapeHtml(r.area), fmtHorasDec(r.generada), r.salida ? `<span class="text-rose-700">− ${fmtHorasDec(r.salida)}</span>` : '-', `<span class="${r.diurna < 0 ? 'text-rose-700' : ''}">${fmtHorasDec(r.diurna)}</span>`, fmtHorasDec(r.nocturna), `<strong class="${r.neto < 0 ? 'text-rose-700' : ''}">${fmtHorasDec(r.neto)}</strong>`, pdfMoney(r.valor || 0)]) },
                 costo: { title: 'Costo de extras y recargos por colaborador', hint: 'Con marcaciones reales, solo días con turno cerrado. Recargo nocturno al 35 %, extra diurna al 125 % y extra nocturna al 175 % del valor hora (salario ÷ divisor mensual). A las extras diurnas ya se les restaron las salidas anticipadas: si el saldo queda negativo se muestra en rojo y resta del total.',
                     head: ['Colaborador', 'Área', 'Días', 'Recargo nocturno', 'Extras diurnas netas', 'Salidas anticipadas (ya restadas)', 'Extras nocturnas', 'Total'],
                     rows: (det.costo || []).map(r => [who(r), escapeHtml(r.area), r.dias,
@@ -9747,6 +9761,135 @@
                 <td class="px-3 py-2 text-right">${pdfMoney(t.costoSalario)}</td><td class="px-3 py-2 text-right">${pdfMoney(t.valorEmpresa)}</td><td></td></tr>` : '';
         }
         // Gráfica de una sola serie (sin doble eje), con tooltip al pasar el mouse.
+        // ---- Gráficas de tendencia (6 meses) con meta y conclusión concreta ----
+        const IND_C = { red: '#e11d48', redSoft: '#fda4af', amber: '#f59e0b', green: '#10b981', sky: '#0284c7', skySoft: '#7dd3fc', violet: '#7c3aed', slate: '#475569', grid: '#f1f5f9', tick: '#64748b' };
+        const indNum1 = (v) => (Math.round((Number(v) || 0) * 10) / 10).toLocaleString('es-CO');
+        const indHoras = (h) => `${(Number(h) || 0).toLocaleString('es-CO', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h`;
+        function indMakeChart(canvasId, config) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas || typeof Chart === 'undefined') return;
+            if (indCharts[canvasId]) indCharts[canvasId].destroy();
+            const base = {
+                responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, font: { size: 10 }, color: IND_C.tick } } },
+            };
+            const ownPlugins = (config.options && config.options.plugins) || {};
+            const basePlugins = base.plugins;
+            config.options = Object.assign(base, config.options || {});
+            config.options.plugins = Object.assign({}, basePlugins, ownPlugins);
+            indCharts[canvasId] = new Chart(canvas.getContext('2d'), config);
+        }
+        function indInsight(id, tone, html) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.className = 'ind-insight' + (tone ? ' ' + tone : '');
+            el.innerHTML = html;
+        }
+        // Línea punteada de meta (constante) para usar como un conjunto de datos más.
+        const indGoalLine = (label, value, n) => ({ type: 'line', label, data: Array(n).fill(value), borderColor: IND_C.slate, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 0, fill: false, order: 0 });
+        function indDrawTrendCharts(d, monthLabel) {
+            const tr = d.trend || [];
+            const n = tr.length;
+            const labels = tr.map(m => monthLabel(m.month) + (m.parcial ? '*' : ''));
+            const g = d.goals || {};
+            const last = tr[n - 1] || {}, prev = tr[n - 2] || {};
+            const lastName = last.month ? MONTHS_ES[Number(last.month.slice(5)) - 1] : '';
+            const curTag = last.parcial ? ' (mes en curso)' : '';
+            const xAxis = { grid: { display: false }, ticks: { color: IND_C.tick, font: { size: 10 } } };
+            const yAxis = (extra) => Object.assign({ beginAtZero: true, grid: { color: IND_C.grid }, ticks: { color: IND_C.tick, font: { size: 10 }, maxTicksLimit: 5 } }, extra || {});
+            const pctTick = { callback: (v) => `${indNum1(v)} %` };
+
+            // 1) AUSENTISMO: barras apiladas (injustificado en rojo + justificado en ámbar) y línea de meta.
+            const ausInj = tr.map(m => m.ausentismo == null ? null : (m.ausentismoInjustificado || 0));
+            const ausJus = tr.map(m => m.ausentismo == null ? null : Math.max(0, Math.round(((m.ausentismo || 0) - (m.ausentismoInjustificado || 0)) * 10) / 10));
+            const ausSets = [
+                { type: 'bar', label: 'Injustificado', data: ausInj, backgroundColor: IND_C.red, stack: 'a', borderRadius: 3, maxBarThickness: 34, order: 1 },
+                { type: 'bar', label: 'Justificado', data: ausJus, backgroundColor: IND_C.amber, stack: 'a', borderRadius: 3, maxBarThickness: 34, order: 1 },
+            ];
+            if (g.ausentismoMax != null) ausSets.push(indGoalLine(`Meta máx. ${indNum1(g.ausentismoMax)} %`, g.ausentismoMax, n));
+            indMakeChart('indChartAus', { type: 'bar', data: { labels, datasets: ausSets }, options: {
+                scales: { x: Object.assign({ stacked: true }, xAxis), y: yAxis({ stacked: true, ticks: Object.assign({ color: IND_C.tick, font: { size: 10 }, maxTicksLimit: 5 }, pctTick) }) },
+                plugins: { tooltip: { callbacks: { label: (c) => c.raw == null ? `${c.dataset.label}: sin turnos` : `${c.dataset.label}: ${indNum1(c.raw)} %`,
+                    footer: (items) => { const m = tr[items[0].dataIndex]; return m && m.ausentismo != null ? `Total: ${indNum1(m.ausentismo)} % · ${m.ausencias || 0} ausencia(s) de ${m.programados} turno(s)` : ''; } } } } } });
+            if (last.ausentismo == null) indInsight('indInsAus', '', `En ${lastName}${curTag} aún no hay turnos terminados para medir.`);
+            else {
+                const inj = Math.max(0, (last.ausencias || 0) - (last.ausenciasJustificadas || 0));
+                const share = last.ausencias ? Math.round(inj / last.ausencias * 100) : 0;
+                const meta = g.ausentismoMax;
+                const tone = meta == null ? '' : last.ausentismo <= meta ? 'ok' : last.ausentismo <= meta * 1.25 ? 'warn' : 'bad';
+                const vsMeta = meta == null ? '' : last.ausentismo <= meta ? ` · <strong>dentro de la meta</strong> (máx. ${indNum1(meta)} %)` : ` · <strong>por encima de la meta</strong> (máx. ${indNum1(meta)} %)`;
+                const vsPrev = prev.ausentismo != null ? ` ${last.ausentismo > prev.ausentismo ? '▲ subió' : last.ausentismo < prev.ausentismo ? '▼ bajó' : '= igual que'} frente a ${MONTHS_ES[Number(prev.month.slice(5)) - 1]} (${indNum1(prev.ausentismo)} %).` : '';
+                indInsight('indInsAus', tone, `<strong>${lastName}${curTag}: ${indNum1(last.ausentismo)} %</strong> de ausentismo${vsMeta}.${vsPrev}${last.ausencias ? ` De ${last.ausencias} ausencia(s), <strong>${inj} sin justificar (${share} %)</strong>.` : ' Nadie faltó.'}`);
+            }
+
+            // 2) PUNTUALIDAD: barras de color según la meta (verde cumple, ámbar cerca, rojo no cumple) y línea de meta.
+            const pMeta = g.puntualidadMin;
+            const punColor = (v) => v == null ? '#e2e8f0' : pMeta == null ? IND_C.sky : v >= pMeta ? IND_C.green : v >= pMeta - 5 ? IND_C.amber : IND_C.red;
+            const punSets = [{ type: 'bar', label: 'Puntualidad', data: tr.map(m => m.puntualidad), backgroundColor: tr.map(m => punColor(m.puntualidad)), borderRadius: 4, maxBarThickness: 34, order: 1 }];
+            if (pMeta != null) punSets.push(indGoalLine(`Meta mín. ${indNum1(pMeta)} %`, pMeta, n));
+            const punVals = tr.map(m => m.puntualidad).filter(v => v != null);
+            const punMin = punVals.length ? Math.max(0, Math.floor((Math.min(...punVals, pMeta == null ? 100 : pMeta) - 10) / 10) * 10) : 0;
+            indMakeChart('indChartPun', { type: 'bar', data: { labels, datasets: punSets }, options: {
+                scales: { x: xAxis, y: yAxis({ beginAtZero: false, min: punMin, max: 100, ticks: Object.assign({ color: IND_C.tick, font: { size: 10 }, maxTicksLimit: 5 }, pctTick) }) },
+                plugins: { legend: { display: pMeta != null, position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, font: { size: 10 }, color: IND_C.tick, filter: (it) => it.datasetIndex > 0 } },
+                    tooltip: { callbacks: { label: (c) => c.datasetIndex > 0 ? `${c.dataset.label}` : (c.raw == null ? 'Sin entradas' : `Puntualidad: ${indNum1(c.raw)} %`),
+                        footer: (items) => { const m = tr[items[0].dataIndex]; return m && m.entradas ? `${m.tarde || 0} llegada(s) tarde de ${m.entradas} entrada(s) · ${fmtHorasDec(m.minutosRetraso || 0)} de retraso` : ''; } } } } } });
+            if (last.puntualidad == null) indInsight('indInsPun', '', `En ${lastName}${curTag} aún no hay entradas registradas.`);
+            else {
+                const ok = punVals.length && pMeta != null ? tr.filter(m => m.puntualidad != null && m.puntualidad >= pMeta).length : null;
+                const tone = pMeta == null ? '' : last.puntualidad >= pMeta ? 'ok' : last.puntualidad >= pMeta - 5 ? 'warn' : 'bad';
+                const best = tr.reduce((b, m) => (m.puntualidad != null && (b == null || m.puntualidad > b.puntualidad)) ? m : b, null);
+                indInsight('indInsPun', tone, `<strong>${lastName}${curTag}: ${indNum1(last.puntualidad)} %</strong> de llegadas a tiempo${pMeta != null ? (last.puntualidad >= pMeta ? ' · <strong>cumple la meta</strong>' : ` · <strong>no cumple la meta</strong> (mín. ${indNum1(pMeta)} %)`) : ''}: ${last.tarde || 0} llegada(s) tarde (${fmtHorasDec(last.minutosRetraso || 0)} perdidas).${ok != null ? ` Se cumplió la meta en <strong>${ok} de ${punVals.length}</strong> mes(es).` : ''}${best && best.month !== last.month ? ` Mejor mes: ${monthLabel(best.month)} (${indNum1(best.puntualidad)} %).` : ''}`);
+            }
+
+            // 3) HORAS EXTRA: barras de horas netas (eje izquierdo) + línea del costo de extras y recargos en $ (eje derecho).
+            const extH = tr.map(m => m.programados ? (m.extraHoras || 0) : null);
+            const extC = tr.map(m => m.programados ? (m.costoTotal || 0) : null);
+            indMakeChart('indChartExt', { type: 'bar', data: { labels, datasets: [
+                { type: 'bar', label: 'Horas extra netas', data: extH, backgroundColor: extH.map(v => (v || 0) < 0 ? IND_C.redSoft : IND_C.skySoft), borderColor: extH.map(v => (v || 0) < 0 ? IND_C.red : IND_C.sky), borderWidth: 1, borderRadius: 4, maxBarThickness: 34, yAxisID: 'y', order: 2 },
+                { type: 'line', label: 'Costo extras y recargos ($)', data: extC, borderColor: IND_C.violet, backgroundColor: IND_C.violet, borderWidth: 2.5, pointRadius: 4, pointHoverRadius: 6, cubicInterpolationMode: 'monotone', spanGaps: true, yAxisID: 'y1', order: 1 },
+            ] }, options: {
+                scales: { x: xAxis, y: yAxis({ ticks: { color: IND_C.tick, font: { size: 10 }, maxTicksLimit: 5, callback: (v) => `${indNum1(v)} h` } }),
+                    y1: yAxis({ position: 'right', grid: { display: false }, ticks: { color: IND_C.violet, font: { size: 10 }, maxTicksLimit: 5, callback: (v) => Math.abs(v) >= 1e6 ? `$${indNum1(v / 1e6)} M` : Math.abs(v) >= 1e3 ? `$${Math.round(v / 1e3)} mil` : `$${v}` } }) },
+                plugins: { tooltip: { callbacks: { label: (c) => c.raw == null ? `${c.dataset.label}: sin turnos` : c.dataset.yAxisID === 'y1' ? `Costo extras y recargos: ${pdfMoney(c.raw)}` : `Horas extra netas: ${indHoras(c.raw)}` } } } } });
+            {
+                const withData = tr.filter(m => m.programados);
+                if (!last.programados) indInsight('indInsExt', '', `En ${lastName}${curTag} aún no hay turnos terminados.`);
+                else {
+                    // Promedio solo de meses completos; el mes en curso se proyecta al ritmo actual.
+                    const full = withData.filter(m => !m.parcial);
+                    const avg = full.length ? full.reduce((s, m) => s + (m.costoTotal || 0), 0) / full.length : 0;
+                    let ref = last.costoTotal || 0, projTxt = '';
+                    if (last.parcial) {
+                        const today = bogotaTodayISO();
+                        const dayN = Number(today.slice(8)), daysInMonth = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0)).getUTCDate();
+                        if (dayN >= 3 && dayN < daysInMonth) { ref = Math.round((last.costoTotal || 0) / dayN * daysInMonth / 1000) * 1000; projTxt = ` A este ritmo, el mes cerraría en <strong>≈ ${pdfMoney(ref)}</strong>.`; }
+                    }
+                    const max = full.reduce((b, m) => (!b || (m.costoTotal || 0) > (b.costoTotal || 0)) ? m : b, null);
+                    const tone = g.costoMaxMes != null ? (ref <= g.costoMaxMes ? 'ok' : ref <= g.costoMaxMes * 1.25 ? 'warn' : 'bad') : (avg && ref > avg * 1.2 ? 'warn' : '');
+                    const vsAvg = full.length && avg ? ` ${ref > avg ? '▲' : '▼'} ${indNum1(Math.abs((ref - avg) / avg * 100))} % ${ref > avg ? 'por encima' : 'por debajo'} del promedio mensual (${pdfMoney(Math.round(avg))}).` : '';
+                    indInsight('indInsExt', tone, `<strong>${lastName}${curTag}: ${indHoras(last.extraHoras)}</strong> extra netas y <strong>${pdfMoney(last.costoTotal || 0)}</strong> en extras y recargos.${projTxt}${vsAvg}${max && max.month !== last.month && (max.costoTotal || 0) > 0 ? ` Mes más costoso: ${monthLabel(max.month)} (${pdfMoney(max.costoTotal)}).` : ''}`);
+                }
+            }
+
+            // 4) INCAPACIDADES: barras de días (eje izquierdo) + línea de costo en salario (eje derecho).
+            indMakeChart('indChartInc', { type: 'bar', data: { labels, datasets: [
+                { type: 'bar', label: 'Días de incapacidad', data: tr.map(m => m.incapacidadDias || 0), backgroundColor: '#fdba74', borderColor: '#ea580c', borderWidth: 1, borderRadius: 4, maxBarThickness: 34, yAxisID: 'y', order: 2 },
+                { type: 'line', label: 'Costo en salario ($)', data: tr.map(m => m.incapacidadCosto || 0), borderColor: IND_C.slate, backgroundColor: IND_C.slate, borderWidth: 2, pointRadius: 3, cubicInterpolationMode: 'monotone', yAxisID: 'y1', order: 1 },
+            ] }, options: {
+                scales: { x: xAxis, y: yAxis({ ticks: { color: IND_C.tick, font: { size: 10 }, maxTicksLimit: 5, precision: 0 } }),
+                    y1: yAxis({ position: 'right', grid: { display: false }, ticks: { color: IND_C.slate, font: { size: 10 }, maxTicksLimit: 5, callback: (v) => Math.abs(v) >= 1e6 ? `$${indNum1(v / 1e6)} M` : Math.abs(v) >= 1e3 ? `$${Math.round(v / 1e3)} mil` : `$${v}` } }) },
+                plugins: { tooltip: { callbacks: { label: (c) => c.dataset.yAxisID === 'y1' ? `Costo en salario: ${pdfMoney(c.raw)}` : `Días: ${c.raw}`,
+                    footer: (items) => { const m = tr[items[0].dataIndex]; return m && m.incapacidadEpisodios ? `${m.incapacidadEpisodios} incapacidad(es)` : ''; } } } } } });
+            {
+                const totalDias = tr.reduce((s, m) => s + (m.incapacidadDias || 0), 0);
+                const totalCosto = tr.reduce((s, m) => s + (m.incapacidadCosto || 0), 0);
+                const max = tr.reduce((b, m) => (!b || (m.incapacidadDias || 0) > (b.incapacidadDias || 0)) ? m : b, null);
+                if (!totalDias) indInsight('indInsInc', 'ok', 'Sin incapacidades en los últimos 6 meses.');
+                else indInsight('indInsInc', (last.incapacidadDias || 0) > (prev.incapacidadDias || 0) && (last.incapacidadDias || 0) > 0 ? 'warn' : '',
+                    `<strong>${lastName}${curTag}: ${last.incapacidadDias || 0} día(s)</strong> de incapacidad (${pdfMoney(last.incapacidadCosto || 0)}). En 6 meses: <strong>${totalDias} día(s) y ${pdfMoney(totalCosto)}</strong> en salario.${max && max.incapacidadDias ? ` Mes con más días: ${monthLabel(max.month)} (${max.incapacidadDias}).` : ''}`);
+            }
+        }
         function indDrawChart(canvasId, type, labels, values, fmt) {
             const canvas = document.getElementById(canvasId);
             if (!canvas || typeof Chart === 'undefined') return;
@@ -9902,7 +10045,7 @@
                 ['Tasa de ausentismo', fmtPct(t.ausentismo), `${t.ausencias} ausencia(s) de ${t.programados} turno(s); injustificado ${fmtPct(t.ausentismoInjustificado)}`, fmtPct(p.ausentismo)],
                 ['Índice de puntualidad', fmtPct(t.puntualidad), `${t.entradas - t.tarde} de ${t.entradas} entradas a tiempo; ${t.tarde} tarde (${fmtMins(t.minutosRetraso)})`, fmtPct(p.puntualidad)],
                 ['Tiempo perdido', fmtMins(t.minutosPerdidos), `Retrasos ${fmtMins(t.minutosRetraso)} + exceso de almuerzo ${fmtMins(t.minutosAlmuerzo || 0)}; costo aprox. ${pdfMoney(t.costoPerdido)}`, fmtMins(p.minutosPerdidos)],
-                ['Horas extra (netas)', fmtMinsS(t.extraTotalMin), `Generadas ${fmtMins(t.extraGeneradaMin || 0)} menos salidas anticipadas ${fmtMins(t.descuentoSalidaMin || 0)}; diurnas ${fmtMinsS(t.extraDiurnaMin)}, nocturnas ${fmtMins(t.extraNocturnaMin)}`, fmtMinsS(p.extraTotalMin)],
+                ['Horas extra (netas)', fmtHorasDec(t.extraTotalMin), `Generadas ${fmtHorasDec(t.extraGeneradaMin || 0)} menos salidas anticipadas ${fmtHorasDec(t.descuentoSalidaMin || 0)}; diurnas ${fmtHorasDec(t.extraDiurnaMin)}, nocturnas ${fmtHorasDec(t.extraNocturnaMin)}`, fmtHorasDec(p.extraTotalMin)],
                 ['Costo de extras y recargos', moneyS(t.costoTotal), `Recargo nocturno ${moneyS(t.costoRecargo)}; extras diurnas netas ${moneyS(t.costoExtraDiurna)} (ya restadas salidas anticipadas ${pdfMoney(t.costoSalida || 0)}); extras nocturnas ${moneyS(t.costoExtraNocturna)}`, moneyS(p.costoTotal)],
                 ['Turnos sin cerrar', String(t.sinCerrar), 'Marcaron entrada pero no la salida', String(p.sinCerrar)],
                 ['Marcaciones manuales', String(t.manuales), 'Hechas a mano (suite o kiosco)', String(p.manuales)],
@@ -9911,7 +10054,7 @@
             ensure(20); txt('Por área', M, 11, 'bold', [15, 23, 42]); y += 6;
             table([{ h: 'Área', w: 40 }, { h: 'Turnos', w: 18, r: 1 }, { h: 'Ausencias', w: 18, r: 1 }, { h: 'Ausentismo', w: 22, r: 1 }, { h: 'Puntualidad', w: 22, r: 1 },
                 { h: 'Tiempo perdido', w: 26, r: 1 }, { h: 'Costo perdido', w: 26, r: 1 }, { h: 'Horas extra', w: 24, r: 1 }, { h: 'Costo extras y recargos', w: 30, r: 1 }, { h: 'Incapacidad', w: 30, r: 1 }, { h: 'Sin cerrar', w: 18, r: 1 }, { h: 'Manuales', w: 18, r: 1 }],
-                d.areas.concat(d.areas.length > 1 ? [Object.assign({}, t, { name: 'TOTAL' })] : []).map(a => [a.name, a.programados, a.ausencias, fmtPct(a.ausentismo), fmtPct(a.puntualidad), fmtMins(a.minutosPerdidos), pdfMoney(a.costoPerdido), fmtMins(a.extraTotalMin), moneyS(a.costoTotal), `${a.incapacidadDias || 0} d · ${pdfMoney(a.incapacidadCosto)}`, a.sinCerrar, a.manuales]), d.areas.length > 1);
+                d.areas.concat(d.areas.length > 1 ? [Object.assign({}, t, { name: 'TOTAL' })] : []).map(a => [a.name, a.programados, a.ausencias, fmtPct(a.ausentismo), fmtPct(a.puntualidad), fmtMins(a.minutosPerdidos), pdfMoney(a.costoPerdido), fmtHorasDec(a.extraTotalMin), moneyS(a.costoTotal), `${a.incapacidadDias || 0} d · ${pdfMoney(a.incapacidadCosto)}`, a.sinCerrar, a.manuales]), d.areas.length > 1);
             const inc = d.incapacities || { total: {}, previous: {}, employees: [] };
             ensure(30); txt('Incapacidades', M, 11, 'bold', [15, 23, 42]); y += 5;
             txt(`${inc.total.dias || 0} día(s) en ${inc.total.episodios || 0} incapacidad(es) de ${inc.total.colaboradores || 0} colaborador(es) · Tasa ${fmtPct(inc.total.tasa)} · Costo en salario ${pdfMoney(inc.total.costoSalario)} · A cargo de la empresa (est.) ${pdfMoney(inc.total.valorEmpresa)} · Periodo anterior: ${inc.previous.dias || 0} día(s), ${pdfMoney(inc.previous.costoSalario)}`, M, 8, 'normal', [71, 85, 105]); y += 6;
@@ -9920,7 +10063,7 @@
                     e.periodos.map(x => x.desde === x.hasta ? pdfDate(x.desde).slice(0, 5) : `${pdfDate(x.desde).slice(0, 5)}-${pdfDate(x.hasta).slice(0, 5)}`).join(', ')]) : [['Sin incapacidades en el periodo', '', '', '', '', '', '', '']]);
             ensure(20); txt('Tendencia de los últimos 6 meses', M, 11, 'bold', [15, 23, 42]); y += 6;
             table([{ h: 'Mes', w: 40 }, { h: 'Turnos evaluados', w: 30, r: 1 }, { h: 'Ausentismo', w: 30, r: 1 }, { h: 'Puntualidad', w: 30, r: 1 }, { h: 'Horas extra', w: 30, r: 1 }, { h: 'Días incapacidad', w: 30, r: 1 }, { h: 'Costo incapacidad', w: 32, r: 1 }],
-                d.trend.map(m => [m.month, m.programados, fmtPct(m.ausentismo), fmtPct(m.puntualidad), formatHM(m.extraHoras), m.incapacidadDias, pdfMoney(m.incapacidadCosto)]));
+                d.trend.map(m => [m.month, m.programados, fmtPct(m.ausentismo), fmtPct(m.puntualidad), fmtHorasDec((m.extraHoras || 0) * 60), m.incapacidadDias, pdfMoney(m.incapacidadCosto)]));
             ensure(20); txt('Top 10 de colaboradores con más novedades', M, 11, 'bold', [15, 23, 42]); y += 6;
             table([{ h: '#', w: 10 }, { h: 'Colaborador', w: 60 }, { h: 'Área', w: 40 }, { h: 'Total', w: 20, r: 1 }, { h: 'Injustificadas', w: 25, r: 1 }, { h: 'Pendientes', w: 25, r: 1 }, { h: 'Justificadas', w: 25, r: 1 }],
                 d.top.length ? d.top.map((r, i) => [i + 1, r.name, r.department, r.total, r.injustificada || 0, r.pendiente || 0, r.justificada || 0]) : [['', 'Sin novedades en el periodo', '', '', '', '', '']]);

@@ -544,6 +544,7 @@ function listAlerts(req, res, query) {
   const orgId = resolveOrgId(req, query);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   scanMissingMarks(orgId);
+  try { autoMarkStaleAlerts(orgId); } catch { /* nunca bloquea el listado */ }
   const from = query.from || bogota.addDaysISO(bogota.todayISOInBogota(), -7);
   const to = query.to || bogota.todayISOInBogota();
   // El apartado de Alertas muestra las novedades (las de "hora_extra" se
@@ -556,7 +557,7 @@ function listAlerts(req, res, query) {
   const rows = db.prepare(`
     SELECT a.*, e.name as employee_name,
            COALESCE(m.status, 'pendiente') AS mgmt_status, m.category AS mgmt_category, m.note AS mgmt_note,
-           m.attachment_name AS mgmt_attachment_name, m.managed_at AS mgmt_at, u.email AS mgmt_by
+           m.attachment_name AS mgmt_attachment_name, m.managed_at AS mgmt_at, u.email AS mgmt_by, COALESCE(m.auto_marked, 0) AS mgmt_auto
     FROM attendance_alerts a
     JOIN employees e ON e.id = a.employee_id
     LEFT JOIN alert_management m ON m.alert_id = a.id
@@ -1067,6 +1068,44 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(NOVEDADES_FEA
 }
 const NOVEDADES_START = String((db.prepare('SELECT applied_at FROM app_migrations WHERE name = ?').get(NOVEDADES_FEATURE) || {}).applied_at || '').slice(0, 10);
 
+// ---------------------------------------------------------------------------
+// NOVEDADES SIN GESTIONAR -> INJUSTIFICADAS AUTOMATICAMENTE (24 horas)
+// Toda novedad que nadie gestiono a mano en 24 horas queda "Injustificada"
+// (marcada como automatica). Se puede cambiar despues a Justificada desde
+// Asistencia -> Alertas. Aplica a las novedades creadas desde que se instalo
+// esta version (no se tocan las anteriores).
+// ---------------------------------------------------------------------------
+const AUTO_UNJUST_FEATURE = 'alertas_auto_injustificada_v1';
+if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(AUTO_UNJUST_FEATURE)) {
+  db.prepare("INSERT INTO app_migrations (name, applied_at) VALUES (?, datetime('now', '-5 hours'))").run(AUTO_UNJUST_FEATURE);
+}
+const AUTO_UNJUST_START = String((db.prepare('SELECT applied_at FROM app_migrations WHERE name = ?').get(AUTO_UNJUST_FEATURE) || {}).applied_at || '');
+const AUTO_UNJUST_HOURS = 24;
+const AUTO_UNJUST_NOTE = 'Marcada automáticamente como injustificada: nadie la gestionó en 24 horas.';
+const AUTO_UNJUST_TYPES = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'marcacion_manual', 'inasistencia', 'turno_sin_cerrar', 'etapa_extendida'];
+function autoMarkStaleAlerts(orgId) {
+  const stale = db.prepare(`
+    SELECT a.id, a.organization_id FROM attendance_alerts a
+    LEFT JOIN alert_management m ON m.alert_id = a.id
+    WHERE m.alert_id IS NULL
+      AND (? IS NULL OR a.organization_id = ?)
+      AND a.alert_type IN (${AUTO_UNJUST_TYPES.map(() => '?').join(',')})
+      AND a.created_at >= ?
+      AND a.created_at <= datetime('now', '-5 hours', ?)
+  `).all(orgId || null, orgId || null, ...AUTO_UNJUST_TYPES, AUTO_UNJUST_START, `-${AUTO_UNJUST_HOURS} hours`);
+  if (!stale.length) return 0;
+  const ins = db.prepare(`INSERT OR IGNORE INTO alert_management (alert_id, organization_id, status, note, managed_by, managed_at, auto_marked)
+                          VALUES (?, ?, 'injustificada', ?, NULL, datetime('now', '-5 hours'), 1)`);
+  const perOrg = new Map();
+  for (const s of stale) {
+    if (ins.run(s.id, s.organization_id, AUTO_UNJUST_NOTE).changes) perOrg.set(s.organization_id, (perOrg.get(s.organization_id) || 0) + 1);
+  }
+  for (const [org, n] of perOrg) {
+    logAction({ organizationId: org, userId: null, action: 'attendance.alerts_auto_unjustified', resourceType: 'alert', metadata: { cantidad: n, horas: AUTO_UNJUST_HOURS } });
+  }
+  return stale.length;
+}
+
 function shiftsByKey(orgId, dates) {
   const map = new Map();
   const rows = Array.isArray(dates) && dates.length
@@ -1166,6 +1205,7 @@ const scanTimer = setInterval(() => {
   try {
     for (const o of db.prepare('SELECT DISTINCT organization_id AS id FROM employees').all()) scanMissingMarks(o.id, true);
   } catch { /* nada */ }
+  try { autoMarkStaleAlerts(null); } catch (e) { console.error('[alertas 24h]', e.message); }
 }, 60 * 1000);
 if (scanTimer.unref) scanTimer.unref();
 
@@ -1312,11 +1352,11 @@ async function manageAlert(req, res, params) {
   }
 
   db.prepare(`
-    INSERT INTO alert_management (alert_id, organization_id, status, category, note, attachment_name, attachment_type, attachment_data, managed_by, managed_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-5 hours'))
+    INSERT INTO alert_management (alert_id, organization_id, status, category, note, attachment_name, attachment_type, attachment_data, managed_by, managed_at, auto_marked)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-5 hours'), 0)
     ON CONFLICT(alert_id) DO UPDATE SET status = excluded.status, category = excluded.category, note = excluded.note,
       attachment_name = excluded.attachment_name, attachment_type = excluded.attachment_type, attachment_data = excluded.attachment_data,
-      managed_by = excluded.managed_by, managed_at = excluded.managed_at
+      managed_by = excluded.managed_by, managed_at = excluded.managed_at, auto_marked = 0
   `).run(alert.id, orgId, status, category, note || null, attName, attType, attData, req.user.id);
 
   logAction({
@@ -1324,7 +1364,7 @@ async function manageAlert(req, res, params) {
     resourceType: 'employee', resourceId: String(alert.employee_id), ip: getClientIp(req),
     metadata: {
       colaborador: alert.employee_name, fecha: alert.shift_date, tipo: alert.alert_type,
-      estado: MGMT_LABELS[status], estadoAnterior: prev ? MGMT_LABELS[prev.status] : 'Pendiente',
+      estado: MGMT_LABELS[status], estadoAnterior: prev ? MGMT_LABELS[prev.status] + (prev.auto_marked ? ' (automática)' : '') : 'Pendiente',
       categoria: category, nota: note || null, soporte: attName || null,
     },
   });
@@ -1728,7 +1768,11 @@ function indicators(req, res, query) {
     const inc = computeIncapacities(data, m.from, m.to, area, now).total;
     return { month: m.label, ausentismo: t.ausentismo, puntualidad: t.puntualidad, extraHoras: Math.round(t.extraTotalMin / 6) / 10, extraValor: t.valorExtras, programados: t.programados,
       costoTotal: t.costoTotal, costoRecargo: t.costoRecargo, costoExtraDiurna: t.costoExtraDiurna, costoExtraNocturna: t.costoExtraNocturna,
-      incapacidadDias: inc.dias, incapacidadCosto: inc.costoSalario };
+      incapacidadDias: inc.dias, incapacidadCosto: inc.costoSalario,
+      // Para las graficas del tablero (conclusiones concretas por mes).
+      ausencias: t.ausencias, ausenciasJustificadas: t.ausenciasJustificadas, ausentismoInjustificado: t.ausentismoInjustificado,
+      entradas: t.entradas, tarde: t.tarde, minutosRetraso: t.minutosRetraso, incapacidadEpisodios: inc.episodios,
+      parcial: m.label === today.slice(0, 7) };
   });
 
   // Top 10 de colaboradores con mas novedades (primero las injustificadas).
