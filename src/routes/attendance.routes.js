@@ -7,6 +7,7 @@ const { db, uid } = require('../db');
 const { sendJson, readBody, getClientIp } = require('../lib/http');
 const { logAction } = require('../lib/audit');
 const evidenceLib = require('../lib/mark-evidence');
+const live = require('../lib/live');
 const { randomToken, sha256Hex } = require('../lib/crypto');
 const rules = require('../lib/attendance-rules');
 const bogota = require('../lib/bogota-time');
@@ -122,6 +123,7 @@ function insertAlert(orgId, employeeId, shiftDateISO, alertType, scheduledTime, 
   // Centro de notificaciones: aviso al celular del administrador (agrupado y
   // respetando el horario de silencio). Nunca debe afectar la marcacion.
   try { push.onAlertCreated(orgId, alertId, alertType, shiftDateISO); } catch (e) { console.error('[avisos]', e.message); }
+  live.publishAttendance(orgId, 'alert');
 }
 
 function hhmmFromAbsMinutes(now) {
@@ -420,6 +422,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
     INSERT INTO attendance_marks (id, organization_id, employee_id, shift_date, mark_type, scheduled_time, actual_at, method, marked_by_user_id, manual_reason)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(markId, orgId, employeeId, shiftDateISO, markType, shift.startTime || null, nowIso, method, userId, reason);
+  live.publishAttendance(orgId, 'mark'); // Hoy / Historial se actualizan solos en la suite
 
   if (isManual) {
     const prevDay = db.prepare('SELECT manual_marks FROM attendance_days WHERE employee_id = ? AND shift_date = ?').get(employeeId, shiftDateISO);
@@ -944,6 +947,16 @@ function applyMarkEvidence(device, result, method, evidence, extra = {}) {
   }
 }
 
+// GET /api/kiosk/live -- contador liviano: si cambia, el kiosco recarga su
+// lista (turnos de hoy, colaboradores). No devuelve ningun dato personal.
+function kioskLiveVersion(req, res) {
+  const device = authenticateDevice(req, res, false);
+  if (!device) return;
+  const v = db.prepare('SELECT data_version FROM org_settings WHERE organization_id = ?').get(device.organization_id);
+  const assigned = db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(employee_id), 0) AS s FROM attendance_device_employees WHERE device_id = ?').get(device.id);
+  sendJson(res, 200, { v: `${v ? v.data_version : 0}.${live.getDataSeq(device.organization_id)}.${assigned.n}.${assigned.s}` });
+}
+
 // GET /api/kiosk/employees-today
 function kioskEmployeesToday(req, res) {
   const device = authenticateDevice(req, res);
@@ -1219,6 +1232,7 @@ function autoMarkStaleAlerts(orgId) {
     if (ins.run(s.id, s.organization_id, AUTO_UNJUST_NOTE).changes) perOrg.set(s.organization_id, (perOrg.get(s.organization_id) || 0) + 1);
   }
   for (const [org, n] of perOrg) {
+    live.publishAttendance(org, 'auto_unjustified');
     logAction({ organizationId: org, userId: null, action: 'attendance.alerts_auto_unjustified', resourceType: 'alert', metadata: { cantidad: n, horas: AUTO_UNJUST_HOURS } });
   }
   return stale.length;
@@ -2105,7 +2119,7 @@ function logDeviceEvent(orgId, deviceId, type, details) {
 
 // Estado calculado de un dispositivo a partir de su ultima senal.
 function deviceHealth(d, nowMs = Date.now()) {
-  if (!d.hb_at_ms) return { status: 'sin_datos', label: 'Sin datos de salud', lastSeenMin: null };
+  if (!d.hb_at_ms) return { status: 'sin_datos', label: 'Sin datos de salud', lastSeenMin: null, warnings: [] };
   const settings = getDeviceAlertSettings(d.organization_id);
   const ageMs = nowMs - Number(d.hb_at_ms);
   const lastSeenMin = Math.max(0, Math.floor(ageMs / 60000));
@@ -2434,6 +2448,7 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(HOURS_ENGINE_
 }
 
 module.exports = {
+  kioskLiveVersion,
   listMarkEvidence, getMarkEvidencePhoto, getEvidenceSettings, saveEvidenceSettings, resetDeviceEnv,
   getIndicatorGoalsRoute, saveIndicatorGoals,
   recalculateFinalizedDays,
