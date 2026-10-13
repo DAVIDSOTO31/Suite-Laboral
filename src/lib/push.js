@@ -17,10 +17,10 @@ const { db, uid } = require('../db');
 const env = require('./env');
 
 // Tipos de alerta que se notifican (los 7 del submodulo de Alertas).
-const NOTIFY_TYPES = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'inasistencia', 'turno_sin_cerrar', 'marcacion_manual', 'etapa_extendida'];
+const NOTIFY_TYPES = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'inasistencia', 'turno_sin_cerrar', 'marcacion_manual', 'etapa_extendida', 'entorno_diferente'];
 const TYPE_LABEL = {
   llegada_tarde: 'Llegada tarde', exceso_almuerzo: 'Exceso de almuerzo', salida_anticipada: 'Salida anticipada',
-  inasistencia: 'No se presentó', turno_sin_cerrar: 'Turno sin cerrar', marcacion_manual: 'Marcación manual', etapa_extendida: 'Etapa extendida',
+  inasistencia: 'No se presentó', turno_sin_cerrar: 'Turno sin cerrar', marcacion_manual: 'Marcación manual', etapa_extendida: 'Etapa extendida', entorno_diferente: 'Marcación sospechosa',
 };
 const QUIET_START_MIN = 23 * 60;      // 11:00 p. m.
 const QUIET_END_MIN = 5 * 60 + 30;    // 5:30 a. m.
@@ -184,6 +184,7 @@ function alertText(a) {
     case 'turno_sin_cerrar': return `Marcó entrada pero no la salida${meta.turno ? ` del turno ${meta.turno}` : ''}.`;
     case 'marcacion_manual': return `Marcación manual${at}${meta.origen ? ` · ${meta.origen}` : ''}${meta.motivo ? ` · Motivo: ${meta.motivo}` : ''}.`;
     case 'etapa_extendida': return `${meta.etapa || 'Etapa del turno partido extendida'} (${min(a.diff_minutes)}).`;
+    case 'entorno_diferente': return `Marcó${at} en un entorno diferente al de siempre${meta.dispositivo ? ` (kiosco ${meta.dispositivo})` : ''}. Revisa la foto.`;
     default: return 'Nueva alerta de asistencia.';
   }
 }

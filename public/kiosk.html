@@ -60,16 +60,18 @@
         </div>
         <p id="faceStatus" class="text-center text-sm font-semibold mt-2">Presiona "Iniciar marcación" para identificarte.</p>
       </div>
+      <video id="evidenceVideo" autoplay muted playsinline style="position:absolute; width:2px; height:2px; opacity:0; pointer-events:none;"></video>
 
       <div id="manualBox" class="hidden">
         <select id="employeeSelect" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm mb-3"></select>
         <label class="block text-xs font-semibold text-slate-300 mb-1">¿Por qué marcas manualmente? <span class="text-rose-400">*</span></label>
         <textarea id="manualReason" rows="2" maxlength="300" placeholder="Ej. La cámara no me reconoció" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm mb-1"></textarea>
         <p class="text-2xs text-slate-400 mb-3">Obligatorio. Queda registrado y el administrador recibe una alerta.</p>
-        <button onclick="doManualMark()" class="w-full py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 font-semibold text-sm">Marcar ahora</button>
+        <button id="manualMarkBtn" onclick="doManualMark()" class="w-full py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 font-semibold text-sm">Marcar ahora</button>
       </div>
 
       <div id="resultBox" class="mt-4 hidden"></div>
+      <p id="evidenceNotice" class="hidden mt-3 text-center text-2xs text-slate-400"><i class="fa-solid fa-camera"></i> Al marcar se toma una foto como evidencia. Se guarda 30 días y luego se borra sola (Ley 1581 de 2012).</p>
     </div>
 
     <div class="mt-3 text-center text-2xs">
@@ -293,6 +295,99 @@ async function detectFaceOnce(videoEl) {
 let mode = 'facial';
 let faceAttemptRunning = false;
 
+// ---- Evidencia de la marcación: foto pequeña + "firma" del fondo ----
+// La organización decide si se toma la foto (se guarda 30 días) y si se
+// revisa que el fondo sea el de siempre (alerta "entorno diferente").
+let EVIDENCE = { photo: false, env: false };
+function rememberEvidenceSettings(ev) {
+  if (!ev) return;
+  EVIDENCE = { photo: !!ev.photo, env: !!ev.env };
+  try { localStorage.setItem('kioskEvidence', JSON.stringify(EVIDENCE)); } catch (e) { /* nada */ }
+  const n = document.getElementById('evidenceNotice');
+  if (n) n.classList.toggle('hidden', !EVIDENCE.photo);
+}
+try { rememberEvidenceSettings(JSON.parse(localStorage.getItem('kioskEvidence') || 'null')); } catch (e) { /* nada */ }
+
+// Foto de evidencia: miniatura de 240 px de ancho en WebP (o JPEG si el
+// equipo no sabe hacer WebP). Pesa unos 8 a 15 KB.
+function evidencePhoto(videoEl) {
+  const vw = videoEl.videoWidth, vh = videoEl.videoHeight;
+  if (!vw || !vh) return null;
+  const w = 240, h = Math.round(240 * vh / vw);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  c.getContext('2d').drawImage(videoEl, 0, 0, w, h);
+  let url = c.toDataURL('image/webp', 0.6);
+  if (!url.startsWith('data:image/webp')) url = c.toDataURL('image/jpeg', 0.65);
+  if (url.length > 70000) url = c.toDataURL(url.startsWith('data:image/webp') ? 'image/webp' : 'image/jpeg', 0.45);
+  return url.length > 110000 ? null : url;
+}
+
+// "Firma" del entorno: el fondo reducido a 32x24 en grises, SIN la zona de
+// la persona, resumido en 48 cuadros (brillo relativo + bordes). Compara la
+// forma del lugar (paredes, puertas, muebles) y no el color, para que un
+// cambio de luz no la dispare. No es una foto: son 96 números.
+function envSignature(videoEl, box) {
+  const vw = videoEl.videoWidth, vh = videoEl.videoHeight;
+  if (!vw || !vh) return null;
+  const W = 32, H = 24, CW = 4, CH = 4, GX = W / CW, GY = H / CH;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(videoEl, 0, 0, W, H);
+  const px = ctx.getImageData(0, 0, W, H).data;
+  const g = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) g[i] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
+  // Zona de la persona: la cara y todo lo que hay debajo (cuerpo).
+  const sx = W / vw, sy = H / vh;
+  let mx0, mx1, my0;
+  if (box) { mx0 = (box.x - box.width * 0.7) * sx; mx1 = (box.x + box.width * 1.7) * sx; my0 = (box.y - box.height * 0.6) * sy; }
+  else { mx0 = W * 0.25; mx1 = W * 0.75; my0 = H * 0.05; } // marcación manual: se supone la persona al centro
+  const masked = (x, y) => x >= mx0 && x <= mx1 && y >= my0;
+  const means = [], grads = [];
+  for (let cy = 0; cy < GY; cy++) for (let cx = 0; cx < GX; cx++) {
+    let n = 0, s = 0, gs = 0, gn = 0;
+    for (let y = cy * CH; y < (cy + 1) * CH; y++) for (let x = cx * CW; x < (cx + 1) * CW; x++) {
+      if (masked(x, y)) continue;
+      n++; s += g[y * W + x];
+      if (x + 1 < W && y + 1 < H && !masked(x + 1, y) && !masked(x, y + 1)) { gs += Math.abs(g[y * W + x + 1] - g[y * W + x]) + Math.abs(g[(y + 1) * W + x] - g[y * W + x]); gn++; }
+    }
+    if (n < 10) { means.push(null); grads.push(null); continue; }
+    means.push(s / n); grads.push(gn ? gs / gn : 0);
+  }
+  const valid = means.filter(v => v != null);
+  if (valid.length < 12) return null;
+  const avg = valid.reduce((a, b) => a + b, 0) / valid.length;
+  const sd = Math.sqrt(valid.reduce((a, b) => a + (b - avg) ** 2, 0) / valid.length) || 1;
+  const gv = grads.filter(v => v != null);
+  const gavg = (gv.reduce((a, b) => a + b, 0) / gv.length) || 1;
+  const r2 = (v) => Math.round(v * 100) / 100;
+  return { v: 1, m: means.map(v => v == null ? null : r2((v - avg) / sd)), g: grads.map(v => v == null ? null : r2(v / gavg)) };
+}
+function captureEvidence(videoEl, box) {
+  const ev = {};
+  try { if (EVIDENCE.photo) { const p = evidencePhoto(videoEl); if (p) ev.photo = p; } } catch (e) { /* sin foto */ }
+  try { if (EVIDENCE.env) { const s = envSignature(videoEl, box); if (s) ev.env = s; } } catch (e) { /* sin firma */ }
+  return (ev.photo || ev.env) ? ev : null;
+}
+// Marcación manual: enciende la cámara un instante solo para la evidencia.
+async function captureManualEvidence() {
+  if (!EVIDENCE.photo && !EVIDENCE.env) return null;
+  const v = document.getElementById('evidenceVideo');
+  try {
+    await Promise.race([startCameraOn(v), new Promise((_, rej) => setTimeout(() => rej(new Error('tiempo')), 4000))]);
+    await new Promise(r => setTimeout(r, 700)); // que la cámara ajuste la luz
+    return captureEvidence(v, null);
+  } catch (e) { return null; }
+  finally { stopCameraStream(v); }
+}
+// Si hay muchas marcaciones guardadas sin conexión, no se guardan más fotos
+// en el equipo (para no llenar su memoria); la marcación se guarda igual.
+function evidenceForQueue(ev) {
+  if (!ev) return null;
+  const withPhoto = offlineQueue().filter(x => x.evidence && x.evidence.photo).length;
+  if (withPhoto >= 150 && ev.photo) { const { photo, ...rest } = ev; return rest.env ? rest : null; }
+  return ev;
+}
+
 function setMode(m) {
   mode = m;
   document.getElementById('modeBtnFacial').className = 'flex-1 px-3 py-2 rounded-lg text-xs font-bold ' + (m === 'facial' ? 'bg-sky-600' : 'bg-slate-700');
@@ -356,7 +451,8 @@ async function runSingleFaceAttempt() {
           // solo cuadro) -> aceptar y marcar.
           statusEl.textContent = 'Verificando…';
           const descriptor = Array.from(det.descriptor);
-          await submitFaceMark(descriptor);
+          const evidence = captureEvidence(video, det.detection && det.detection.box);
+          await submitFaceMark(descriptor, evidence);
           return;
         }
       } else {
@@ -369,21 +465,22 @@ async function runSingleFaceAttempt() {
   statusEl.textContent = 'No se detectó un rostro. Presiona "Iniciar marcación" para intentar de nuevo.';
 }
 
-async function submitFaceMark(descriptor) {
+async function submitFaceMark(descriptor, evidence) {
   const statusEl = document.getElementById('faceStatus');
-  if (!navigator.onLine) { saveOfflineFace(descriptor); return; }
+  if (!navigator.onLine) { saveOfflineFace(descriptor, evidence); return; }
   try {
-    const r = await apiKiosk('/api/kiosk/mark-by-face', { method: 'POST', body: JSON.stringify({ descriptor }) });
+    const r = await apiKiosk('/api/kiosk/mark-by-face', { method: 'POST', body: JSON.stringify({ descriptor, evidence }) });
     renderResult(r);
     speakConfirmation(r);
     statusEl.textContent = 'Listo. Presiona "Iniciar marcación" para el siguiente colaborador.';
   } catch (e) {
-    if (e.network) { saveOfflineFace(descriptor); return; }
+    if (e.network) { saveOfflineFace(descriptor, evidence); return; }
     statusEl.textContent = e.message;
   }
 }
-function saveOfflineFace(descriptor) {
-  enqueueOffline({ kind: 'face', descriptor });
+function saveOfflineFace(descriptor, evidence) {
+  const ev = evidenceForQueue(evidence);
+  enqueueOffline({ kind: 'face', descriptor, ...(ev ? { evidence: ev } : {}) });
   renderOfflineResult(null);
   speakText('Marcación guardada.');
   document.getElementById('faceStatus').textContent = 'Listo. Presiona "Iniciar marcación" para el siguiente colaborador.';
@@ -414,7 +511,8 @@ async function loadEmployeesForManual() {
   const sel = document.getElementById('employeeSelect');
   sel.innerHTML = '<option>Cargando…</option>';
   try {
-    const { deviceName, employees } = await apiKiosk('/api/kiosk/employees-today');
+    const { deviceName, employees, evidence } = await apiKiosk('/api/kiosk/employees-today');
+    rememberEvidenceSettings(evidence);
     try { localStorage.setItem('kioskEmployeesCache', JSON.stringify(employees.map(e => ({ id: e.id, name: e.name })))); } catch (x) { /* sin espacio */ }
     document.getElementById('deviceNameLabel').textContent = deviceName;
     if (employees.length === 0) { sel.innerHTML = '<option value="">Sin colaboradores asignados a este dispositivo.</option>'; return; }
@@ -447,16 +545,21 @@ async function doManualMark() {
     reasonEl.focus();
     return;
   }
+  const markBtn = document.getElementById('manualMarkBtn');
+  if (markBtn) { markBtn.disabled = true; markBtn.classList.add('opacity-50'); }
+  const evidence = await captureManualEvidence();
+  if (markBtn) { markBtn.disabled = false; markBtn.classList.remove('opacity-50'); }
   const saveOfflineManual = () => {
     const name = (sel.selectedOptions[0]?.textContent || '').split(' — ')[0];
-    enqueueOffline({ kind: 'manual', employeeId: Number(sel.value), employeeName: name, reason });
+    const ev = evidenceForQueue(evidence);
+    enqueueOffline({ kind: 'manual', employeeId: Number(sel.value), employeeName: name, reason, ...(ev ? { evidence: ev } : {}) });
     reasonEl.value = '';
     renderOfflineResult(name);
     speakText(`${name}. Marcación guardada.`);
   };
   if (!navigator.onLine) { saveOfflineManual(); return; }
   try {
-    const r = await apiKiosk('/api/kiosk/mark', { method: 'POST', body: JSON.stringify({ employeeId: Number(sel.value), reason }) });
+    const r = await apiKiosk('/api/kiosk/mark', { method: 'POST', body: JSON.stringify({ employeeId: Number(sel.value), reason, evidence }) });
     reasonEl.value = '';
     renderResult(r);
     loadEmployeesForManual();
@@ -477,7 +580,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-app1';
+const KIOSK_VERSION = '2026.10-evidencia1';
 let cameraState = 'desconocido';
 let batteryRef = null;
 async function detectCameraState() {
@@ -510,6 +613,7 @@ async function sendHeartbeat() {
     const sentAt = Date.now();
     const r = await apiKiosk('/api/kiosk/heartbeat', { method: 'POST', body: JSON.stringify(body) });
     rememberServerOffset(r.serverTime, sentAt);
+    rememberEvidenceSettings(r.evidence);
     setConnStatus(true, 'En línea');
     if (offlineQueue().length) syncOfflineQueue();
   } catch (e) {
@@ -666,6 +770,7 @@ if ('serviceWorker' in navigator) {
 if (getToken()) {
   apiKiosk('/api/kiosk/employees-today').then(d => {
     document.getElementById('deviceNameLabel').textContent = d.deviceName;
+    rememberEvidenceSettings(d.evidence);
   }).catch(() => {});
 }
 </script>
