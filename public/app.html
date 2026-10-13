@@ -7817,6 +7817,138 @@
         let BOOTSTRAPPED = false;
         let dataSyncTimer = null;
 
+        // =================================================================
+        // ACTUALIZACIÓN EN VIVO: cuando otro usuario de la organización guarda
+        // un cambio, esta pestaña lo recibe y se actualiza sola, sin recargar.
+        // Si en ese momento estás editando (ventana abierta, escribiendo,
+        // arrastrando un turno o con cambios por guardar), espera a que
+        // termines para no pisar tu trabajo.
+        // =================================================================
+        const LIVE_CLIENT_ID = ((window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('c' + Date.now().toString(36) + Math.random().toString(36).slice(2))).slice(0, 64);
+        let LIVE_APPLYING = false;
+        let dataSyncScheduled = false;
+        let syncInFlight = 0;
+        let lastSyncedPayloadKey = null;
+        const livePending = { data: false, attendance: false, payroll: false, users: false };
+        let liveLastBy = null;
+        let liveApplyTimer = null;
+        let liveSource = null;
+        let liveConnectedOnce = false;
+        let liveLastToastAt = 0;
+        let liveLastAttendanceAt = 0;
+        function livePayloadKey() {
+            try { return JSON.stringify([appState.employees, appState.shifts, appState.shiftsLoadedFrom]); } catch (e) { return String(Math.random()); }
+        }
+        function liveCurrentView() {
+            const v = document.querySelector('.app-view:not(.hidden)');
+            return v ? v.id.replace('view-', '') : null;
+        }
+        // ¿El usuario está en medio de algo? Entonces el cambio espera.
+        function liveUserBusy() {
+            if (typeof rcDrag !== 'undefined' && (rcDrag || rcHold)) return true;
+            if (dataSyncScheduled || syncInFlight > 0) return true;
+            const openModal = [...document.querySelectorAll('.fixed.inset-0')].some(el => el.id !== 'sidebarBackdrop' && !el.classList.contains('hidden') && el.getClientRects().length > 0);
+            if (openModal) return true;
+            const a = document.activeElement;
+            if (a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'file'].includes(a.type)))) return true;
+            return false;
+        }
+        function initLiveUpdates() {
+            if (!('EventSource' in window) || liveSource) return;
+            // EventSource no permite cabeceras: el identificador de la pestaña viaja
+            // en cada guardado (X-Client-Id) y aquí solo se compara.
+            liveSource = new EventSource('/api/org/live');
+            liveSource.addEventListener('hello', () => {
+                // Al reconectar (se cayó el internet, el celular bloqueó la pantalla…)
+                // pudo haber cambios que no llegaron: se revisa todo una vez.
+                if (liveConnectedOnce) { livePending.data = true; livePending.attendance = true; livePending.payroll = true; scheduleLiveApply(); }
+                liveConnectedOnce = true;
+            });
+            liveSource.addEventListener('change', (ev) => {
+                let m = {}; try { m = JSON.parse(ev.data); } catch (e) { return; }
+                if (m.clientId && m.clientId === LIVE_CLIENT_ID) return; // fue esta misma pestaña
+                (m.scopes || []).forEach(s => { if (s in livePending) livePending[s] = true; });
+                if (m.by && (m.scopes || []).includes('data')) liveLastBy = m.by;
+                scheduleLiveApply();
+            });
+        }
+        function scheduleLiveApply(delay = 800) {
+            clearTimeout(liveApplyTimer);
+            liveApplyTimer = setTimeout(liveApply, delay);
+        }
+        async function liveApply() {
+            if (!BOOTSTRAPPED) { scheduleLiveApply(2000); return; }
+            const view = liveCurrentView();
+            // Asistencia, liquidación y usuarios no tocan lo que estás editando: se refrescan ya.
+            if (livePending.attendance) {
+                const now = Date.now();
+                if (now - liveLastAttendanceAt < 10000) { scheduleLiveApply(10000 - (now - liveLastAttendanceAt)); }
+                else { livePending.attendance = false; liveLastAttendanceAt = now; liveRefreshAttendance(view); }
+            }
+            if (livePending.users && view === 'orgadmin' && !liveUserBusy()) { livePending.users = false; try { loadOrgAdminPanel(); } catch (e) { /* nada */ } }
+            else if (livePending.users && view !== 'orgadmin') livePending.users = false; // se cargará al entrar
+            if (livePending.data) {
+                if (syncConflict) { livePending.data = false; return; } // ya hay un aviso de recargar
+                if (liveUserBusy()) { scheduleLiveApply(2000); return; }
+                livePending.data = false;
+                const changed = await liveRefreshData();
+                if (changed === 'busy') { livePending.data = true; scheduleLiveApply(2000); return; }
+                livePending.payroll = false; // el re-pintado de la vista ya incluye la liquidación
+                if (changed && Date.now() - liveLastToastAt > 20000) {
+                    liveLastToastAt = Date.now();
+                    showAppToast(`Actualizado con los cambios de ${liveLastBy || 'otro usuario'}.`);
+                }
+            }
+            if (livePending.payroll) {
+                if (view !== 'payrollot') livePending.payroll = false;
+                else if (liveUserBusy()) scheduleLiveApply(2000);
+                else { livePending.payroll = false; try { renderPayrollOvertimeView(); } catch (e) { /* nada */ } }
+            }
+        }
+        async function liveRefreshData() {
+            let data;
+            try { data = await apiFetch('/api/org/data'); } catch (e) { livePending.data = true; scheduleLiveApply(5000); return false; }
+            // Si mientras llegaba la respuesta empezaste a editar, se espera.
+            if (liveUserBusy()) return 'busy';
+            const main = document.querySelector('main');
+            const scrollTop = main ? main.scrollTop : 0;
+            LIVE_APPLYING = true;
+            try {
+                applyOrgData(data, false);
+                lastSyncedPayloadKey = livePayloadKey();
+                initCorporateBrand();
+                renderQuickBrushBar();
+                renderDepartmentOptions();
+                renderDepartmentsManagerList();
+                const navMine = document.getElementById('nav-mine');
+                if (navMine && (appState.viewer.scope === 'self' || appState.viewer.employeeId != null)) navMine.classList.remove('hidden');
+                const view = liveCurrentView();
+                if (view === 'shifts') renderShiftsView();
+                if (view === 'employees') renderEmployeesView();
+                if (view === 'mine') renderMyView(false);
+                if (view === 'orgadmin') renderRetentionInfo();
+                if (view === 'payrollot') renderPayrollOvertimeView();
+            } catch (e) {
+                console.warn('Actualización en vivo:', e);
+            } finally {
+                LIVE_APPLYING = false;
+            }
+            if (main) main.scrollTop = scrollTop;
+            return true;
+        }
+        function liveRefreshAttendance(view) {
+            try {
+                if (CAN('attendance.view_alerts')) { refreshAttAlertsBadge(); loadNotifications(); }
+                if (view === 'gerencia') loadGerenciaHoy();
+                if (view !== 'attendance') return;
+                const loaders = { today: attendanceLoadToday, history: attendanceLoadHistory, alerts: attendanceLoadAlerts, workdays: attendanceLoadWorkdays, novedades: attendanceLoadNovedades, devices: attendanceLoadDevices, bio: attendanceLoadBioList };
+                const fn = loaders[currentAttendanceSubTab];
+                // En la gestión de una alerta abierta o escribiendo un filtro, se espera.
+                if (fn && !liveUserBusy()) fn();
+                else if (fn) { livePending.attendance = true; scheduleLiveApply(3000); }
+            } catch (e) { /* nada */ }
+        }
+
         function getCookieValue(name) {
             const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
             return m ? decodeURIComponent(m[1]) : null;
@@ -7829,6 +7961,7 @@
                 credentials: 'include',
                 headers: {
                     'Content-Type': 'application/json',
+                    'X-Client-Id': LIVE_CLIENT_ID,
                     ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
                     ...(opts.headers || {}),
                 },
@@ -7870,18 +8003,25 @@
         let syncPendingRetry = false;
         async function postDataSync() {
             if (syncConflict) throw Object.assign(new Error('conflicto'), { conflict: true });
+            // Si no hay ningún cambio frente a lo último guardado (o recibido en
+            // vivo), no se envía nada.
+            const payloadKey = livePayloadKey();
+            if (payloadKey === lastSyncedPayloadKey) return { ok: true, skipped: true };
             const csrf = getCookieValue('csrf');
             let res;
+            syncInFlight++;
             try {
                 res = await fetch('/api/org/sync', {
                     method: 'POST', credentials: 'include',
-                    headers: { 'Content-Type': 'application/json', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+                    headers: { 'Content-Type': 'application/json', 'X-Client-Id': LIVE_CLIENT_ID, ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
                     body: JSON.stringify({ employees: appState.employees, shifts: appState.shifts, baseVersion: appState.dataVersion, shiftsFrom: appState.shiftsLoadedFrom }),
                 });
             } catch (e) {
+                syncInFlight--;
                 showSyncBanner('error', 'No se pudieron guardar los últimos cambios: sin conexión con el servidor.');
                 throw e;
             }
+            syncInFlight--;
             if (res.status === 401) { window.location.href = '/login.html'; throw new Error('No autenticado'); }
             const data = await res.json().catch(() => ({}));
             if (res.status === 409 && data.conflict) {
@@ -7905,6 +8045,7 @@
             }
             syncPendingRetry = false;
             hideSyncBanner();
+            if (!(Array.isArray(data.lockedFixed) && data.lockedFixed.length)) lastSyncedPayloadKey = payloadKey;
             return data;
         }
         function queueDataSync() {
@@ -7941,9 +8082,12 @@
 
         function scheduleDataSync() {
             if (!BOOTSTRAPPED) return;
+            if (LIVE_APPLYING) return; // re-pintado por un cambio de otro usuario: no hay nada propio que guardar
             if (!CAN('shifts.edit') && !CAN('employees.edit')) return; // este rol no guarda cambios
             clearTimeout(dataSyncTimer);
+            dataSyncScheduled = true;
             dataSyncTimer = setTimeout(() => {
+                dataSyncScheduled = false;
                 queueDataSync().then(handleSyncResult).catch(e => { syncPendingRetry = true; console.warn('No se pudo sincronizar con el servidor:', e.message); });
             }, 900);
         }
@@ -8138,27 +8282,9 @@
             WELCOME_VIEW = null;
         }
 
-        async function appBootstrap() {
-            let me;
-            try {
-                me = (await apiFetch('/api/auth/me')).user;
-            } catch (e) {
-                return; // apiFetch ya redirige a /login.html en 401
-            }
-            if (me.isSuperAdmin) { window.location.href = '/superadmin.html'; return; }
-            CURRENT_USER = me;
-            const emailEl = document.getElementById('headerUserEmail');
-            if (emailEl) emailEl.textContent = me.email;
-            applyPermissionVisibility(me.permissions);
-
-            let data;
-            try {
-                data = await apiFetch('/api/org/data');
-            } catch (e) {
-                showAppToast('No se pudieron cargar los datos de la organización: ' + e.message);
-                return;
-            }
-
+        // Carga en appState la información de la organización (al abrir la suite y,
+        // en vivo, cuando otro usuario guarda cambios).
+        function applyOrgData(data, initial) {
             appState.orgName = data.orgSettings.orgName || 'Empresa';
             appState.companyLogo = data.orgSettings.logo || null;
             appState.settings.smlmv2026 = data.orgSettings.minimumWage || 1750905;
@@ -8180,13 +8306,18 @@
             syncCustomAbsenceTypes();
             // El turno partido pasa del cian original al amarillo vivo.
             const splitPreset = appState.shiftPresets.find(p => p.id === SPLIT_PRESET_ID);
-            if (splitPreset && splitPreset.color === 'cyan') { splitPreset.color = 'vivid_yellow'; if (CAN('shifts.edit')) saveShiftPresets(); }
+            if (splitPreset && splitPreset.color === 'cyan') { splitPreset.color = 'vivid_yellow'; if (initial && CAN('shifts.edit')) saveShiftPresets(); }
             renderColorPalette('rosterColorPalette', 'roster-color-btn', 'selectShiftColor');
             renderColorPalette('presetColorPalette', 'preset-color-btn', 'selectPresetColor');
             appState.employees = (data.employees || []).map(e => ({ ...e, email: e.email || '', linkedUser: e.linkedUser || null, countWorkedDays: e.countWorkedDays === true, nightSurcharge: e.nightSurcharge !== false, nightSurchargeReason: e.nightSurchargeReason || '' }));
-            appState.shifts = data.shifts || [];
+            // En vivo: se conservan los turnos más antiguos que ya se habían traído
+            // (semanas anteriores, liquidaciones pasadas) y se reemplaza el resto.
+            const serverFrom = data.shiftsFrom || '0000-01-01';
+            const keepOlder = (!initial && appState.shiftsLoadedFrom && appState.shiftsLoadedFrom < serverFrom)
+                ? appState.shifts.filter(s => s.date < serverFrom) : [];
+            appState.shifts = keepOlder.concat(data.shifts || []);
             appState.dataVersion = Number(data.dataVersion) || 0;
-            appState.shiftsLoadedFrom = data.shiftsFrom || '0000-01-01';
+            appState.shiftsLoadedFrom = keepOlder.length ? appState.shiftsLoadedFrom : serverFrom;
             appState.dataRetention = data.dataRetention || null;
             appState.shiftEmailsEnabled = data.shiftEmailsEnabled === true;
             appState.viewer = data.viewer || { scope: 'all', employeeId: null };
@@ -8195,9 +8326,35 @@
             // Turnos partidos ya asignados que quedaron en cian -> amarillo vivo.
             appState.shifts.forEach(sh => { if (sh.isSplit && sh.color === 'cyan') sh.color = 'vivid_yellow'; });
             appState.employees.filter(e => !e.nightSurcharge).forEach(e => recomputeShiftsForEmployee(e.id));
-            if (appState.employees.length) {
+            const keepSel = !initial && appState.employees.some(e => Number(e.id) === Number(appState.selectedEmpId));
+            if (appState.employees.length && !keepSel) {
                 appState.selectedEmpId = (activeEmployees()[0] || appState.employees[0]).id;
             }
+
+        }
+
+        async function appBootstrap() {
+            let me;
+            try {
+                me = (await apiFetch('/api/auth/me')).user;
+            } catch (e) {
+                return; // apiFetch ya redirige a /login.html en 401
+            }
+            if (me.isSuperAdmin) { window.location.href = '/superadmin.html'; return; }
+            CURRENT_USER = me;
+            const emailEl = document.getElementById('headerUserEmail');
+            if (emailEl) emailEl.textContent = me.email;
+            applyPermissionVisibility(me.permissions);
+
+            let data;
+            try {
+                data = await apiFetch('/api/org/data');
+            } catch (e) {
+                showAppToast('No se pudieron cargar los datos de la organización: ' + e.message);
+                return;
+            }
+
+            applyOrgData(data, true);
 
             initCorporateBrand();
             renderQuickBrushBar();
@@ -8218,6 +8375,7 @@
 
             BOOTSTRAPPED = true; // a partir de aquí, las mutaciones sí se sincronizan al servidor
             initNotificationCenter();
+            initLiveUpdates();
 
             if (data.isEmpty && CAN('settings.manage')) {
                 showAppToast('Esta organización aún no tiene datos. Usa "Restaurar Datos y Orden de Áreas" para cargar un ejemplo.');

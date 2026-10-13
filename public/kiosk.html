@@ -507,9 +507,10 @@ function renderResult(r) {
   box.classList.remove('hidden');
 }
 
-async function loadEmployeesForManual() {
+async function loadEmployeesForManual(quiet) {
   const sel = document.getElementById('employeeSelect');
-  sel.innerHTML = '<option>Cargando…</option>';
+  const prevValue = sel.value;
+  if (!quiet) sel.innerHTML = '<option>Cargando…</option>';
   try {
     const { deviceName, employees, evidence } = await apiKiosk('/api/kiosk/employees-today');
     rememberEvidenceSettings(evidence);
@@ -521,6 +522,8 @@ async function loadEmployeesForManual() {
       if (e.completed) return `<option value="${e.id}" data-noshift="1">${escapeHtml(e.name)} — turno completo</option>`;
       return `<option value="${e.id}">${escapeHtml(e.name)} — ${markLabel(e.nextMark, e.isSplit)}</option>`;
     }).join('');
+    // Al actualizarse en vivo se conserva la persona que estaba elegida.
+    if (prevValue && [...sel.options].some(o => o.value === prevValue)) sel.value = prevValue;
   } catch (e) {
     let cached = [];
     try { cached = JSON.parse(localStorage.getItem('kioskEmployeesCache') || '[]'); } catch (x) { cached = []; }
@@ -580,7 +583,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-evidencia1';
+const KIOSK_VERSION = '2026.10-envivo1';
 let cameraState = 'desconocido';
 let batteryRef = null;
 async function detectCameraState() {
@@ -602,6 +605,22 @@ function setConnStatus(online, text) {
   document.getElementById('connDot').className = 'w-2 h-2 rounded-full inline-block ' + (online ? 'bg-emerald-400' : 'bg-rose-500');
   document.getElementById('connText').textContent = text;
 }
+// ---- Actualización en vivo: si en la suite cambian los turnos o los
+// colaboradores asignados, la lista de "Selección manual" se actualiza sola.
+// (La marcación por rostro siempre usa el turno vigente: el servidor lo
+// consulta en el momento de marcar.)
+let kioskLiveVersion = null;
+async function checkKioskLive() {
+  if (!getToken() || document.visibilityState !== 'visible' || !navigator.onLine) return;
+  try {
+    const r = await apiKiosk('/api/kiosk/live');
+    if (kioskLiveVersion !== null && r.v !== kioskLiveVersion && mode === 'manual') loadEmployeesForManual(true);
+    kioskLiveVersion = r.v;
+  } catch (e) { /* sin conexión: se revisa en la siguiente vuelta */ }
+}
+setInterval(checkKioskLive, 15000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkKioskLive(); });
+
 async function sendHeartbeat() {
   if (!getToken()) return;
   const body = { camera: cameraState, pending: offlineQueue().length, version: KIOSK_VERSION + (isInstalledApp() ? ' · app' : ' · web') };

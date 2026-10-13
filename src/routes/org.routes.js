@@ -6,6 +6,9 @@ const { logAction } = require('../lib/audit');
 const { describeAudit } = require('../lib/audit-describe');
 const { randomToken, sha256Hex } = require('../lib/crypto');
 const { sendMail } = require('../lib/mailer');
+const crypto = require('node:crypto');
+// Ultimo guardado completo por organizacion (para detectar guardados repetidos sin cambios).
+const lastSyncHash = new Map();
 // Correos de turnos (publicación y cambios en días ya publicados): APAGADOS por
 // ahora para cuidar el cupo del plan gratuito de Brevo (300 correos/mes). Los
 // colaboradores ven su horario entrando a la suite ("Mi horario y marcaciones").
@@ -269,6 +272,14 @@ async function syncEmployeesAndShifts(req, res) {
   const windowFrom = String(body.shiftsFrom || '');
   if (Array.isArray(body.shifts) && !/^\d{4}-\d{2}-\d{2}$/.test(windowFrom)) {
     return sendJson(res, 400, { error: 'Recarga la suite para guardar (versión anterior de la página).' });
+  }
+  // Guardado SIN cambios (la misma informacion que ya quedo guardada): no se
+  // reescribe nada ni se avisa a las demas pestanas.
+  const payloadHash = crypto.createHash('sha1').update(JSON.stringify([body.employees || null, body.shifts || null, windowFrom])).digest('hex');
+  const lastSaved = lastSyncHash.get(orgId);
+  if (lastSaved && lastSaved.version === currentVersion && lastSaved.hash === payloadHash) {
+    res.skipLive = true;
+    return sendJson(res, 200, { ok: true, ignored: [], linked: [], shiftChanges: 0, dataVersion: currentVersion, lockedFixed: [], unchanged: true });
   }
   db.exec('BEGIN');
   try {
@@ -544,6 +555,10 @@ async function syncEmployeesAndShifts(req, res) {
   if (ignored.length) logAction({ organizationId: orgId, userId: req.user.id, action: 'org_data.ignored', ip: getClientIp(req), metadata: { ignorados: ignored } });
   const newVersion = bumpDataVersion(orgId);
   db.exec('COMMIT');
+  // Si TODO lo enviado quedo guardado tal cual, se recuerda para detectar
+  // guardados repetidos sin cambios.
+  if (!ignored.length && !(lockedFixedAll && lockedFixedAll.length)) lastSyncHash.set(orgId, { hash: payloadHash, version: newVersion });
+  else lastSyncHash.delete(orgId);
   sendJson(res, 200, { ok: true, ignored, linked, shiftChanges: shiftChanges.length, dataVersion: newVersion, lockedFixed: lockedFixedAll });
   } catch (e) {
     try { db.exec('ROLLBACK'); } catch { /* ya cerrada */ }

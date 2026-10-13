@@ -13,6 +13,7 @@ const superadmin = require('./routes/superadmin.routes');
 const org = require('./routes/org.routes');
 const attendance = require('./routes/attendance.routes');
 const notifications = require('./routes/notifications.routes');
+const live = require('./lib/live');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
@@ -66,6 +67,14 @@ function route(method, routePath, guards, handler, { auth = true } = {}) {
       console.error('Handler error:', e);
       sendJson(res, 500, { error: 'Error interno del servidor.' });
     }
+    // Actualizacion en vivo: si el cambio salio bien, se avisa a las demas
+    // pestanas de la misma organizacion (solo el aviso, nunca los datos).
+    try {
+      if (user && user.organizationId && method !== 'GET' && res.statusCode < 400 && !res.skipLive) {
+        const scopes = live.scopesForPath(routePath.replace(/:[a-zA-Z]+/g, 'x'));
+        if (scopes) live.publish(user.organizationId, { scopes, by: user.email, userId: user.id, clientId: String(req.headers['x-client-id'] || '').slice(0, 64) || null, kind: routePath });
+      }
+    } catch (e) { console.error('[en vivo]', e.message); }
   });
 }
 
@@ -199,6 +208,18 @@ route('POST', '/api/kiosk/mark', [], (req, res) => attendance.kioskMark(req, res
 route('POST', '/api/kiosk/mark-by-face', [], (req, res) => attendance.kioskMarkByFace(req, res), { auth: false });
 route('POST', '/api/kiosk/heartbeat', [], (req, res) => attendance.kioskHeartbeat(req, res), { auth: false });
 route('POST', '/api/kiosk/sync', [], (req, res) => attendance.kioskSync(req, res), { auth: false });
+route('GET', '/api/kiosk/live', [], (req, res) => attendance.kioskLiveVersion(req, res), { auth: false });
+
+// ---- Actualizacion en vivo (Server-Sent Events) para la suite ----
+route('GET', '/api/org/live', [], (req, res) => {
+  const user = req.user;
+  if (!user.organizationId) return sendJson(res, 400, { error: 'Solo para cuentas de organizacion.' });
+  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+  res.write('retry: 5000\n\n');
+  res.write(`event: hello\ndata: ${JSON.stringify({ ok: true })}\n\n`);
+  const off = live.subscribe(user.organizationId, res, { userId: user.id, clientId: String(req.headers['x-client-id'] || '') });
+  req.on('close', off);
+});
 
 // ---------------------------------------------------------------------------
 // HTTP server: security headers, CORS, static files, API dispatch
