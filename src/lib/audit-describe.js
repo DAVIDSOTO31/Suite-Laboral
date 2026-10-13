@@ -146,6 +146,7 @@ function describeAudit(row, ctx = {}) {
     case 'attendance.device_create': return out('Asistencia', 'Dispositivo de marcación', `Creó el dispositivo de marcación "${val(m.deviceName)}".`);
     case 'attendance.device_rotate': return out('Asistencia', 'Dispositivo de marcación', `Generó un nuevo token para el dispositivo "${val(m.deviceName)}" (el anterior dejó de funcionar).`);
     case 'attendance.device_deactivate': return out('Asistencia', 'Dispositivo de marcación', `Desactivó el dispositivo de marcación "${val(m.deviceName)}".`);
+    case 'attendance.device_delete': return out('Asistencia', 'Dispositivo de marcación', `Eliminó el dispositivo de marcación "${val(m.deviceName)}" (estaba desactivado). Sus marcaciones y fotos se conservan.`);
     case 'attendance.device_assign': return out('Asistencia', 'Dispositivo de marcación', `Asignó ${m.count || 0} colaborador(es) al dispositivo${m.deviceName ? ` "${m.deviceName}"` : ''}.`);
 
     // ---------------- Liquidación ----------------

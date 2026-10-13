@@ -772,6 +772,8 @@ CREATE INDEX IF NOT EXISTS idx_offline_marks_org ON offline_marks(organization_i
 `);
 const dayColsOff = db.prepare('PRAGMA table_info(attendance_days)').all().map(c => c.name);
 if (!dayColsOff.includes('offline_marks')) db.exec('ALTER TABLE attendance_days ADD COLUMN offline_marks INTEGER NOT NULL DEFAULT 0');
+// Nombre del kiosco guardado en cada marcacion sin conexion (por si el dispositivo se elimina despues).
+if (!db.prepare('PRAGMA table_info(offline_marks)').all().some(c => c.name === 'device_name_snapshot')) db.exec('ALTER TABLE offline_marks ADD COLUMN device_name_snapshot TEXT');
 
 // ---------------------------------------------------------------------------
 // RETIRO DE COLABORADORES: en lugar de borrar la ficha (lo que eliminaba en

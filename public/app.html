@@ -10584,7 +10584,8 @@
                             <button onclick="attendanceOpenDeviceEvents('${d.id}')" class="text-xs px-2 py-1 rounded bg-slate-50 text-slate-700 hover:bg-slate-100">Historial</button>
                             <button onclick="attendanceRotateDevice('${d.id}')" class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100">Nuevo token</button>
                             ${lastEvidenceSettings && lastEvidenceSettings.env ? `<button onclick="attendanceResetDeviceEnv('${d.id}', '${escapeHtml(d.name)}')" title="Úsalo si moviste el kiosco a otro lugar a propósito" class="text-xs px-2 py-1 rounded bg-fuchsia-50 text-fuchsia-700 hover:bg-fuchsia-100">Reaprender entorno</button>` : ''}
-                            ${d.active ? `<button onclick="attendanceDeactivateDevice('${d.id}')" class="text-xs px-2 py-1 rounded bg-rose-50 text-rose-600 hover:bg-rose-100">Desactivar</button>` : ''}
+                            ${d.active ? `<button onclick="attendanceDeactivateDevice('${d.id}')" class="text-xs px-2 py-1 rounded bg-rose-50 text-rose-600 hover:bg-rose-100">Desactivar</button>`
+                                : `<button onclick="attendanceDeleteDevice('${d.id}', '${escapeHtml(d.name).replace(/'/g, '&#39;')}')" class="text-xs px-2 py-1 rounded bg-rose-600 text-white hover:bg-rose-700"><i class="fa-solid fa-trash"></i> Eliminar</button>`}
                         </td>
                     </tr>`).join('') || `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Aún no hay dispositivos registrados.</td></tr>`;
             } catch (e) {
@@ -10723,6 +10724,14 @@
                 document.getElementById('attDeviceCreateModal').classList.remove('hidden');
                 document.getElementById('attDeviceCreateModal').classList.add('flex');
             } catch (e) { showAppToast(e.message); }
+        }
+        async function attendanceDeleteDevice(deviceId, name) {
+            if (!confirm(`¿Eliminar definitivamente el dispositivo "${name}"?\n\nDesaparece de la lista y su token deja de existir. Las marcaciones que se hicieron en él, sus fotos de evidencia y su historial sin conexión se conservan.`)) return;
+            try {
+                await apiFetch(`/api/attendance/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
+                showAppToast(`Dispositivo "${name}" eliminado.`);
+            } catch (e) { showAppToast(e.message); }
+            attendanceLoadDevices();
         }
         async function attendanceDeactivateDevice(deviceId) {
             if (!confirm('¿Desactivar este dispositivo? Dejará de poder marcar asistencia de inmediato.')) return;

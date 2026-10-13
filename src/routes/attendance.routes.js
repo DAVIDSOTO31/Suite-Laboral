@@ -845,6 +845,33 @@ async function deactivateDevice(req, res, params) {
   sendJson(res, 200, { ok: true });
 }
 
+// DELETE /api/attendance/devices/:id -- elimina un dispositivo DESACTIVADO.
+// Las marcaciones que hizo, sus fotos de evidencia y el historial de
+// marcaciones sin conexion se conservan (quedan como "Dispositivo eliminado").
+function deleteDevice(req, res, params) {
+  const orgId = req.user.organizationId;
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const device = db.prepare('SELECT * FROM attendance_devices WHERE id = ? AND organization_id = ?').get(String(params.id), orgId);
+  if (!device) return sendJson(res, 404, { error: 'Dispositivo no encontrado en esta organizacion.' });
+  if (device.active) return sendJson(res, 409, { error: 'Primero desactiva el dispositivo; solo se pueden eliminar dispositivos desactivados.' });
+  const pending = db.prepare("SELECT COUNT(*) AS n FROM offline_marks WHERE device_id = ? AND status IN ('no_reconocido','revision')").get(device.id).n;
+  if (pending) return sendJson(res, 409, { error: `Este dispositivo tiene ${pending} marcación(es) sin conexión por revisar. Asígnalas o descártalas antes de eliminarlo.` });
+  db.exec('BEGIN');
+  try {
+    // Conserva el nombre en el historial sin conexion antes de borrar el dispositivo.
+    db.prepare('UPDATE offline_marks SET device_name_snapshot = ? WHERE device_id = ?').run(device.device_name, device.id);
+    db.prepare('DELETE FROM attendance_device_employees WHERE device_id = ?').run(device.id);
+    db.prepare('DELETE FROM device_events WHERE device_id = ?').run(device.id);
+    db.prepare('DELETE FROM attendance_devices WHERE id = ?').run(device.id);
+    db.exec('COMMIT');
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* ya cerrada */ }
+    throw e;
+  }
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.device_delete', resourceType: 'attendance_device', resourceId: device.id, ip: getClientIp(req), metadata: { deviceName: device.device_name } });
+  sendJson(res, 200, { ok: true });
+}
+
 // GET /api/attendance/devices/:id/employees -- lista TODOS los colaboradores
 // de la organizacion, marcando cuales ya estan asignados a este dispositivo.
 function getDeviceAssignments(req, res, params, query) {
@@ -2321,9 +2348,9 @@ function listOfflineMarks(req, res, query) {
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   const pendingOnly = query.view !== 'all';
   const rows = db.prepare(`SELECT o.id, o.kind, o.employee_id, o.reason, o.captured_at, o.status, o.problem, o.mark_type, o.received_at, o.resolved_at, o.resolution_note,
-      d.device_name, e.name AS employee_name, u.email AS resolved_by_email,
+      COALESCE(d.device_name, o.device_name_snapshot || ' (eliminado)', 'Dispositivo eliminado') AS device_name, e.name AS employee_name, u.email AS resolved_by_email,
       (SELECT p.id FROM mark_photos p WHERE p.offline_id = o.id AND p.data IS NOT NULL LIMIT 1) AS evidence_id
-    FROM offline_marks o JOIN attendance_devices d ON d.id = o.device_id
+    FROM offline_marks o LEFT JOIN attendance_devices d ON d.id = o.device_id
     LEFT JOIN employees e ON e.id = o.employee_id LEFT JOIN users u ON u.id = o.resolved_by
     WHERE o.organization_id = ? ${pendingOnly ? "AND o.status IN ('no_reconocido','revision')" : ''}
     ORDER BY o.captured_at DESC LIMIT 300`).all(orgId);
@@ -2411,7 +2438,7 @@ module.exports = {
   getIndicatorGoalsRoute, saveIndicatorGoals,
   recalculateFinalizedDays,
   listEmployeesToday, registerMark, listHistory, listMyHistory, listAlerts, registerCorrection, listCorrections, listFaceProfiles, enrollFaceProfile, deactivateFaceProfile, registerMarkByFace,
-  listDevices, createDevice, rotateDeviceToken, deactivateDevice, getDeviceAssignments, setDeviceAssignments,
+  listDevices, createDevice, rotateDeviceToken, deactivateDevice, deleteDevice, getDeviceAssignments, setDeviceAssignments,
   kioskEmployeesToday, kioskMark, kioskMarkByFace,
   listPayrollAttendance,
   todayBoard, manageAlert, getAlertAttachment, novedadesSummary,
