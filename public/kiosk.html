@@ -268,12 +268,22 @@ function cachedEmployee(empId) {
   const c = getOfflineCache();
   return c && Array.isArray(c.employees) ? c.employees.find(e => Number(e.id) === Number(empId)) || null : null;
 }
+// La copia local es de hoy (y reciente): sus datos de turno sirven para hoy.
+function offlineCacheIsToday(c) {
+  return !!c && c.today === bogotaTodayKiosk() && Date.now() - (c.savedAt || 0) <= 16 * 3600 * 1000;
+}
+// "Tiene turno hoy" según la copia local; si la copia es de otro día no se sabe (undefined).
+function cachedHasShiftToday(empId) {
+  const c = getOfflineCache();
+  const e = cachedEmployee(empId);
+  return e && offlineCacheIsToday(c) ? e.hasShift : undefined;
+}
 // Siguiente marcación de esa persona según la copia local (solo si es de hoy).
 function cachedNextMark(empId) {
   const c = getOfflineCache();
   const e = cachedEmployee(empId);
   if (!c || !e || !e.hasShift) return null;
-  if (c.today !== bogotaTodayKiosk() || Date.now() - (c.savedAt || 0) > 16 * 3600 * 1000) return null;
+  if (!offlineCacheIsToday(c)) return null;
   return e.nextMark || null;
 }
 // Después de cada marcación (con o sin internet) se adelanta la siguiente.
@@ -591,7 +601,7 @@ function saveOfflineFace(descriptor, evidence) {
   enqueueOffline({ kind: 'face', descriptor, ...(who ? { localEmpId: who.id } : {}), ...(ev ? { evidence: ev } : {}) });
   if (who) {
     const mt = cachedNextMark(who.id);
-    renderOfflineResult(who.name, mt, who.isSplit, who.hasShift);
+    renderOfflineResult(who.name, mt, who.isSplit, cachedHasShiftToday(who.id));
     speakOfflineConfirmation(who.name, mt, who.isSplit);
     if (mt) advanceCachedMark(who.id, mt);
   } else {
@@ -688,7 +698,7 @@ async function doManualMark() {
     enqueueOffline({ kind: 'manual', employeeId: empId, localEmpId: empId, employeeName: name, reason, ...(ev ? { evidence: ev } : {}) });
     reasonEl.value = '';
     const mt = cachedNextMark(empId);
-    renderOfflineResult(name, mt, cached && cached.isSplit, cached ? cached.hasShift : true);
+    renderOfflineResult(name, mt, cached && cached.isSplit, cachedHasShiftToday(empId));
     speakOfflineConfirmation(name, mt, cached && cached.isSplit);
     if (mt) advanceCachedMark(empId, mt);
   };
@@ -716,7 +726,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-offline2';
+const KIOSK_VERSION = '2026.10-offline3';
 let cameraState = 'desconocido';
 let batteryRef = null;
 async function detectCameraState() {
