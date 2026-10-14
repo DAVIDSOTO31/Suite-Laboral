@@ -18,6 +18,11 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <style>
   body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0c4a6e 100%); }
+  /* Cámara: ocupa desde arriba hasta más o menos la mitad de la pantalla de
+     cualquier equipo (celular, tablet, horizontal o vertical). Se descuenta
+     el espacio de los botones de arriba. dvh = alto real visible (sin la
+     barra del navegador); vh queda de respaldo para equipos antiguos. */
+  .kiosk-cam { object-fit: cover; height: max(200px, calc(50vh - 76px)); height: max(200px, calc(50dvh - 76px)); }
 </style>
 </head>
 <body class="min-h-screen flex items-center justify-center p-4 text-white">
@@ -52,7 +57,7 @@
       </div>
 
       <div id="facialBox">
-        <video id="video" autoplay muted playsinline class="w-full rounded-xl bg-black" style="height:28vh; object-fit:cover;"></video>
+        <video id="video" autoplay muted playsinline class="kiosk-cam w-full rounded-xl bg-black"></video>
         <div class="flex justify-end mt-2">
           <button id="startMarkBtn" onclick="startFacialAttempt()" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 font-semibold text-sm">
             <i class="fa-solid fa-camera"></i> Iniciar marcación
@@ -592,7 +597,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-voz1';
+const KIOSK_VERSION = '2026.10-camara1';
 let cameraState = 'desconocido';
 let batteryRef = null;
 async function detectCameraState() {
