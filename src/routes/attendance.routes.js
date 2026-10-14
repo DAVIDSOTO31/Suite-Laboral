@@ -1241,27 +1241,47 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(AUTO_UNJUST_F
 const AUTO_UNJUST_START = String((db.prepare('SELECT applied_at FROM app_migrations WHERE name = ?').get(AUTO_UNJUST_FEATURE) || {}).applied_at || '');
 const AUTO_UNJUST_HOURS = 24;
 const AUTO_UNJUST_NOTE = 'Marcada automáticamente como injustificada: nadie la gestionó en 24 horas.';
-const AUTO_UNJUST_TYPES = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'marcacion_manual', 'inasistencia', 'turno_sin_cerrar', 'etapa_extendida', 'entorno_diferente'];
+const AUTO_UNJUST_TYPES = ['llegada_tarde', 'exceso_almuerzo', 'marcacion_manual', 'inasistencia', 'turno_sin_cerrar', 'etapa_extendida', 'entorno_diferente'];
+// La SALIDA ANTICIPADA sin gestionar en 24 horas queda JUSTIFICADA (los
+// colaboradores suelen salir antes cuando hay poco flujo de trabajo y ya
+// terminaron sus tareas). Se puede cambiar a injustificada en Asistencia -> Alertas.
+const AUTO_JUST_TYPES = ['salida_anticipada'];
+const AUTO_JUST_NOTE = 'Marcada automáticamente como justificada: salida anticipada que nadie gestionó en 24 horas.';
+// Las salidas anticipadas que ya se habian marcado solas como injustificadas
+// (antes de este cambio) pasan a justificadas. Las gestionadas a mano no se tocan.
+const AUTO_JUST_FEATURE = 'alertas_salida_anticipada_auto_justificada_v1';
+if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(AUTO_JUST_FEATURE)) {
+  db.prepare(`UPDATE alert_management SET status = 'justificada', note = ?
+              WHERE auto_marked = 1 AND status = 'injustificada'
+                AND alert_id IN (SELECT id FROM attendance_alerts WHERE alert_type IN (${AUTO_JUST_TYPES.map(() => '?').join(',')}))`)
+    .run(AUTO_JUST_NOTE, ...AUTO_JUST_TYPES);
+  db.prepare("INSERT INTO app_migrations (name, applied_at) VALUES (?, datetime('now', '-5 hours'))").run(AUTO_JUST_FEATURE);
+}
 function autoMarkStaleAlerts(orgId) {
+  const unj = autoMarkStaleByStatus(orgId, AUTO_UNJUST_TYPES, 'injustificada', AUTO_UNJUST_NOTE, 'attendance.alerts_auto_unjustified');
+  const just = autoMarkStaleByStatus(orgId, AUTO_JUST_TYPES, 'justificada', AUTO_JUST_NOTE, 'attendance.alerts_auto_justified');
+  return unj + just;
+}
+function autoMarkStaleByStatus(orgId, types, status, note, auditAction) {
   const stale = db.prepare(`
     SELECT a.id, a.organization_id FROM attendance_alerts a
     LEFT JOIN alert_management m ON m.alert_id = a.id
     WHERE m.alert_id IS NULL
       AND (? IS NULL OR a.organization_id = ?)
-      AND a.alert_type IN (${AUTO_UNJUST_TYPES.map(() => '?').join(',')})
+      AND a.alert_type IN (${types.map(() => '?').join(',')})
       AND a.created_at >= ?
       AND a.created_at <= datetime('now', '-5 hours', ?)
-  `).all(orgId || null, orgId || null, ...AUTO_UNJUST_TYPES, AUTO_UNJUST_START, `-${AUTO_UNJUST_HOURS} hours`);
+  `).all(orgId || null, orgId || null, ...types, AUTO_UNJUST_START, `-${AUTO_UNJUST_HOURS} hours`);
   if (!stale.length) return 0;
   const ins = db.prepare(`INSERT OR IGNORE INTO alert_management (alert_id, organization_id, status, note, managed_by, managed_at, auto_marked)
-                          VALUES (?, ?, 'injustificada', ?, NULL, datetime('now', '-5 hours'), 1)`);
+                          VALUES (?, ?, ?, ?, NULL, datetime('now', '-5 hours'), 1)`);
   const perOrg = new Map();
   for (const s of stale) {
-    if (ins.run(s.id, s.organization_id, AUTO_UNJUST_NOTE).changes) perOrg.set(s.organization_id, (perOrg.get(s.organization_id) || 0) + 1);
+    if (ins.run(s.id, s.organization_id, status, note).changes) perOrg.set(s.organization_id, (perOrg.get(s.organization_id) || 0) + 1);
   }
   for (const [org, n] of perOrg) {
-    live.publishAttendance(org, 'auto_unjustified');
-    logAction({ organizationId: org, userId: null, action: 'attendance.alerts_auto_unjustified', resourceType: 'alert', metadata: { cantidad: n, horas: AUTO_UNJUST_HOURS } });
+    live.publishAttendance(org, status === 'justificada' ? 'auto_justified' : 'auto_unjustified');
+    logAction({ organizationId: org, userId: null, action: auditAction, resourceType: 'alert', metadata: { cantidad: n, horas: AUTO_UNJUST_HOURS } });
   }
   return stale.length;
 }
