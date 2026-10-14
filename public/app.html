@@ -3366,10 +3366,10 @@
         // -----------------------------------------------------------------
         // COPIAR TURNOS CON CLICK SOSTENIDO
         // Mantener presionado un turno ~0,5 s lo "levanta"; al arrastrarlo y
-        // soltarlo sobre otras celdas se copia allí (el original no cambia).
-        // En una misma fila se llena todo el tramo recorrido (ej. martes a
-        // viernes). No reemplaza vacaciones/incapacidad ni días después del
-        // retiro. Soltar fuera del cuadro o presionar Esc cancela.
+        // soltarlo sobre otra celda se copia SOLO en esa celda (el original no
+        // cambia; las celdas por las que pasa en el camino no se tocan).
+        // No reemplaza vacaciones/incapacidad ni días después del retiro.
+        // Soltar fuera del cuadro o presionar Esc cancela.
         // -----------------------------------------------------------------
         const RC_HOLD_MS = 450;
         let rcHold = null;     // { timer, x, y, td }
@@ -3457,13 +3457,12 @@
                 if (ok) rcDrag.targets = [td];
                 return;
             }
-            if (!rcDrag.anchorTd || rcDrag.anchorTd.parentElement !== td.parentElement) rcDrag.anchorTd = td; // otra fila: empieza tramo nuevo
-            const cells = [...td.parentElement.querySelectorAll('td[data-rc-emp]')];
-            const a = cells.indexOf(rcDrag.anchorTd), b = cells.indexOf(td);
-            const range = cells.slice(Math.min(a, b), Math.max(a, b) + 1).filter(c => c !== rcDrag.srcTd);
+            // El turno se copia en UNA sola celda: la que queda bajo el dedo/cursor al soltar.
             rcClearMarks();
-            rcDrag.targets = range;
-            range.forEach(c => c.classList.add(rcCanDrop(c) ? 'rc-drag-target' : 'rc-drag-blocked'));
+            rcDrag.targets = [];
+            if (td === rcDrag.srcTd) return;
+            rcDrag.targets = [td];
+            td.classList.add(rcCanDrop(td) ? 'rc-drag-target' : 'rc-drag-blocked');
         }
         function rcAutoScroll(y) {
             const edge = 70;
