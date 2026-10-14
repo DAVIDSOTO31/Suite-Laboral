@@ -9648,7 +9648,8 @@
             document.getElementById('mgmtAlertId').value = r.id;
             document.getElementById('mgmtSubtitle').textContent = `${r.employee_name} · ${String(r.shift_date || '').split('-').reverse().join('/')}`;
             document.getElementById('mgmtDetail').innerHTML = `${alertTypeBadge(r.alert_type)}
-                <span class="block mt-1">Programado: <strong>${r.scheduled_time || '-'}</strong> · Real: <strong>${r.actual_time || '-'}</strong> · ${alertDetailCell(r)}</span>`;
+                <span class="block mt-1">Programado: <strong>${r.scheduled_time || '-'}</strong> · Real: <strong>${r.actual_time || '-'}</strong> · ${alertDetailCell(r)}</span>
+                ${r.alert_type === 'entorno_diferente' ? '<span class="block mt-1.5 text-3xs text-emerald-700"><i class="fa-solid fa-lightbulb"></i> Si la justificas, el kiosco aprende este fondo como normal (por ejemplo, con la luz de la noche) y deja de alertar por él.</span>' : ''}`;
             const st = r.mgmt_status || 'pendiente';
             const preset = presetStatus || (st === 'pendiente' && !r.mgmt_note ? '' : st);
             document.querySelectorAll('input[name="mgmtStatus"]').forEach(i => { i.checked = i.value === preset; });
@@ -9700,9 +9701,12 @@
             const btn = document.getElementById('mgmtSaveBtn');
             btn.disabled = true;
             try {
-                await apiFetch(`/api/attendance/alerts/${encodeURIComponent(id)}/manage`, { method: 'POST', body: JSON.stringify(payload) });
+                const saved = await apiFetch(`/api/attendance/alerts/${encodeURIComponent(id)}/manage`, { method: 'POST', body: JSON.stringify(payload) });
                 closeModal('modalAlertMgmt');
                 showAppToast('Gestión guardada.');
+                if (saved && saved.envLearned) {
+                    showAppToast(`El kiosco aprendió este fondo como normal y no volverá a alertar por él.${saved.alsoJustified ? ` También se justificaron ${saved.alsoJustified} marcación(es) sospechosa(s) pendiente(s) con un fondo parecido.` : ''}`);
+                }
                 if (currentAttendanceSubTab === 'alerts') attendanceLoadAlerts();
                 if (currentAttendanceSubTab === 'novedades') attendanceLoadNovedades();
                 refreshAttAlertsBadge();

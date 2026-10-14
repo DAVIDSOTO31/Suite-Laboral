@@ -53,6 +53,10 @@ const devCols = db.prepare('PRAGMA table_info(attendance_devices)').all().map(c 
 if (!devCols.includes('env_refs')) db.exec('ALTER TABLE attendance_devices ADD COLUMN env_refs TEXT');
 if (!devCols.includes('env_learn_count')) db.exec('ALTER TABLE attendance_devices ADD COLUMN env_learn_count INTEGER NOT NULL DEFAULT 0');
 if (!devCols.includes('env_learn_days')) db.exec('ALTER TABLE attendance_devices ADD COLUMN env_learn_days TEXT');
+// Firma del fondo de cada marcacion: permite que el kiosco "aprenda" un fondo
+// cuando el administrador justifica una marcacion sospechosa (ej. de noche).
+const photoCols = db.prepare('PRAGMA table_info(mark_photos)').all().map(c => c.name);
+if (!photoCols.includes('env_sig')) db.exec('ALTER TABLE mark_photos ADD COLUMN env_sig TEXT');
 
 function getSettings(orgId) {
   const r = db.prepare('SELECT evidence_photo, evidence_env FROM org_settings WHERE organization_id = ?').get(orgId);
@@ -121,7 +125,11 @@ function evaluateEnv(device, sig, dayISO) {
   const addRef = st.learned ? (best != null && best > ENV_NEW_REF && best < ENV_ALERT * 0.6) : (best == null || best > ENV_NEW_REF);
   if (addRef) {
     refs.push({ s: { v: 1, m: sig.m, g: sig.g }, at: new Date().toISOString() });
-    while (refs.length > ENV_MAX_REFS) refs.splice(st.learned ? 0 : 1, 1); // conserva la primera referencia mientras aprende
+    while (refs.length > ENV_MAX_REFS) { // conserva la primera referencia mientras aprende y las aprobadas a mano
+      const from = st.learned ? 0 : 1;
+      const i = refs.findIndex((r, k) => k >= from && !r.approved);
+      refs.splice(i >= 0 ? i : from, 1);
+    }
   }
   const days = st.days.includes(dayISO) ? st.days : st.days.concat([dayISO]).slice(-10);
   const count = st.learned ? st.count : st.count + 1;
@@ -151,27 +159,58 @@ function decodePhoto(dataUrl) {
 // Nunca lanza: la evidencia jamas debe impedir una marcacion.
 function saveEvidence(ctx, evidence) {
   try {
-    if (!evidence || typeof evidence !== 'object' || !ctx.device) return { saved: false, env: null };
+    if (!evidence || typeof evidence !== 'object' || !ctx.device) return { saved: false, env: null, id: null };
     const orgId = ctx.device.organization_id;
     const cfg = getSettings(orgId);
     const photo = cfg.photo ? decodePhoto(evidence.photo) : null;
-    let env = null;
+    let env = null, envSig = null;
     if (cfg.env && validSignature(evidence.env)) {
+      envSig = JSON.stringify({ v: 1, m: evidence.env.m, g: evidence.env.g });
       const day = ctx.shiftDate || new Date().toISOString().slice(0, 10);
       env = evaluateEnv(ctx.device, evidence.env, day);
     }
-    if (!photo && !env) return { saved: false, env: null };
-    db.prepare(`INSERT INTO mark_photos (id, organization_id, device_id, employee_id, mark_id, offline_id, shift_date, mark_type, method, taken_at, mime, bytes, data, env_status, env_distance)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(uid('mph'), orgId, ctx.device.id, ctx.employeeId || null, ctx.markId || null, ctx.offlineId || null, ctx.shiftDate || null,
+    if (!photo && !env) return { saved: false, env: null, id: null };
+    const id = uid('mph');
+    db.prepare(`INSERT INTO mark_photos (id, organization_id, device_id, employee_id, mark_id, offline_id, shift_date, mark_type, method, taken_at, mime, bytes, data, env_status, env_distance, env_sig)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, orgId, ctx.device.id, ctx.employeeId || null, ctx.markId || null, ctx.offlineId || null, ctx.shiftDate || null,
         ctx.markType || null, ctx.method || null, ctx.takenAt || new Date().toISOString(),
         photo ? photo.mime : null, photo ? photo.buf.length : null, photo ? photo.buf : null,
-        env ? env.status : null, env && env.distance != null ? env.distance : null);
-    return { saved: !!photo, env };
+        env ? env.status : null, env && env.distance != null ? env.distance : null, envSig);
+    return { saved: !!photo, env, id };
   } catch (e) {
     console.error('[evidencia]', e.message);
-    return { saved: false, env: null };
+    return { saved: false, env: null, id: null };
   }
+}
+
+// El administrador confirmo que un fondo es normal (justifico una marcacion
+// sospechosa): se suma a lo aprendido por el dispositivo. Devuelve la firma
+// aprendida o null si esa marcacion no tiene firma guardada.
+function learnEnvFromEvidence(evidenceId) {
+  const row = db.prepare('SELECT device_id, env_sig FROM mark_photos WHERE id = ?').get(String(evidenceId || ''));
+  if (!row || !row.env_sig || !row.device_id) return null;
+  let sig; try { sig = JSON.parse(row.env_sig); } catch { return null; }
+  if (!validSignature(sig)) return null;
+  const device = db.prepare('SELECT * FROM attendance_devices WHERE id = ?').get(row.device_id);
+  if (!device) return null;
+  const st = deviceEnvState(device);
+  // Si ya hay una referencia casi igual, no hace falta otra.
+  if (!st.refs.some(r => { const d = envDistance(sig, r.s); return d != null && d <= ENV_NEW_REF; })) {
+    const refs = st.refs.concat([{ s: { v: 1, m: sig.m, g: sig.g }, at: new Date().toISOString(), approved: true }]);
+    // Al pasar del maximo se quita la referencia mas antigua que no haya sido aprobada a mano.
+    while (refs.length > ENV_MAX_REFS) {
+      const i = refs.findIndex(r => !r.approved);
+      refs.splice(i >= 0 ? i : 0, 1);
+    }
+    db.prepare('UPDATE attendance_devices SET env_refs = ? WHERE id = ?').run(JSON.stringify(refs), device.id);
+  }
+  return { deviceId: device.id, sig };
+}
+function evidenceSignature(evidenceId) {
+  const row = db.prepare('SELECT env_sig FROM mark_photos WHERE id = ?').get(String(evidenceId || ''));
+  if (!row || !row.env_sig) return null;
+  try { const s = JSON.parse(row.env_sig); return validSignature(s) ? s : null; } catch { return null; }
 }
 
 // Borra las fotos con mas de 30 dias (la marcacion se conserva).
@@ -183,4 +222,4 @@ const purgeTimer = setInterval(() => { try { purgeOldPhotos(); } catch (e) { con
 if (purgeTimer.unref) purgeTimer.unref();
 setTimeout(() => { try { purgeOldPhotos(); } catch { /* nada */ } }, 30 * 1000).unref?.();
 
-module.exports = { PHOTO_DAYS, getSettings, setSettings, saveEvidence, purgeOldPhotos, resetEnv, envStatusForDevice, envDistance, validSignature, ENV_ALERT };
+module.exports = { PHOTO_DAYS, getSettings, setSettings, saveEvidence, purgeOldPhotos, resetEnv, envStatusForDevice, envDistance, validSignature, ENV_ALERT, learnEnvFromEvidence, evidenceSignature };
