@@ -123,6 +123,8 @@ function describeAudit(row, ctx = {}) {
       `Reinició el aprendizaje del entorno del kiosco ${val(m.deviceName)}: volverá a aprender cómo se ve su lugar.`);
     case 'attendance.alerts_auto_unjustified': return out('Asistencia', 'Novedades injustificadas automáticamente',
       `La suite marcó como injustificada(s) ${m.cantidad || 0} novedad(es) que nadie gestionó en ${m.horas || 24} horas. Se pueden cambiar a justificada en Asistencia → Alertas.`, [], 'Sistema (automático)');
+    case 'attendance.alerts_auto_justified': return out('Asistencia', 'Salidas anticipadas justificadas automáticamente',
+      `La suite marcó como justificada(s) ${m.cantidad || 0} salida(s) anticipada(s) que nadie gestionó en ${m.horas || 24} horas. Se pueden cambiar a injustificada en Asistencia → Alertas.`, [], 'Sistema (automático)');
     case 'attendance.alert_managed': {
       const TIPO = { llegada_tarde: 'llegada tarde', exceso_almuerzo: 'exceso de almuerzo', salida_anticipada: 'salida anticipada', inasistencia: 'no se presentó', turno_sin_cerrar: 'turno sin cerrar', marcacion_manual: 'marcación manual', etapa_extendida: 'etapa extendida' , entorno_diferente: 'entorno diferente (marcación sospechosa)' };
       return out('Asistencia', 'Gestión de novedad',

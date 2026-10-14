@@ -9521,11 +9521,14 @@
                     ${r.mgmt_note ? `<span class="block text-3xs text-slate-500 max-w-[220px]">${escapeHtml(r.mgmt_note)}</span>` : ''}
                     ${editBtn}</div>`;
             }
-            // Injustificada automática (24 h sin gestión): se indica y se puede justificar con un clic.
-            const autoTag = (st === 'injustificada' && Number(r.mgmt_auto) === 1)
+            // Automática (24 h sin gestión): se indica y se puede cambiar con un clic.
+            // Injustificada -> "Justificar"; justificada (salida anticipada) -> "Injustificar".
+            const autoTag = (Number(r.mgmt_auto) === 1 && (st === 'injustificada' || st === 'justificada'))
                 ? `<div class="flex flex-wrap items-center gap-1 mt-0.5">
                         <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-3xs font-semibold" title="Nadie la gestionó en 24 horas"><i class="fa-solid fa-robot"></i> Automática (24 h)</span>
-                        <button type="button" onclick="openAlertMgmt('${r.id}', 'justificada')" class="inline-block px-2 py-0.5 rounded-full border border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-700 text-2xs font-bold">Justificar</button>
+                        ${st === 'injustificada'
+                            ? `<button type="button" onclick="openAlertMgmt('${r.id}', 'justificada')" class="inline-block px-2 py-0.5 rounded-full border border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-700 text-2xs font-bold">Justificar</button>`
+                            : `<button type="button" onclick="openAlertMgmt('${r.id}', 'injustificada')" class="inline-block px-2 py-0.5 rounded-full border border-rose-300 bg-white hover:bg-rose-50 text-rose-700 text-2xs font-bold">Injustificar</button>`}
                    </div>` : '';
             // Justificada / injustificada: el detalle (motivo, soporte, quién la revisó) se ve al hacer clic en el estado.
             return `<div class="space-y-0.5">
