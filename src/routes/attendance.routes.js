@@ -451,6 +451,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
     httpStatus: 200,
     body: {
       ok: true,
+      employeeId: Number(employee.id),
       employeeName: employee.name,
       markType,
       // Turno partido: la suite y el kiosco muestran "Inicio/Final Etapa 1/2"
@@ -955,6 +956,33 @@ function kioskLiveVersion(req, res) {
   const v = db.prepare('SELECT data_version FROM org_settings WHERE organization_id = ?').get(device.organization_id);
   const assigned = db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(employee_id), 0) AS s FROM attendance_device_employees WHERE device_id = ?').get(device.id);
   sendJson(res, 200, { v: `${v ? v.data_version : 0}.${live.getDataSeq(device.organization_id)}.${assigned.n}.${assigned.s}` });
+}
+
+// GET /api/kiosk/offline-cache -- lo que el kiosco necesita para CONFIRMAR una
+// marcacion sin internet (nombre y tipo de marcacion): los colaboradores
+// asignados a ESTE dispositivo, su siguiente marcacion de hoy y su plantilla
+// facial (128 numeros, nunca la foto). Al sincronizar, el servidor vuelve a
+// identificar a la persona: lo del kiosco solo sirve para mostrar y decir el
+// nombre mientras no hay conexion.
+function kioskOfflineCache(req, res) {
+  const device = authenticateDevice(req, res, false);
+  if (!device) return;
+  const orgId = device.organization_id;
+  const now = new Date();
+  const assigned = new Set(db.prepare('SELECT employee_id FROM attendance_device_employees WHERE device_id = ?').all(device.id).map(r => r.employee_id));
+  const employees = db.prepare("SELECT id, name FROM employees WHERE organization_id = ? AND COALESCE(status, 'activo') != 'retirado'").all(orgId).filter(e => assigned.has(e.id));
+  const faces = new Map(db.prepare('SELECT employee_id, descriptor_json FROM employee_face_profiles WHERE organization_id = ? AND active = 1').all(orgId)
+    .map(r => { try { return [r.employee_id, JSON.parse(r.descriptor_json)]; } catch { return [r.employee_id, null]; } }));
+  const lookup = todayShiftLookup(orgId, now);
+  const out = employees.map(emp => {
+    const shiftDateISO = resolveShiftDateForMark(orgId, emp.id, now, lookup);
+    const shift = lookup(orgId, emp.id, shiftDateISO);
+    const hasShift = !!(shift && !shift.isOffDay);
+    const nextMark = hasShift ? rules.nextExpectedMarkType(getExistingMarkTypes(emp.id, shiftDateISO)) : null;
+    const d = faces.get(emp.id);
+    return { id: emp.id, name: emp.name, descriptor: validDescriptor(d) ? d.map(v => Math.round(v * 1e5) / 1e5) : null, hasShift, nextMark, isSplit: !!(shift && shift.isSplit), shiftDate: shiftDateISO };
+  });
+  sendJson(res, 200, { generatedAt: now.toISOString(), today: bogota.todayISOInBogota(now), threshold: FACE_MATCH_THRESHOLD, employees: out });
 }
 
 // GET /api/kiosk/employees-today
@@ -2448,7 +2476,7 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(HOURS_ENGINE_
 }
 
 module.exports = {
-  kioskLiveVersion,
+  kioskLiveVersion, kioskOfflineCache,
   listMarkEvidence, getMarkEvidencePhoto, getEvidenceSettings, saveEvidenceSettings, resetDeviceEnv,
   getIndicatorGoalsRoute, saveIndicatorGoals,
   recalculateFinalizedDays,

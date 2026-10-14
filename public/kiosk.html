@@ -207,22 +207,111 @@ if (hasSpeech) {
 
 function getToken() { return localStorage.getItem('kioskDeviceToken'); }
 
+// Cada consulta al servidor tiene un TIEMPO LÍMITE: si el wifi sigue conectado
+// pero no hay internet real, el kiosco no se queda esperando para siempre;
+// pasa solo a "sin conexión" y guarda la marcación en el equipo.
+let serverDownAt = 0; // última vez que el servidor no respondió (0 = respondiendo)
+function likelyOffline() { return !navigator.onLine || (serverDownAt && Date.now() - serverDownAt < 30000); }
 async function apiKiosk(path, opts = {}) {
+  const { timeoutMs = 12000, ...fetchOpts } = opts;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let res;
   try {
     res = await fetch(path, {
-      ...opts,
-      headers: { 'Content-Type': 'application/json', 'X-Device-Token': getToken(), ...(opts.headers || {}) },
+      ...fetchOpts,
+      signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json', 'X-Device-Token': getToken(), ...(fetchOpts.headers || {}) },
     });
   } catch (e) {
-    // Sin internet o servidor inalcanzable (en iPad/iPhone sale como "Load failed").
+    // Sin internet, servidor inalcanzable o sin respuesta a tiempo (en iPad/iPhone sale como "Load failed").
+    clearTimeout(timer);
+    serverDownAt = Date.now();
+    setConnStatus(false, navigator.onLine ? 'Sin conexión con el servidor' : 'Sin internet');
+    scheduleQuickHeartbeat();
     const err = new Error('Sin conexión con el servidor.');
     err.network = true;
     throw err;
   }
+  clearTimeout(timer);
+  if (serverDownAt) { serverDownAt = 0; setConnStatus(true, 'En línea'); setTimeout(() => { loadOfflineCache(); if (offlineQueue().length) syncOfflineQueue(); }, 500); }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Error de conexión con el servidor.');
   return data;
+}
+// Mientras no hay conexión, se revisa cada 15 s (en vez de cada minuto) para
+// volver a "En línea" apenas regrese el internet.
+let quickBeatTimer = null;
+function scheduleQuickHeartbeat() {
+  if (quickBeatTimer) return;
+  quickBeatTimer = setTimeout(() => { quickBeatTimer = null; if (typeof sendHeartbeat === 'function') sendHeartbeat(); }, 15000);
+}
+
+// ---- Confirmación SIN internet: copia local de los colaboradores de este
+// kiosco (nombre, siguiente marcación de hoy y plantilla facial de 128 números,
+// nunca fotos). Con ella el kiosco reconoce y dice el nombre y el tipo de
+// marcación aunque no haya conexión. Al sincronizar, el servidor vuelve a
+// identificar a la persona (la copia local solo sirve para confirmar).
+const MARK_ORDER = ['entrada', 'inicio_almuerzo', 'fin_almuerzo', 'salida'];
+function bogotaTodayKiosk() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date()); }
+function getOfflineCache() { try { return JSON.parse(localStorage.getItem('kioskOfflineCache') || 'null'); } catch (e) { return null; } }
+function saveOfflineCache(c) { try { localStorage.setItem('kioskOfflineCache', JSON.stringify(c)); } catch (e) { /* sin espacio */ } }
+async function loadOfflineCache() {
+  if (!getToken()) return;
+  try {
+    const c = await apiKiosk('/api/kiosk/offline-cache', { timeoutMs: 15000 });
+    c.savedAt = Date.now();
+    saveOfflineCache(c);
+  } catch (e) { /* sin conexión: se usa la copia anterior */ }
+}
+function cachedEmployee(empId) {
+  const c = getOfflineCache();
+  return c && Array.isArray(c.employees) ? c.employees.find(e => Number(e.id) === Number(empId)) || null : null;
+}
+// Siguiente marcación de esa persona según la copia local (solo si es de hoy).
+function cachedNextMark(empId) {
+  const c = getOfflineCache();
+  const e = cachedEmployee(empId);
+  if (!c || !e || !e.hasShift) return null;
+  if (c.today !== bogotaTodayKiosk() || Date.now() - (c.savedAt || 0) > 16 * 3600 * 1000) return null;
+  return e.nextMark || null;
+}
+// Después de cada marcación (con o sin internet) se adelanta la siguiente.
+function advanceCachedMark(empId, markType) {
+  const c = getOfflineCache();
+  if (!c || !Array.isArray(c.employees)) return;
+  const e = c.employees.find(x => Number(x.id) === Number(empId));
+  if (!e || !markType) return;
+  const i = MARK_ORDER.indexOf(markType);
+  e.nextMark = i >= 0 && i < MARK_ORDER.length - 1 ? MARK_ORDER[i + 1] : null;
+  saveOfflineCache(c);
+}
+// Misma persona marcando otra vez en menos de 3 minutos sin conexión: el
+// servidor la tomaría como duplicada, así que se avisa y no se guarda de nuevo.
+function recentOfflineMark(empId) {
+  const q = offlineQueue();
+  const now = Date.now();
+  return q.some(x => Number(x.localEmpId) === Number(empId) && now - Date.parse(x.capturedAt) < 3 * 60 * 1000);
+}
+function renderAlreadyMarked(name) {
+  const box = document.getElementById('resultBox');
+  box.className = 'mt-4 bg-slate-800 border-2 border-amber-500 rounded-xl p-4';
+  box.innerHTML = `<p class="font-bold text-lg">${escapeHtml(name)}</p><p class="text-amber-300 font-bold">Ya registraste una marcación hace un momento.</p><p class="text-xs text-slate-300 mt-1">Quedó guardada en este equipo; no hace falta marcar de nuevo.</p>`;
+  box.classList.remove('hidden');
+  speakText(`${spokenName(name)}. Ya registraste una marcación.`);
+}
+function euclid(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += (a[i] - b[i]) ** 2; return Math.sqrt(s); }
+function matchFaceLocally(descriptor) {
+  const c = getOfflineCache();
+  if (!c || !Array.isArray(c.employees)) return null;
+  const limit = Number(c.threshold) || 0.5;
+  let best = null;
+  for (const e of c.employees) {
+    if (!Array.isArray(e.descriptor) || e.descriptor.length !== descriptor.length) continue;
+    const d = euclid(descriptor, e.descriptor);
+    if (!best || d < best.d) best = { e, d };
+  }
+  return best && best.d <= limit ? best.e : null;
 }
 
 async function saveDeviceToken() {
@@ -245,6 +334,7 @@ function resetDevice() {
   if (!confirm('¿Quitar el token de este dispositivo? Tendrás que volver a configurarlo.')) return;
   stopCameraStream(document.getElementById('video'));
   localStorage.removeItem('kioskDeviceToken');
+  localStorage.removeItem('kioskOfflineCache');
   location.reload();
 }
 
@@ -481,9 +571,10 @@ async function runSingleFaceAttempt() {
 
 async function submitFaceMark(descriptor, evidence) {
   const statusEl = document.getElementById('faceStatus');
-  if (!navigator.onLine) { saveOfflineFace(descriptor, evidence); return; }
+  if (likelyOffline()) { saveOfflineFace(descriptor, evidence); return; }
   try {
-    const r = await apiKiosk('/api/kiosk/mark-by-face', { method: 'POST', body: JSON.stringify({ descriptor, evidence }) });
+    const r = await apiKiosk('/api/kiosk/mark-by-face', { method: 'POST', timeoutMs: 7000, body: JSON.stringify({ descriptor, evidence }) });
+    if (r && r.employeeId) advanceCachedMark(r.employeeId, r.markType);
     renderResult(r);
     speakConfirmation(r);
     statusEl.textContent = 'Listo. Presiona "Iniciar marcación" para el siguiente colaborador.';
@@ -493,21 +584,43 @@ async function submitFaceMark(descriptor, evidence) {
   }
 }
 function saveOfflineFace(descriptor, evidence) {
+  // Se reconoce con la copia local para confirmar nombre y tipo de marcación.
+  const who = matchFaceLocally(descriptor);
+  if (who && recentOfflineMark(who.id)) { renderAlreadyMarked(who.name); document.getElementById('faceStatus').textContent = 'Listo. Presiona "Iniciar marcación" para el siguiente colaborador.'; return; }
   const ev = evidenceForQueue(evidence);
-  enqueueOffline({ kind: 'face', descriptor, ...(ev ? { evidence: ev } : {}) });
-  renderOfflineResult(null);
-  speakText('Marcación guardada.');
+  enqueueOffline({ kind: 'face', descriptor, ...(who ? { localEmpId: who.id } : {}), ...(ev ? { evidence: ev } : {}) });
+  if (who) {
+    const mt = cachedNextMark(who.id);
+    renderOfflineResult(who.name, mt, who.isSplit, who.hasShift);
+    speakOfflineConfirmation(who.name, mt, who.isSplit);
+    if (mt) advanceCachedMark(who.id, mt);
+  } else {
+    renderOfflineResult(null);
+    speakText('Marcación guardada.');
+  }
   document.getElementById('faceStatus').textContent = 'Listo. Presiona "Iniciar marcación" para el siguiente colaborador.';
 }
 
-function renderOfflineResult(name) {
+function renderOfflineResult(name, markType, isSplit, hasShift) {
   const box = document.getElementById('resultBox');
-  box.className = 'mt-4 bg-amber-900/40 border border-amber-600 rounded-xl p-4';
-  box.innerHTML = `
-    <p class="text-amber-300 font-extrabold text-lg"><i class="fa-solid fa-wifi"></i> Sin conexión</p>
-    ${name ? `<p class="font-bold">${escapeHtml(name)}</p>` : ''}
-    <p class="text-sm text-amber-100">Tu marcación quedó <strong>guardada en este equipo</strong> a las <strong>${new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</strong> y se enviará automáticamente cuando vuelva el internet, con esta misma hora.</p>`;
+  const time = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+  const label = markType ? markLabel(markType, isSplit) : null;
+  box.className = 'mt-4 bg-slate-800 border-2 border-amber-500 rounded-xl p-4';
+  box.innerHTML = name ? `
+    <p class="font-bold text-lg">${escapeHtml(name)}</p>
+    ${label ? `<p class="text-sky-400 font-extrabold text-2xl">${escapeHtml(label)}</p>` : '<p class="text-sky-400 font-extrabold text-xl">Marcación guardada</p>'}
+    <p class="text-sm text-slate-300">Hora: <strong>${time}</strong></p>
+    ${hasShift === false ? '<p class="text-xs text-amber-300 mt-1">No tiene turno asignado hoy: el administrador la revisará.</p>' : ''}
+    <p class="text-xs text-amber-300 mt-2"><i class="fa-solid fa-wifi"></i> Sin conexión: quedó guardada en este equipo y se enviará sola al volver el internet, con esta misma hora.</p>`
+  : `
+    <p class="text-amber-300 font-extrabold text-lg"><i class="fa-solid fa-wifi"></i> Sin conexión — marcación guardada</p>
+    <p class="text-sm text-amber-100">Hora: <strong>${time}</strong>. Sin internet no fue posible confirmar tu nombre en este equipo; se verificará al volver la conexión. Si no estás registrado con rostro, usa <strong>Selección manual</strong>.</p>`;
   box.classList.remove('hidden');
+}
+function speakOfflineConfirmation(name, markType, isSplit) {
+  const label = markType ? markLabel(markType, isSplit) : null;
+  const fem = label && /^(entrada|salida)$/i.test(label);
+  speakText(label ? `${spokenName(name)}. ${label} ${fem ? 'guardada' : 'guardado'}.` : `${spokenName(name)}. Marcación guardada.`);
 }
 function renderResult(r) {
   const box = document.getElementById('resultBox');
@@ -567,16 +680,22 @@ async function doManualMark() {
   const evidence = await captureManualEvidence();
   if (markBtn) { markBtn.disabled = false; markBtn.classList.remove('opacity-50'); }
   const saveOfflineManual = () => {
-    const name = (sel.selectedOptions[0]?.textContent || '').split(' — ')[0];
+    const empId = Number(sel.value);
+    const cached = cachedEmployee(empId);
+    const name = cached ? cached.name : (sel.selectedOptions[0]?.textContent || '').split(' — ')[0];
+    if (recentOfflineMark(empId)) { renderAlreadyMarked(name); return; }
     const ev = evidenceForQueue(evidence);
-    enqueueOffline({ kind: 'manual', employeeId: Number(sel.value), employeeName: name, reason, ...(ev ? { evidence: ev } : {}) });
+    enqueueOffline({ kind: 'manual', employeeId: empId, localEmpId: empId, employeeName: name, reason, ...(ev ? { evidence: ev } : {}) });
     reasonEl.value = '';
-    renderOfflineResult(name);
-    speakText(`${spokenName(name)}. Marcación guardada.`);
+    const mt = cachedNextMark(empId);
+    renderOfflineResult(name, mt, cached && cached.isSplit, cached ? cached.hasShift : true);
+    speakOfflineConfirmation(name, mt, cached && cached.isSplit);
+    if (mt) advanceCachedMark(empId, mt);
   };
-  if (!navigator.onLine) { saveOfflineManual(); return; }
+  if (likelyOffline()) { saveOfflineManual(); return; }
   try {
-    const r = await apiKiosk('/api/kiosk/mark', { method: 'POST', body: JSON.stringify({ employeeId: Number(sel.value), reason, evidence }) });
+    const r = await apiKiosk('/api/kiosk/mark', { method: 'POST', timeoutMs: 7000, body: JSON.stringify({ employeeId: Number(sel.value), reason, evidence }) });
+    if (r && r.employeeId) advanceCachedMark(r.employeeId, r.markType);
     reasonEl.value = '';
     renderResult(r);
     loadEmployeesForManual();
@@ -597,7 +716,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-camara1';
+const KIOSK_VERSION = '2026.10-offline2';
 let cameraState = 'desconocido';
 let batteryRef = null;
 async function detectCameraState() {
@@ -628,7 +747,7 @@ async function checkKioskLive() {
   if (!getToken() || document.visibilityState !== 'visible' || !navigator.onLine) return;
   try {
     const r = await apiKiosk('/api/kiosk/live');
-    if (kioskLiveVersion !== null && r.v !== kioskLiveVersion && mode === 'manual') loadEmployeesForManual(true);
+    if (kioskLiveVersion !== null && r.v !== kioskLiveVersion) { loadOfflineCache(); if (mode === 'manual') loadEmployeesForManual(true); }
     kioskLiveVersion = r.v;
   } catch (e) { /* sin conexión: se revisa en la siguiente vuelta */ }
 }
@@ -697,7 +816,7 @@ async function syncOfflineQueue() {
   syncing = true;
   try {
     const batch = q.slice(0, 50);
-    const r = await apiKiosk('/api/kiosk/sync', { method: 'POST', body: JSON.stringify({ deviceNow: new Date().toISOString(), items: batch.map(({ employeeName, ...x }) => x) }) });
+    const r = await apiKiosk('/api/kiosk/sync', { method: 'POST', body: JSON.stringify({ deviceNow: new Date().toISOString(), items: batch.map(({ employeeName, localEmpId, ...x }) => x) }) });
     const done = new Set((r.results || []).map(x => x.clientId)); // el servidor ya guardó el resultado de cada una
     saveQueue(offlineQueue().filter(x => !done.has(x.clientId)));
     const ok = (r.results || []).filter(x => x.status === 'aplicada').length;
@@ -723,7 +842,7 @@ if (getToken()) {
   detectCameraState().finally(sendHeartbeat);
   setInterval(sendHeartbeat, 60 * 1000);
   window.addEventListener('online', sendHeartbeat);
-  window.addEventListener('offline', () => setConnStatus(false, 'Sin internet'));
+  window.addEventListener('offline', () => { serverDownAt = Date.now(); setConnStatus(false, 'Sin internet'); });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepScreenOn(); sendHeartbeat(); } });
   keepScreenOn();
   updatePendingLabel();
@@ -801,6 +920,9 @@ if ('serviceWorker' in navigator) {
 
 // Al usar /kiosk.html, se muestra el nombre del dispositivo si ya hay token
 if (getToken()) {
+  // Copia para confirmar marcaciones sin internet: al abrir y cada 10 minutos.
+  loadOfflineCache();
+  setInterval(() => { if (navigator.onLine) loadOfflineCache(); }, 10 * 60 * 1000);
   apiKiosk('/api/kiosk/employees-today').then(d => {
     document.getElementById('deviceNameLabel').textContent = d.deviceName;
     rememberEvidenceSettings(d.evidence);

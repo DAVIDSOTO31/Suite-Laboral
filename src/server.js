@@ -209,6 +209,7 @@ route('POST', '/api/kiosk/mark-by-face', [], (req, res) => attendance.kioskMarkB
 route('POST', '/api/kiosk/heartbeat', [], (req, res) => attendance.kioskHeartbeat(req, res), { auth: false });
 route('POST', '/api/kiosk/sync', [], (req, res) => attendance.kioskSync(req, res), { auth: false });
 route('GET', '/api/kiosk/live', [], (req, res) => attendance.kioskLiveVersion(req, res), { auth: false });
+route('GET', '/api/kiosk/offline-cache', [], (req, res) => attendance.kioskOfflineCache(req, res), { auth: false });
 
 // ---- Actualizacion en vivo (Server-Sent Events) para la suite ----
 route('GET', '/api/org/live', [], (req, res) => {
