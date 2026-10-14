@@ -129,6 +129,10 @@
         .ind-insight.warn { background: #fffbeb; border-left-color: #f59e0b; color: #78350f; }
         .ind-insight.bad { background: #fff1f2; border-left-color: #e11d48; color: #881337; }
         .ind-insight strong { font-weight: 700; }
+        /* Registro de rostro (Biometría): ventana pegada arriba y cámara lo más grande posible
+           dejando ver debajo el botón de capturar y la autorización. */
+        .enroll-panel { max-height: 100vh; max-height: 100dvh; border-radius: 0 0 14px 14px; }
+        .enroll-cam { object-fit: cover; height: max(240px, calc(100vh - 290px)); height: max(240px, calc(100dvh - 290px)); }
         /* Saludo de bienvenida: franja delgada, solo en el primer módulo que se abre. */
         .welcome-banner { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 14px; border-radius: 12px;
             background: linear-gradient(90deg, #0f2a4a 0%, #1e4f7a 100%); color: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.12); }
@@ -1178,19 +1182,34 @@
                     </div>
                 </div>
 
-                <!-- Modal de enrolamiento facial -->
-                <div id="attEnrollModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
-                    <div class="bg-white rounded-xl p-5 w-full max-w-md">
-                        <h3 class="font-bold text-slate-800 mb-2">Registrar rostro — <span id="attEnrollEmployeeName"></span></h3>
-                        <label class="flex items-start gap-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3">
-                            <input type="checkbox" id="attEnrollConsent" class="mt-0.5">
-                            <span>El colaborador autoriza expresamente el uso de su rostro (dato biométrico) para fines de control de asistencia laboral, conforme a la Ley 1581 de 2012 de protección de datos personales (Habeas Data). También autoriza que, si la empresa lo activa, el kiosco tome una foto de evidencia en cada marcación, que se conserva 30 días y luego se elimina automáticamente.</span>
-                        </label>
-                        <video id="attEnrollVideo" autoplay muted playsinline class="w-full rounded-lg bg-slate-900 mb-2" style="max-height:260px; object-fit:cover;"></video>
-                        <p id="attEnrollStatus" class="text-center text-xs font-semibold text-slate-600 mb-3">Marca la casilla para activar la cámara.</p>
-                        <div class="flex justify-end gap-2">
-                            <button onclick="attendanceCloseEnrollModal()" class="px-3 py-2 rounded-lg bg-slate-100 text-sm">Cancelar</button>
-                            <button id="attEnrollCaptureBtn" onclick="attendanceCaptureEnroll()" disabled class="px-3 py-2 rounded-lg bg-sky-600 disabled:opacity-40 text-white text-sm font-semibold">Capturar rostro</button>
+                <!-- Modal de enrolamiento facial: la cámara va arriba (lo más cerca posible a la
+                     cámara frontal del equipo) y lo más grande posible; la autorización va abajo. -->
+                <div id="attEnrollModal" class="fixed inset-0 bg-black/60 hidden items-start justify-center z-50">
+                    <div class="enroll-panel bg-white w-full max-w-2xl flex flex-col overflow-y-auto">
+                        <div class="relative bg-slate-900">
+                            <video id="attEnrollVideo" autoplay muted playsinline class="enroll-cam w-full bg-slate-900"></video>
+                            <div id="attEnrollCamHint" class="absolute inset-0 flex items-center justify-center text-center px-6 text-slate-300 text-sm font-semibold pointer-events-none">
+                                <span><i class="fa-solid fa-camera text-2xl block mb-2"></i>Marca la autorización de abajo para encender la cámara.</span>
+                            </div>
+                            <button type="button" id="attEnrollSwitchBtn" onclick="attendanceSwitchEnrollCamera()" class="hidden absolute top-3 right-3 px-3 py-2 rounded-full bg-black/60 hover:bg-black/75 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg">
+                                <i class="fa-solid fa-camera-rotate"></i> <span id="attEnrollSwitchLabel">Cámara trasera</span>
+                            </button>
+                            <span id="attEnrollCamLabel" class="hidden absolute top-3 left-3 px-2 py-1 rounded-full bg-black/60 text-white text-3xs font-semibold"></span>
+                        </div>
+                        <div class="p-4 space-y-3">
+                            <div class="flex items-center justify-between gap-2">
+                                <h3 class="font-bold text-slate-800 text-sm">Registrar rostro — <span id="attEnrollEmployeeName"></span></h3>
+                                <button onclick="attendanceCloseEnrollModal()" class="text-slate-400 hover:text-slate-600" aria-label="Cerrar"><i class="fa-solid fa-xmark text-lg"></i></button>
+                            </div>
+                            <p id="attEnrollStatus" class="text-center text-sm font-semibold text-slate-700">Marca la casilla para activar la cámara.</p>
+                            <div class="flex justify-end gap-2">
+                                <button onclick="attendanceCloseEnrollModal()" class="px-3 py-2 rounded-lg bg-slate-100 text-sm">Cancelar</button>
+                                <button id="attEnrollCaptureBtn" onclick="attendanceCaptureEnroll()" disabled class="flex-1 sm:flex-none px-4 py-2.5 rounded-lg bg-sky-600 disabled:opacity-40 text-white text-sm font-semibold">Capturar rostro</button>
+                            </div>
+                            <label class="flex items-start gap-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                                <input type="checkbox" id="attEnrollConsent" class="mt-0.5 w-4 h-4">
+                                <span>El colaborador autoriza expresamente el uso de su rostro (dato biométrico) para fines de control de asistencia laboral, conforme a la Ley 1581 de 2012 de protección de datos personales (Habeas Data). También autoriza que, si la empresa lo activa, el kiosco tome una foto de evidencia en cada marcación, que se conserva 30 días y luego se elimina automáticamente.</span>
+                            </label>
                         </div>
                     </div>
                 </div>
@@ -9132,8 +9151,8 @@
             ]);
             faceModelsLoaded = true;
         }
-        async function startCameraOn(videoEl) {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+        async function startCameraOn(videoEl, facing = 'user') {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false });
             videoEl.srcObject = stream;
             await new Promise(resolve => { videoEl.onloadedmetadata = resolve; });
             return stream;
@@ -10608,11 +10627,56 @@
             document.getElementById('attEnrollConsent').checked = false;
             document.getElementById('attEnrollCaptureBtn').disabled = true;
             document.getElementById('attEnrollStatus').textContent = 'Marca la casilla para activar la cámara.';
+            attendanceEnrollCamUI(false);
+            document.getElementById('attEnrollSwitchBtn').classList.add('hidden');
             document.getElementById('attEnrollModal').classList.remove('hidden');
             document.getElementById('attEnrollModal').classList.add('flex');
             document.getElementById('attEnrollConsent').onchange = attendanceOnConsentToggle;
         }
 
+        // Cámara del registro: frontal (por defecto) o trasera. Se recuerda en este equipo.
+        // Solo cambia QUÉ cámara toma la imagen: lo que se guarda es la misma "huella"
+        // matemática del rostro, así que el kiosco lo reconoce igual.
+        let attEnrollFacing = (() => { try { return localStorage.getItem('enrollCameraFacing') === 'environment' ? 'environment' : 'user'; } catch (e) { return 'user'; } })();
+        function attendanceEnrollCamUI(on) {
+            const isRear = attEnrollFacing === 'environment';
+            document.getElementById('attEnrollCamHint').classList.toggle('hidden', !!on);
+            const lbl = document.getElementById('attEnrollCamLabel');
+            lbl.textContent = isRear ? 'Cámara trasera' : 'Cámara frontal';
+            lbl.classList.toggle('hidden', !on);
+            document.getElementById('attEnrollSwitchLabel').textContent = isRear ? 'Usar cámara frontal' : 'Usar cámara trasera';
+            // La vista de la cámara frontal se muestra como espejo (más natural para quien se mira).
+            document.getElementById('attEnrollVideo').style.transform = on && !isRear ? 'scaleX(-1)' : '';
+        }
+        async function attendanceEnrollHasTwoCameras() {
+            try { return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput').length > 1; } catch (e) { return false; }
+        }
+        async function attendanceStartEnrollCamera() {
+            const statusEl = document.getElementById('attEnrollStatus');
+            const video = document.getElementById('attEnrollVideo');
+            stopCameraStream(video);
+            statusEl.textContent = 'Iniciando cámara…';
+            try {
+                await startCameraOn(video, attEnrollFacing);
+            } catch (err) {
+                // Si el equipo no tiene esa cámara, se usa la otra.
+                if (attEnrollFacing === 'environment') { attEnrollFacing = 'user'; await startCameraOn(video, 'user'); }
+                else throw err;
+            }
+            attendanceEnrollCamUI(true);
+            document.getElementById('attEnrollSwitchBtn').classList.toggle('hidden', !(await attendanceEnrollHasTwoCameras()));
+            statusEl.textContent = attEnrollFacing === 'environment'
+                ? 'Apunta la cámara al rostro del colaborador y presiona "Capturar rostro".'
+                : 'Mira a la cámara y presiona "Capturar rostro".';
+        }
+        async function attendanceSwitchEnrollCamera() {
+            attEnrollFacing = attEnrollFacing === 'user' ? 'environment' : 'user';
+            try { localStorage.setItem('enrollCameraFacing', attEnrollFacing); } catch (e) { /* nada */ }
+            const btn = document.getElementById('attEnrollCaptureBtn');
+            btn.disabled = true;
+            try { await attendanceStartEnrollCamera(); btn.disabled = false; }
+            catch (err) { document.getElementById('attEnrollStatus').textContent = 'No se pudo cambiar de cámara: ' + err.message; }
+        }
         async function attendanceOnConsentToggle(e) {
             const statusEl = document.getElementById('attEnrollStatus');
             const video = document.getElementById('attEnrollVideo');
@@ -10620,16 +10684,17 @@
                 try {
                     statusEl.textContent = 'Cargando modelo de reconocimiento…';
                     await ensureFaceModelsLoaded();
-                    statusEl.textContent = 'Iniciando cámara…';
-                    await startCameraOn(video);
-                    statusEl.textContent = 'Mira a la cámara y presiona "Capturar rostro".';
+                    await attendanceStartEnrollCamera();
                     document.getElementById('attEnrollCaptureBtn').disabled = false;
                 } catch (err) {
                     statusEl.textContent = 'No se pudo activar la cámara/modelo: ' + err.message;
                     e.target.checked = false;
+                    attendanceEnrollCamUI(false);
                 }
             } else {
                 stopCameraStream(video);
+                attendanceEnrollCamUI(false);
+                document.getElementById('attEnrollSwitchBtn').classList.add('hidden');
                 document.getElementById('attEnrollCaptureBtn').disabled = true;
                 statusEl.textContent = 'Marca la casilla para activar la cámara.';
             }
