@@ -943,6 +943,7 @@ function applyMarkEvidence(device, result, method, evidence, extra = {}) {
     try {
       insertAlert(device.organization_id, extra.employeeId, b.shiftDate, 'entorno_diferente', null, b.actualTime, null, {
         employeeName: b.employeeName, markType: b.markType, dispositivo: device.device_name, distancia: ev.env.distance, metodo: method,
+        deviceId: device.id, evidenceId: ev.id || null,
       });
     } catch (e) { console.error('[entorno]', e.message); }
   }
@@ -1539,6 +1540,14 @@ async function manageAlert(req, res, params) {
       managed_by = excluded.managed_by, managed_at = excluded.managed_at, auto_marked = 0
   `).run(alert.id, orgId, status, category, note || null, attName, attType, attData, req.user.id);
 
+  // Marcacion sospechosa justificada: el kiosco aprende ese fondo como normal
+  // (ej. la luz de la noche) y las demas sospechosas pendientes de ese kiosco
+  // con un fondo parecido quedan justificadas tambien.
+  let learned = null;
+  if (status === 'justificada' && alert.alert_type === 'entorno_diferente') {
+    try { learned = learnSuspiciousBackground(orgId, alert, req.user.id); } catch (e) { console.error('[entorno]', e.message); }
+  }
+
   logAction({
     organizationId: orgId, userId: req.user.id, action: 'attendance.alert_managed',
     resourceType: 'employee', resourceId: String(alert.employee_id), ip: getClientIp(req),
@@ -1548,7 +1557,36 @@ async function manageAlert(req, res, params) {
       categoria: category, nota: note || null, soporte: attName || null,
     },
   });
-  sendJson(res, 200, { ok: true, status, hasAttachment: !!attData });
+  sendJson(res, 200, { ok: true, status, hasAttachment: !!attData, ...(learned ? { envLearned: learned.learned, alsoJustified: learned.alsoJustified } : {}) });
+}
+
+// Aprende el fondo de una marcacion sospechosa justificada y justifica las
+// demas sospechosas PENDIENTES del mismo kiosco cuyo fondo se parezca.
+function learnSuspiciousBackground(orgId, alert, userId) {
+  let meta = {};
+  try { meta = JSON.parse(alert.metadata_json || '{}') || {}; } catch { meta = {}; }
+  if (!meta.evidenceId) return { learned: false, alsoJustified: 0 };
+  const r = evidenceLib.learnEnvFromEvidence(meta.evidenceId);
+  if (!r) return { learned: false, alsoJustified: 0 };
+  const pending = db.prepare(`
+    SELECT a.id, a.metadata_json FROM attendance_alerts a
+    LEFT JOIN alert_management m ON m.alert_id = a.id
+    WHERE a.organization_id = ? AND a.alert_type = 'entorno_diferente' AND a.id <> ? AND m.alert_id IS NULL
+  `).all(orgId, alert.id);
+  const ins = db.prepare(`INSERT OR IGNORE INTO alert_management (alert_id, organization_id, status, note, managed_by, managed_at, auto_marked)
+                          VALUES (?, ?, 'justificada', ?, ?, datetime('now', '-5 hours'), 0)`);
+  const note = 'Justificada al aprender el fondo del kiosco: se parece al de otra marcación sospechosa que se justificó.';
+  let n = 0;
+  for (const p of pending) {
+    let m = {}; try { m = JSON.parse(p.metadata_json || '{}') || {}; } catch { continue; }
+    if (m.deviceId !== r.deviceId || !m.evidenceId) continue;
+    const sig = evidenceLib.evidenceSignature(m.evidenceId);
+    if (!sig) continue;
+    const d = evidenceLib.envDistance(sig, r.sig);
+    if (d != null && d <= evidenceLib.ENV_ALERT) n += ins.run(p.id, orgId, note, userId).changes;
+  }
+  if (n) live.publishAttendance(orgId, 'env_learned');
+  return { learned: true, alsoJustified: n };
 }
 
 // GET /api/attendance/alerts/:id/attachment -- descarga el soporte adjunto.
