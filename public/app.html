@@ -1049,9 +1049,14 @@
                     <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                         <div class="flex items-center justify-between mb-1">
                             <h3 class="font-bold text-slate-800 text-base">Dispositivos autorizados para marcar</h3>
-                            <button onclick="attendanceOpenCreateDeviceModal()" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold"><i class="fa-solid fa-plus"></i> Nuevo dispositivo</button>
+                            <div class="flex items-center gap-2">
+                                <button type="button" id="devSettingsToggle" onclick="toggleDeviceSettings()" aria-expanded="false" class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-sliders"></i> Ajustes de los kioscos <i id="devSettingsCaret" class="fa-solid fa-chevron-down text-[10px]"></i></button>
+                                <button onclick="attendanceOpenCreateDeviceModal()" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold"><i class="fa-solid fa-plus"></i> Nuevo dispositivo</button>
+                            </div>
                         </div>
                         <p class="text-xs text-slate-500 mb-4">Solo estos dispositivos (tablets/tótems) pueden registrar marcaciones a través de <code>/kiosk.html</code>. Ningún usuario puede marcar desde su propio celular o computador, salvo el administrador de la organización, como respaldo de emergencia dentro de esta misma app.</p>
+                        <!-- Ajustes de los kioscos (salud y evidencia): ocultos hasta que se necesiten -->
+                        <div id="devSettingsPanel" class="hidden">
                         <div class="border border-sky-200 bg-sky-50/40 rounded-lg p-3 mb-4 flex flex-wrap items-end gap-3 text-xs">
                             <div class="min-w-[220px] flex-1">
                                 <p class="font-bold text-slate-800 flex items-center gap-1.5"><i class="fa-solid fa-heart-pulse text-sky-600"></i> Salud de los kioscos</p>
@@ -1078,6 +1083,7 @@
                                 </label>
                             </div>
                             <p class="text-3xs text-slate-500 mt-2">Ley 1581 de 2012: informa a los colaboradores que el kiosco toma una foto de evidencia por 30 días. El kiosco lo muestra en pantalla. Solo administradores y supervisores pueden verla.</p>
+                        </div>
                         </div>
                         <div class="overflow-x-auto border border-slate-200 rounded-lg">
                             <table class="w-full text-xs">
@@ -9505,6 +9511,15 @@
             openModal('modalEvidence');
             try { const r = await apiFetch(`/api/attendance/evidence?offlineId=${encodeURIComponent(offlineId)}`); renderEvidenceCards(r.rows); }
             catch (e) { document.getElementById('evModalBody').innerHTML = `<p class="py-6 text-center text-rose-600 text-sm">${escapeHtml(e.message)}</p>`; }
+        }
+        // Muestra u oculta los ajustes de los kioscos (salud y evidencia).
+        function toggleDeviceSettings(force) {
+            const panel = document.getElementById('devSettingsPanel');
+            const open = typeof force === 'boolean' ? force : panel.classList.contains('hidden');
+            panel.classList.toggle('hidden', !open);
+            document.getElementById('devSettingsToggle').setAttribute('aria-expanded', String(open));
+            document.getElementById('devSettingsToggle').classList.toggle('bg-slate-100', open);
+            document.getElementById('devSettingsCaret').className = `fa-solid ${open ? 'fa-chevron-up' : 'fa-chevron-down'} text-[10px]`;
         }
         async function loadEvidenceSettings() {
             try {
