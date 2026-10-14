@@ -7913,6 +7913,9 @@
             else if (livePending.users && view !== 'orgadmin') livePending.users = false; // se cargará al entrar
             if (livePending.data) {
                 if (syncConflict) { livePending.data = false; return; } // ya hay un aviso de recargar
+                // Hay cambios propios que no se pudieron guardar (sin internet): primero
+                // se guardan; nunca se reemplazan con la versión del servidor.
+                if (syncPendingRetry) { autoRetryPendingSync(); return; }
                 if (liveUserBusy()) { scheduleLiveApply(2000); return; }
                 livePending.data = false;
                 const changed = await liveRefreshData();
@@ -7932,8 +7935,8 @@
         async function liveRefreshData() {
             let data;
             try { data = await apiFetch('/api/org/data'); } catch (e) { livePending.data = true; scheduleLiveApply(5000); return false; }
-            // Si mientras llegaba la respuesta empezaste a editar, se espera.
-            if (liveUserBusy()) return 'busy';
+            // Si mientras llegaba la respuesta empezaste a editar (o hay cambios sin guardar), se espera.
+            if (liveUserBusy() || syncPendingRetry) return 'busy';
             const main = document.querySelector('main');
             const scrollTop = main ? main.scrollTop : 0;
             LIVE_APPLYING = true;
@@ -8042,7 +8045,8 @@
                 });
             } catch (e) {
                 syncInFlight--;
-                showSyncBanner('error', 'No se pudieron guardar los últimos cambios: sin conexión con el servidor.');
+                saveSyncDraft();
+                showSyncBanner('error', 'Sin conexión: tus cambios quedan guardados en este equipo y se enviarán solos cuando vuelva el internet.');
                 throw e;
             }
             syncInFlight--;
@@ -8054,6 +8058,7 @@
                 throw Object.assign(new Error(data.error || 'conflicto'), { conflict: true });
             }
             if (!res.ok) {
+                if (res.status >= 500) saveSyncDraft(); // servidor no disponible por un momento
                 showSyncBanner('error', `No se pudieron guardar los últimos cambios: ${data.error || 'error del servidor'}.`);
                 throw new Error(data.error || 'Error de servidor');
             }
@@ -8068,10 +8073,43 @@
                 try { refreshShiftLocks(true); renderWeeklyRoster(); } catch (e) { /* nada */ }
             }
             syncPendingRetry = false;
+            clearSyncDraft();
             hideSyncBanner();
             if (!(Array.isArray(data.lockedFixed) && data.lockedFixed.length)) lastSyncedPayloadKey = payloadKey;
             return data;
         }
+        // ---- Cambios hechos sin internet ----
+        // Si un guardado falla por conexión, los colaboradores y turnos quedan
+        // copiados en este equipo (localStorage). Al volver el internet se envían
+        // solos. Si la página se recarga antes, se recuperan al abrirla (solo si
+        // nadie más guardó cambios mientras tanto).
+        const SYNC_DRAFT_MAX_AGE_MS = 3 * 24 * 3600 * 1000;
+        function syncDraftKey() { return CURRENT_USER && CURRENT_USER.id ? `suiteCambiosSinGuardar:${CURRENT_USER.organizationId || ''}:${CURRENT_USER.id}` : null; }
+        function saveSyncDraft() {
+            const k = syncDraftKey(); if (!k) return;
+            try { localStorage.setItem(k, JSON.stringify({ v: 1, baseVersion: appState.dataVersion, shiftsFrom: appState.shiftsLoadedFrom, employees: appState.employees, shifts: appState.shifts, savedAt: Date.now() })); } catch (e) { /* sin espacio */ }
+        }
+        function clearSyncDraft() { const k = syncDraftKey(); if (k) { try { localStorage.removeItem(k); } catch (e) { /* nada */ } } }
+        function readSyncDraft() {
+            const k = syncDraftKey(); if (!k) return null;
+            try { const d = JSON.parse(localStorage.getItem(k) || 'null'); return d && d.v === 1 && Array.isArray(d.employees) && Array.isArray(d.shifts) ? d : null; } catch (e) { return null; }
+        }
+        // Reintenta solo el guardado pendiente (al volver la conexión).
+        let autoRetryTimer = null;
+        function autoRetryPendingSync(delay = 1500) {
+            if (!syncPendingRetry || syncConflict) return;
+            clearTimeout(autoRetryTimer);
+            autoRetryTimer = setTimeout(() => {
+                if (!syncPendingRetry || syncConflict) return;
+                if (dataSyncScheduled || syncInFlight > 0) { autoRetryPendingSync(2000); return; }
+                queueDataSync().then(r => {
+                    handleSyncResult(r);
+                    showAppToast('Conexión recuperada: los cambios que hiciste sin internet quedaron guardados.');
+                    if (livePending.data) scheduleLiveApply(500);
+                }).catch(() => { if (!syncConflict) autoRetryPendingSync(10000); });
+            }, delay);
+        }
+        window.addEventListener('online', () => autoRetryPendingSync(1000));
         function queueDataSync() {
             const p = syncChain.then(postDataSync);
             syncChain = p.catch(() => {});
@@ -8149,6 +8187,7 @@
         // Si se cierra o recarga la página con cambios sin guardar, el navegador avisa.
         window.addEventListener('beforeunload', (ev) => {
             if (!syncConflict && syncPendingRetry) {
+                saveSyncDraft();
                 ev.preventDefault(); ev.returnValue = '';
             }
         });
@@ -8380,6 +8419,24 @@
 
             applyOrgData(data, true);
 
+            // ¿Quedaron cambios sin guardar en este equipo (se fue el internet y se recargó)?
+            let restoredDraft = false;
+            const draft = (CAN('shifts.edit') || CAN('employees.edit')) ? readSyncDraft() : null;
+            if (draft) {
+                if (Number(draft.baseVersion) === Number(appState.dataVersion) && Date.now() - (draft.savedAt || 0) < SYNC_DRAFT_MAX_AGE_MS) {
+                    appState.employees = draft.employees;
+                    appState.shifts = draft.shifts;
+                    if (draft.shiftsFrom) appState.shiftsLoadedFrom = draft.shiftsFrom;
+                    if (!appState.employees.some(e => Number(e.id) === Number(appState.selectedEmpId)) && appState.employees.length) {
+                        appState.selectedEmpId = (activeEmployees()[0] || appState.employees[0]).id;
+                    }
+                    restoredDraft = true;
+                } else {
+                    clearSyncDraft();
+                    showAppToast('Había cambios sin guardar en este equipo, pero no se recuperaron porque otro usuario guardó cambios después.');
+                }
+            }
+
             initCorporateBrand();
             renderQuickBrushBar();
             renderDepartmentOptions();
@@ -8400,6 +8457,13 @@
             BOOTSTRAPPED = true; // a partir de aquí, las mutaciones sí se sincronizan al servidor
             initNotificationCenter();
             initLiveUpdates();
+            if (restoredDraft) {
+                syncPendingRetry = true;
+                queueDataSync().then(r => {
+                    handleSyncResult(r);
+                    showAppToast('Se recuperaron los cambios que hiciste sin internet y ya quedaron guardados.');
+                }).catch(() => { autoRetryPendingSync(10000); });
+            }
 
             if (data.isEmpty && CAN('settings.manage')) {
                 showAppToast('Esta organización aún no tiene datos. Usa "Restaurar Datos y Orden de Áreas" para cargar un ejemplo.');
