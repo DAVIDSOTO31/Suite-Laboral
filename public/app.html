@@ -2081,7 +2081,7 @@
                 </div>
                 <div>
                     <label class="block font-semibold text-slate-700 mb-1">Fecha del Turno</label>
-                    <input type="date" id="modalShiftDate" onchange="document.getElementById('modalShiftIsSunday').checked = isSundayOrHolidayCO(this.value)" class="w-full p-2 border rounded-lg">
+                    <input type="date" id="modalShiftDate" onchange="document.getElementById('modalShiftIsSunday').checked = shiftSundayFlag(this.value)" class="w-full p-2 border rounded-lg">
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
@@ -3051,13 +3051,13 @@
                     totalHours: 0, hod: 0, hon: 0, hed: 0, hen: 0, hedd: 0, hend: 0,
                     hourlyRate: 0, baseOrdinaryPay: 0, honSurcharge: 0, hedTotalPay: 0,
                     henTotalPay: 0, domOrdinarySurcharge: 0, totalSurcharges: 0, totalPay: 0,
-                    isSunday: isSundayOrHolidayCO(dateISO)
+                    isSunday: shiftSundayFlag(dateISO)
                 }
             };
         }
         function buildShiftFromPreset(preset, empId, dateISO) {
             const emp = appState.employees.find(e => e.id === empId);
-            const isSunday = isSundayOrHolidayCO(dateISO);
+            const isSunday = shiftSundayFlag(dateISO);
             const salary = emp ? emp.salary : appState.settings.smlmv2026;
             const breakM = preset.isSplit ? minutesBetween(preset.splitOut, preset.splitIn) : preset.breakM;
             const res = calculateShift(preset.startTime, preset.endTime, breakM, preset.limit || 8, isSunday, preset.isOvernight || false, salary, empNightSurcharge(emp));
@@ -3399,7 +3399,7 @@
             return {
                 empId, date: dateISO, startTime: '--:--', endTime: '--:--', breakM: 0, limit: 8, color: 'rose',
                 shiftTitle: 'Descanso', functionTag: 'Día Libre', isOffDay: true,
-                res: { totalHours: 0, hod: 0, hon: 0, hed: 0, hen: 0, hedd: 0, hend: 0, hourlyRate: 0, baseOrdinaryPay: 0, honSurcharge: 0, hedTotalPay: 0, henTotalPay: 0, domOrdinarySurcharge: 0, totalSurcharges: 0, totalPay: 0, isSunday: isSundayOrHolidayCO(dateISO) }
+                res: { totalHours: 0, hod: 0, hon: 0, hed: 0, hen: 0, hedd: 0, hend: 0, hourlyRate: 0, baseOrdinaryPay: 0, honSurcharge: 0, hedTotalPay: 0, henTotalPay: 0, domOrdinarySurcharge: 0, totalSurcharges: 0, totalPay: 0, isSunday: shiftSundayFlag(dateISO) }
             };
         }
         function rcCanDrop(td) {
@@ -3607,7 +3607,7 @@
                         totalHours: 0, hod: 0, hon: 0, hed: 0, hen: 0, hedd: 0, hend: 0,
                         hourlyRate: 0, baseOrdinaryPay: 0, honSurcharge: 0, hedTotalPay: 0,
                         henTotalPay: 0, domOrdinarySurcharge: 0, totalSurcharges: 0, totalPay: 0,
-                        isSunday: isSundayOrHolidayCO(dateISO)
+                        isSunday: shiftSundayFlag(dateISO)
                     }
                 });
                 showAppToast(`Día marcado como descanso para ${empName}.`);
@@ -3631,7 +3631,7 @@
             const preset = appState.shiftPresets.find(p => p.id === appState.quickBrushMode);
             if (preset) {
                 const emp = appState.employees.find(e => e.id === empId);
-                const isSunday = isSundayOrHolidayCO(dateISO);
+                const isSunday = shiftSundayFlag(dateISO);
                 const salary = emp ? emp.salary : appState.settings.smlmv2026;
                 appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
                 const nsh = buildShiftFromPreset(preset, empId, dateISO);
@@ -3651,7 +3651,7 @@
             document.getElementById('rosterAssignDate').value = dateISO;
             document.getElementById('rosterModalSubtitle').innerText = `${empName} • ${dateFormatted}`;
 
-            const isSunday = isSundayOrHolidayCO(dateISO);
+            const isSunday = shiftSundayFlag(dateISO);
             document.getElementById('rosterAssignIsSunday').checked = isSunday;
 
             renderModalRosterPresets(empId, dateISO);
@@ -3742,7 +3742,7 @@
             if (isShiftLocked(empId, dateISO)) { lockedToast(empId, dateISO); return; }
 
             const emp = appState.employees.find(e => e.id === empId);
-            const isSunday = isSundayOrHolidayCO(dateISO);
+            const isSunday = shiftSundayFlag(dateISO);
             const salary = emp ? emp.salary : appState.settings.smlmv2026;
             const fichaNote = (document.getElementById('rosterAssignFunction').value || '').trim();
             appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
@@ -3857,7 +3857,7 @@
                 if (d === dateISO) return;
                 const ex = appState.shifts.find(s => s.empId === empId && s.date === d);
                 if ((ex && ex.absenceType) || (emp.retiredAt && d > emp.retiredAt) || isShiftLocked(empId, d)) { skipped++; return; }
-                const sun = isSundayOrHolidayCO(d);
+                const sun = shiftSundayFlag(d);
                 const r = calculateShift(start, end, breakFinal, limit, sun, isOvernight, emp.salary, empNightSurcharge(emp));
                 appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === d));
                 const copy = { ...newShift, date: d, res: r };
@@ -3897,7 +3897,7 @@
                     totalHours: 0, hod: 0, hon: 0, hed: 0, hen: 0, hedd: 0, hend: 0,
                     hourlyRate: 0, baseOrdinaryPay: 0, honSurcharge: 0, hedTotalPay: 0,
                     henTotalPay: 0, domOrdinarySurcharge: 0, totalSurcharges: 0, totalPay: 0,
-                    isSunday: isSundayOrHolidayCO(dateISO)
+                    isSunday: shiftSundayFlag(dateISO)
                 }
             });
 
@@ -6417,7 +6417,7 @@
                 return a;
             }
             const overnight = (sh.res && sh.res.endMin || 0) >= 1440;
-            const res = calculateShift(sh.startTime, sh.endTime, Number(sh.breakM) || 0, Number(sh.limit) || 8, isSundayOrHolidayCO(dateISO), overnight, emp.salary, empNightSurcharge(emp));
+            const res = calculateShift(sh.startTime, sh.endTime, Number(sh.breakM) || 0, Number(sh.limit) || 8, shiftSundayFlag(dateISO), overnight, emp.salary, empNightSurcharge(emp));
             const copy = { ...sh, empId: emp.id, date: dateISO, res };
             delete copy.id;
             delete copy.note; // la nota/indicación es solo para ese día
@@ -8966,6 +8966,9 @@
             return colombianHolidays(Number(String(dateISO).slice(0, 4)))[String(dateISO).slice(0, 10)] || null;
         }
         // ¿Domingo o festivo en Colombia?
+        // Marca automática "¿Es Domingo / Festivo?" de un turno: solo si la organización
+        // tiene activos los recargos dominicales y festivos (Liquidación → Horas extras).
+        function shiftSundayFlag(dateISO) { return !!appState.includeSundayHoliday && isSundayOrHolidayCO(dateISO); }
         function isSundayOrHolidayCO(dateISO) {
             if (!dateISO) return false;
             return new Date(dateISO + 'T00:00:00').getDay() === 0 || !!holidayNameCO(dateISO);
