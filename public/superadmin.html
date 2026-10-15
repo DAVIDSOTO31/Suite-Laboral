@@ -477,7 +477,8 @@ async function editUserDisplayName(id) {
 async function toggleUser(id) { await api(`/api/superadmin/users/${id}/toggle-status`, { method: 'POST' }); loadUsers(); loadDashboard(); }
 async function deleteUser(id, email) {
   if (!confirm(`Esto eliminara permanentemente al usuario "${email}". ¿Continuar?`)) return;
-  await api(`/api/superadmin/users/${id}`, { method: 'DELETE' }); loadUsers(); loadDashboard();
+  try { await api(`/api/superadmin/users/${id}`, { method: 'DELETE' }); loadUsers(); loadDashboard(); }
+  catch (e) { alert('No se pudo eliminar: ' + e.message); }
 }
 async function resetPw(id) {
   const d = await api(`/api/superadmin/users/${id}/reset-password`, { method: 'POST' });

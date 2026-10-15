@@ -184,8 +184,22 @@ async function updateUser(req, res, params) {
 function deleteUser(req, res, params) {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(params.id);
   if (!user || user.is_super_admin) return sendJson(res, 404, { error: 'Usuario no encontrado.' });
-  db.prepare('UPDATE invitations SET created_by = NULL WHERE created_by = ?').run(user.id);
-  db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+  // Lo que el usuario registro (marcaciones manuales, kioscos creados, rostros
+  // inscritos, invitaciones) se CONSERVA: solo se quita la referencia a su
+  // cuenta, que es lo que antes impedia eliminarlo.
+  db.exec('BEGIN');
+  try {
+    db.prepare('UPDATE invitations SET created_by = NULL WHERE created_by = ?').run(user.id);
+    db.prepare('UPDATE attendance_marks SET marked_by_user_id = NULL WHERE marked_by_user_id = ?').run(user.id);
+    db.prepare('UPDATE attendance_devices SET created_by_user_id = NULL WHERE created_by_user_id = ?').run(user.id);
+    db.prepare('UPDATE employee_face_profiles SET enrolled_by_user_id = NULL WHERE enrolled_by_user_id = ?').run(user.id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+    db.exec('COMMIT');
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* ya cerrada */ }
+    console.error('[superadmin] eliminar usuario:', e.message);
+    return sendJson(res, 409, { error: 'No se pudo eliminar el usuario porque tiene información relacionada. Puedes dejarlo inactivo.' });
+  }
   logAction({ organizationId: user.organization_id, userId: req.user.id, action: 'user.delete', resourceType: 'user', resourceId: user.id, ip: getClientIp(req), metadata: { email: user.email } });
   sendJson(res, 200, { ok: true });
 }
