@@ -184,23 +184,44 @@ async function updateUser(req, res, params) {
 function deleteUser(req, res, params) {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(params.id);
   if (!user || user.is_super_admin) return sendJson(res, 404, { error: 'Usuario no encontrado.' });
-  // Lo que el usuario registro (marcaciones manuales, kioscos creados, rostros
-  // inscritos, invitaciones) se CONSERVA: solo se quita la referencia a su
-  // cuenta, que es lo que antes impedia eliminarlo.
-  db.exec('BEGIN');
-  try {
-    db.prepare('UPDATE invitations SET created_by = NULL WHERE created_by = ?').run(user.id);
-    db.prepare('UPDATE attendance_marks SET marked_by_user_id = NULL WHERE marked_by_user_id = ?').run(user.id);
-    db.prepare('UPDATE attendance_devices SET created_by_user_id = NULL WHERE created_by_user_id = ?').run(user.id);
-    db.prepare('UPDATE employee_face_profiles SET enrolled_by_user_id = NULL WHERE enrolled_by_user_id = ?').run(user.id);
-    db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
-    db.exec('COMMIT');
-  } catch (e) {
-    try { db.exec('ROLLBACK'); } catch { /* ya cerrada */ }
-    console.error('[superadmin] eliminar usuario:', e.message);
-    return sendJson(res, 409, { error: 'No se pudo eliminar el usuario porque tiene información relacionada. Puedes dejarlo inactivo.' });
+  // Lo que el usuario registro se CONSERVA:
+  //  - Marcaciones (inmutables): quedan tal cual, con el identificador de quien
+  //    las hizo; la Auditoria guarda a que correo correspondia ese identificador.
+  //  - Kioscos creados, rostros inscritos, invitaciones: se quita la referencia.
+  //  - Roles, sesiones de recuperacion y avisos del usuario: se borran.
+  // Las referencias se leen de la base (no de una lista fija), para cubrir
+  // cualquier tabla que apunte a usuarios.
+  const refs = [];
+  for (const t of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all()) {
+    for (const fk of db.prepare(`PRAGMA foreign_key_list("${t.name}")`).all()) {
+      if (fk.table === 'users') refs.push({ table: t.name, col: fk.from, cascade: String(fk.on_delete).toUpperCase() === 'CASCADE' });
+    }
   }
-  logAction({ organizationId: user.organization_id, userId: req.user.id, action: 'user.delete', resourceType: 'user', resourceId: user.id, ip: getClientIp(req), metadata: { email: user.email } });
+  const IMMUTABLE = new Set(['attendance_marks', 'attendance_alerts']);
+  const keptMarks = Number(db.prepare('SELECT COUNT(*) c FROM attendance_marks WHERE marked_by_user_id = ?').get(user.id).c) || 0;
+  // Con referencias desde tablas inmutables, la verificacion de llaves se
+  // suspende solo durante este borrado (y por eso las limpiezas son manuales).
+  const relax = refs.some(r => IMMUTABLE.has(r.table) && db.prepare(`SELECT 1 FROM "${r.table}" WHERE "${r.col}" = ? LIMIT 1`).get(user.id));
+  if (relax) db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.exec('BEGIN');
+    try {
+      for (const r of refs) {
+        if (IMMUTABLE.has(r.table)) continue;
+        if (r.cascade) db.prepare(`DELETE FROM "${r.table}" WHERE "${r.col}" = ?`).run(user.id);
+        else db.prepare(`UPDATE "${r.table}" SET "${r.col}" = NULL WHERE "${r.col}" = ?`).run(user.id);
+      }
+      db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+      db.exec('COMMIT');
+    } catch (e) {
+      try { db.exec('ROLLBACK'); } catch { /* ya cerrada */ }
+      console.error('[superadmin] eliminar usuario:', e.message);
+      return sendJson(res, 409, { error: 'No se pudo eliminar el usuario porque tiene información relacionada. Puedes dejarlo inactivo.' });
+    }
+  } finally {
+    if (relax) db.exec('PRAGMA foreign_keys = ON');
+  }
+  logAction({ organizationId: user.organization_id, userId: req.user.id, action: 'user.delete', resourceType: 'user', resourceId: user.id, ip: getClientIp(req), metadata: { email: user.email, marcacionesConservadas: keptMarks } });
   sendJson(res, 200, { ok: true });
 }
 
