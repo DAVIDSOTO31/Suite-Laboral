@@ -126,6 +126,32 @@ function insertAlert(orgId, employeeId, shiftDateISO, alertType, scheduledTime, 
   live.publishAttendance(orgId, 'alert');
 }
 
+// Correccion unica: entradas marcadas a las HH:MM:30-59 del minuto anterior a
+// la hora programada (ej. 06:59:45 para las 07:00) quedaban como "llegada
+// tarde" con 0 minutos porque los segundos se redondeaban al minuto siguiente.
+// Esas alertas falsas se eliminan y el dia vuelve a "llegada a tiempo".
+const FALSE_LATE_FIX = 'llegada_tarde_redondeo_segundos_v1';
+if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(FALSE_LATE_FIX)) {
+  const rows = db.prepare(`SELECT id, organization_id, employee_id, shift_date, scheduled_time, actual_time FROM attendance_alerts
+                           WHERE alert_type = 'llegada_tarde' AND COALESCE(diff_minutes, 0) = 0
+                             AND scheduled_time GLOB '[0-2][0-9]:[0-5][0-9]' AND actual_time GLOB '[0-2][0-9]:[0-5][0-9]'
+                             AND actual_time < scheduled_time`).all();
+  const byOrg = new Map();
+  for (const r of rows) {
+    db.prepare('DELETE FROM alert_management WHERE alert_id = ?').run(r.id);
+    db.prepare('DELETE FROM attendance_alerts WHERE id = ?').run(r.id);
+    db.prepare(`UPDATE attendance_days SET status = 'llegada_anticipada', retraso_min = 0
+                WHERE employee_id = ? AND shift_date = ? AND organization_id = ? AND status = 'llegada_tarde'`).run(r.employee_id, r.shift_date, r.organization_id);
+    if (!byOrg.has(r.organization_id)) byOrg.set(r.organization_id, []);
+    byOrg.get(r.organization_id).push(`${r.shift_date} ${r.actual_time} (turno ${r.scheduled_time})`);
+  }
+  for (const [org, list] of byOrg) {
+    try { logAction({ organizationId: org, userId: null, action: 'attendance.false_late_fixed', resourceType: 'alert', metadata: { cantidad: list.length, marcaciones: list.slice(0, 50) } }); } catch { /* nada */ }
+  }
+  db.prepare("INSERT INTO app_migrations (name, applied_at) VALUES (?, datetime('now', '-5 hours'))").run(FALSE_LATE_FIX);
+  if (rows.length) console.log(`[asistencia] ${rows.length} llegada(s) tarde falsa(s) por redondeo de segundos corregida(s).`);
+}
+
 function hhmmFromAbsMinutes(now) {
   const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now);
   const h = p.find(x => x.type === 'hour').value;
