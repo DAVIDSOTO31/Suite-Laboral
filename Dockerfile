@@ -16,6 +16,12 @@ COPY package.json ./
 RUN npm install --omit=dev || true
 COPY . .
 
+# Estilos de la suite (Tailwind): se compilan aqui para que siempre incluyan
+# todas las clases usadas en las paginas. Si no hay conexion para descargar
+# el compilador, se usa el public/tw.css que ya viene en el repositorio.
+RUN npx --yes tailwindcss@3.4.17 -c tailwind.config.js -i src/styles/tailwind.css -o public/tw.css --minify \
+    || echo "Aviso: no se pudo compilar Tailwind; se usa public/tw.css del repositorio"
+
 # Copia la configuracion de Litestream y el script de arranque
 COPY litestream.yml /etc/litestream.yml
 COPY entrypoint.sh /entrypoint.sh

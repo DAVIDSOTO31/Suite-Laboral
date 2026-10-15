@@ -14,7 +14,6 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="Kiosco RR.HH">
 <meta name="application-name" content="Kiosco RR.HH">
-<script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <style>
   body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0c4a6e 100%); }
@@ -24,6 +23,7 @@
      barra del navegador); vh queda de respaldo para equipos antiguos. */
   .kiosk-cam { object-fit: cover; height: max(200px, calc(50vh - 76px)); height: max(200px, calc(50dvh - 76px)); }
 </style>
+    <link rel="stylesheet" href="/tw.css">
 </head>
 <body class="min-h-screen flex items-center justify-center p-4 text-white">
 
@@ -726,7 +726,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-offline3';
+const KIOSK_VERSION = '2026.10-estilos1';
 let cameraState = 'desconocido';
 let batteryRef = null;
 async function detectCameraState() {

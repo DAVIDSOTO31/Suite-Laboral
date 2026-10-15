@@ -1,12 +1,12 @@
 // Service worker del Kiosco RR.HH (app instalable para Android y iOS).
 // - Guarda en el equipo la pantalla del kiosco, sus íconos y las librerías
-//   (Tailwind, íconos, motor y modelo de reconocimiento facial), para que la
+//   (estilos, íconos, motor y modelo de reconocimiento facial), para que la
 //   app abra y reconozca rostros aunque no haya internet.
 // - NUNCA guarda respuestas de /api/: las marcaciones siempre van al servidor
 //   (o a la cola sin conexión que ya maneja kiosk.html).
 // IMPORTANTE: cada vez que se modifique kiosk.html, subir KIOSK_SW_VERSION
 // para que las tablets instaladas se actualicen solas.
-const KIOSK_SW_VERSION = '2026.10-offline3';
+const KIOSK_SW_VERSION = '2026.10-estilos1';
 const CORE_CACHE = 'kiosco-core-' + KIOSK_SW_VERSION;
 const CDN_CACHE = 'kiosco-cdn-v1'; // librerías y modelo facial: se conservan entre versiones
 
@@ -17,10 +17,10 @@ const CORE_FILES = [
   '/kiosk-icons/icon-192.png',
   '/kiosk-icons/apple-touch-icon.png',
   '/kiosk-icons/favicon-32.png',
+  '/tw.css',
 ];
 // Se piden igual que las pide la página (<script>/<link> sin CORS).
 const CDN_FILES = [
-  'https://cdn.tailwindcss.com',
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css',
   'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js',
 ];
@@ -103,6 +103,10 @@ self.addEventListener('fetch', (event) => {
     if (url.pathname.startsWith('/api/')) return; // datos siempre en vivo
     if (url.pathname === '/kiosk.html' || (req.mode === 'navigate' && url.pathname.startsWith('/kiosk'))) {
       event.respondWith(networkFirstPage(req));
+      return;
+    }
+    if (url.pathname === '/tw.css') { // estilos: lo guardado y se actualiza por detrás
+      event.respondWith(staleWhileRevalidate(new Request('/tw.css'), CORE_CACHE));
       return;
     }
     if (url.pathname.startsWith('/kiosk-icons/') || url.pathname === '/kiosk.webmanifest') {
