@@ -39,8 +39,10 @@ function addDaysISO(dateISO, days) {
 // attendance-rules.js (0 = medianoche del dia del turno), por lo que un
 // turno nocturno que cruza medianoche simplemente da un numero > 1440, sin
 // necesidad de logica especial aqui.
+// Minuto del reloj en que ocurrio la marca (se descartan los segundos, igual
+// que la hora que se muestra: 06:59:59 es el minuto 06:59, nunca las 07:00).
 function minutesSinceShiftMidnight(now, shiftDateISO) {
-  return Math.round((now.getTime() - bogotaMidnightUTCms(shiftDateISO)) / 60000);
+  return Math.floor((now.getTime() - bogotaMidnightUTCms(shiftDateISO)) / 60000);
 }
 
 module.exports = {
