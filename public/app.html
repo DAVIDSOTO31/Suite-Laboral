@@ -665,7 +665,7 @@
 
                             <input type="date" id="rosterWeekDateInput" onchange="onRosterDateInputPicked(this.value)" class="text-xs p-1.5 border border-slate-300 rounded-lg text-slate-700 focus:ring-2 focus:ring-sky-500 focus:outline-none">
 
-                            <button type="button" id="rosterPdfBtn" onclick="downloadRosterPdf()" title="Descargar el cuadro de esta semana en PDF" class="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                            <button type="button" id="rosterPdfBtn" onclick="openRosterPdfOptions()" title="Descargar el cuadro de esta semana en PDF (todas las áreas o solo algunas)" class="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
                                 <i class="fa-solid fa-file-pdf"></i> Descargar PDF
                             </button>
                         </div>
@@ -1816,6 +1816,27 @@
             <div class="flex justify-end gap-2 border-t pt-3">
                 <button onclick="closeModal('modalAttCorrection')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
                 <button onclick="submitAttendanceCorrection()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow">Guardar corrección</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: PDF del cuadro de turnos (todas las áreas o algunas) -->
+    <div id="modalRosterPdf" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl max-w-sm w-full p-5 shadow-2xl space-y-4 border border-slate-200 max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-start border-b pb-3">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-file-pdf text-rose-600"></i> Descargar PDF</h3>
+                    <p class="text-xs text-slate-500 mt-0.5" id="rosterPdfWeekLabel">-</p>
+                </div>
+                <button onclick="closeModal('modalRosterPdf')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <label class="flex items-center gap-2 text-sm font-bold text-slate-800 cursor-pointer">
+                <input type="checkbox" id="rosterPdfAll" onchange="rosterPdfToggleAll(this.checked)" class="w-4 h-4 accent-rose-600" checked> Todas las áreas
+            </label>
+            <div id="rosterPdfAreaList" class="space-y-1.5 pl-1 border-l-2 border-slate-100"></div>
+            <div class="flex justify-end gap-2 pt-1">
+                <button onclick="closeModal('modalRosterPdf')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                <button id="rosterPdfGoBtn" onclick="confirmRosterPdf()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow flex items-center gap-1.5"><i class="fa-solid fa-file-pdf"></i> Descargar PDF</button>
             </div>
         </div>
     </div>
@@ -4591,6 +4612,8 @@
             deptGroups.forEach(({ dept, emps }, groupIndex) => {
                 const deptRow = document.createElement('tr');
                 deptRow.className = 'bg-slate-800 text-white font-bold border-y-2 border-slate-700 select-none';
+                deptRow.dataset.rosterDept = dept.id;
+                deptRow.dataset.rosterDeptName = dept.name;
 
                 let deptTotalWeeklyHours = 0;
                 emps.forEach(emp => {
@@ -4643,6 +4666,7 @@
                 if (emps.length === 0) {
                     const emptyRow = document.createElement('tr');
                     emptyRow.className = 'border-b border-slate-100 bg-slate-50/40 text-slate-400 text-3xs italic';
+                    emptyRow.dataset.rosterDept = dept.id;
                     emptyRow.innerHTML = `
                         <td colspan="9" class="p-3 text-center">
                             No hay colaboradores asignados actualmente a <strong>${dept.name}</strong>.
@@ -4656,6 +4680,8 @@
                     let empWeeklyHours = 0;
                     let tr = document.createElement('tr');
                     tr.className = 'hover:bg-sky-50/30 transition border-b border-slate-200';
+                    tr.dataset.rosterDept = dept.id;
+                    tr.dataset.rosterEmp = emp.id;
 
                     let empTd = `
                         <td class="py-1 pr-3 border-r border-slate-200 bg-slate-50/60 pl-4">
@@ -9074,7 +9100,36 @@
                 document.head.appendChild(s);
             });
         }
-        async function downloadRosterPdf() {
+        // ---- PDF: todas las áreas o solo algunas (mismo encabezado) ----
+        function openRosterPdfOptions() {
+            const rows = [...document.querySelectorAll('#rosterTableBody tr[data-roster-dept-name]')];
+            const list = document.getElementById('rosterPdfAreaList');
+            list.innerHTML = rows.map(r => {
+                const n = document.querySelectorAll(`#rosterTableBody tr[data-roster-emp][data-roster-dept="${CSS.escape(r.dataset.rosterDept)}"]`).length;
+                return `<label class="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                    <input type="checkbox" class="roster-pdf-area w-4 h-4 accent-rose-600" value="${escapeHtml(r.dataset.rosterDept)}" data-name="${escapeHtml(r.dataset.rosterDeptName)}" onchange="rosterPdfAreaChanged()" checked>
+                    <span class="font-semibold">${escapeHtml(r.dataset.rosterDeptName)}</span><span class="text-slate-400">(${n})</span></label>`;
+            }).join('') || '<p class="text-xs text-slate-400">No hay áreas en el cuadro.</p>';
+            document.getElementById('rosterPdfAll').checked = true;
+            document.getElementById('rosterPdfWeekLabel').textContent = rosterWeekTitle(appState.rosterCurrentMonday);
+            openModal('modalRosterPdf');
+        }
+        function rosterPdfToggleAll(on) {
+            document.querySelectorAll('#rosterPdfAreaList .roster-pdf-area').forEach(cb => { cb.checked = on; });
+        }
+        function rosterPdfAreaChanged() {
+            const cbs = [...document.querySelectorAll('#rosterPdfAreaList .roster-pdf-area')];
+            document.getElementById('rosterPdfAll').checked = cbs.length > 0 && cbs.every(cb => cb.checked);
+        }
+        function confirmRosterPdf() {
+            const cbs = [...document.querySelectorAll('#rosterPdfAreaList .roster-pdf-area')];
+            const picked = cbs.filter(cb => cb.checked);
+            if (!picked.length) { showAppToast('Elige al menos un área.'); return; }
+            closeModal('modalRosterPdf');
+            const all = picked.length === cbs.length;
+            downloadRosterPdf(all ? null : picked.map(cb => ({ id: cb.value, name: cb.dataset.name })));
+        }
+        async function downloadRosterPdf(areas) {
             const btn = document.getElementById('rosterPdfBtn');
             const table = document.getElementById('rosterTableBody')?.closest('table');
             if (!table) return;
@@ -9120,6 +9175,20 @@
                 clone.querySelectorAll('*').forEach(el => { el.style.lineHeight = el.style.lineHeight || '1.35'; });
                 const firstTh = clone.querySelector('thead th');
                 if (firstTh) { firstTh.style.width = '300px'; firstTh.style.minWidth = '300px'; }
+                // Solo algunas áreas: se quitan las demás filas y se recalcula
+                // "Personal activo / día" con los colaboradores que quedan.
+                if (Array.isArray(areas) && areas.length) {
+                    const keep = new Set(areas.map(a => String(a.id)));
+                    clone.querySelectorAll('tbody tr[data-roster-dept]').forEach(tr => { if (!keep.has(tr.dataset.rosterDept)) tr.remove(); });
+                    const empIds = new Set([...clone.querySelectorAll('tbody tr[data-roster-emp]')].map(tr => String(tr.dataset.rosterEmp)));
+                    const days = getWeekDaysArray(monday);
+                    const counts = days.map(d => appState.shifts.filter(s => empIds.has(String(s.empId)) && s.date === d.dateISO && !s.isOffDay).length);
+                    const footCells = clone.querySelectorAll('tfoot tr td');
+                    counts.forEach((c, i) => { const sp = footCells[i + 1] && footCells[i + 1].querySelector('span'); if (sp) sp.textContent = c; });
+                    const totalSpan = footCells[days.length + 1] && footCells[days.length + 1].querySelector('span');
+                    if (totalSpan) totalSpan.textContent = counts.reduce((a, b) => a + b, 0);
+                    header.insertAdjacentHTML('beforeend', `<div style="font-size:14px; font-weight:700; color:#475569; margin-top:6px;">Áreas: ${escapeHtml(areas.map(a => a.name).join(' · '))}</div>`);
+                }
                 box.appendChild(clone);
                 wrap.appendChild(header);
                 wrap.appendChild(box);
@@ -9135,7 +9204,9 @@
                 const { jsPDF } = window.jspdf;
                 const pdf = new jsPDF({ orientation: pageW >= pageH ? 'landscape' : 'portrait', unit: 'mm', format: [pageW, pageH] });
                 pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pageW, pageH);
-                pdf.save(`Turnos_${formatDateISO(monday)}_al_${formatDateISO(addDays(monday, 6))}.pdf`);
+                const areaSuffix = Array.isArray(areas) && areas.length
+                    ? '_' + areas.map(a => String(a.name).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '')).join('_').slice(0, 60) : '';
+                pdf.save(`Turnos_${formatDateISO(monday)}_al_${formatDateISO(addDays(monday, 6))}${areaSuffix}.pdf`);
                 showAppToast('PDF descargado.');
             } catch (e) {
                 showAppToast('No se pudo generar el PDF: ' + e.message);
