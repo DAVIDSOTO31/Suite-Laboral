@@ -4320,6 +4320,23 @@
             return txt;
         }
 
+        // Área actual del colaborador en la lista de la ficha: primero por su
+        // identificador de área (sirve aunque el área se haya renombrado), luego
+        // por nombre. Si no está en la lista, se agrega tal cual para no cambiarla.
+        function empDepartmentOptionValue(emp, sel) {
+            const byId = emp.departmentId ? appState.departments.find(d => d.id === emp.departmentId) : null;
+            const byName = !byId && emp.department ? appState.departments.find(d => d.name.trim().toLowerCase() === String(emp.department).trim().toLowerCase()) : null;
+            const found = byId || byName;
+            if (found) return found.name;
+            if (emp.department) {
+                const opt = document.createElement('option');
+                opt.value = emp.department; opt.textContent = emp.department;
+                sel.insertBefore(opt, sel.querySelector('option[value="_NEW_"]'));
+                return emp.department;
+            }
+            return sel.value;
+        }
+
         function openEmployeeModal(empId) {
             const emp = empId != null ? appState.employees.find(e => e.id === empId) : null;
             document.getElementById('editEmpId').value = emp ? emp.id : '';
@@ -4334,7 +4351,7 @@
             document.getElementById('newEmpPhone').value = emp ? formatPhoneLocal(emp.phoneCountry, emp.phoneNumber) : '';
             renderDepartmentOptions();
             const deptSel = document.getElementById('newEmpDepartment');
-            if (emp && deptSel) deptSel.value = emp.department || deptSel.value;
+            // (el área se selecciona después de abrir la ventana: al abrirla se vuelve a armar la lista)
             const salaryInput = document.getElementById('newEmpSalary');
             salaryInput.value = emp && emp.salary != null ? emp.salary : appState.settings.smlmv2026;
             const canPay = CAN('employees.edit_payroll');
@@ -4354,6 +4371,7 @@
             if (nightBox) nightBox.dataset.editing = emp ? '1' : '';
             onEmpContractTypeChange();
             openModal('modalAddEmp');
+            if (emp && deptSel) deptSel.value = empDepartmentOptionValue(emp, deptSel);
         }
 
         function saveNewEmployee() {
@@ -4407,7 +4425,8 @@
                 return;
             }
             const foundDept = appState.departments.find(d => d.name === dept);
-            const deptId = foundDept ? foundDept.id : 'dept_cocina';
+            // Área que no está en la lista (ej. "Otras áreas"): se conserva la que tenía.
+            const deptId = foundDept ? foundDept.id : (editing && editing.department === dept && editing.departmentId ? editing.departmentId : 'dept_cocina');
             // Tipo de contrato (fechas opcionales solo para término fijo).
             const contractType = canPay ? (document.getElementById('newEmpContractType').value || 'indefinido') : (editing ? empContractType(editing) : 'indefinido');
             let contractStart = contractType === 'fijo' ? (document.getElementById('newEmpContractStart').value || '') : '';
