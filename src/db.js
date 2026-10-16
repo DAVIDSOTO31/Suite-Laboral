@@ -787,6 +787,12 @@ if (!empRetCols.includes('retired_at')) db.exec('ALTER TABLE employees ADD COLUM
 if (!empRetCols.includes('retire_reason')) db.exec('ALTER TABLE employees ADD COLUMN retire_reason TEXT NULL');
 if (!empRetCols.includes('retire_detail')) db.exec('ALTER TABLE employees ADD COLUMN retire_detail TEXT NULL');
 if (!empRetCols.includes('retired_by')) db.exec('ALTER TABLE employees ADD COLUMN retired_by TEXT NULL');
+// Tipo de contrato del colaborador: 'indefinido' (por defecto), 'fijo' (con
+// fechas opcionales) o 'servicios' (prestacion de servicios).
+const empContractCols = db.prepare('PRAGMA table_info(employees)').all().map(c => c.name);
+if (!empContractCols.includes('contract_type')) db.exec('ALTER TABLE employees ADD COLUMN contract_type TEXT NULL');
+if (!empContractCols.includes('contract_start')) db.exec('ALTER TABLE employees ADD COLUMN contract_start TEXT NULL');
+if (!empContractCols.includes('contract_end')) db.exec('ALTER TABLE employees ADD COLUMN contract_end TEXT NULL');
 
 // Version de los datos de colaboradores y turnos de cada organizacion: evita
 // que una pestana con datos viejos (u otro usuario editando al tiempo)

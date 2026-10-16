@@ -3,6 +3,9 @@ const { db, uid, seedDemoDataForOrg, getOrgRoleByName } = require('../db');
 const { sendJson, readBody, getClientIp } = require('../lib/http');
 const { cleanDisplayName } = require('../lib/display-name');
 const { logAction } = require('../lib/audit');
+// Tipos de contrato del colaborador (ficha).
+const CONTRACT_TYPES = ['indefinido', 'fijo', 'servicios'];
+const CONTRACT_LABELS = { indefinido: 'Término indefinido', fijo: 'Término fijo', servicios: 'Prestación de servicios' };
 const { describeAudit } = require('../lib/audit-describe');
 const { randomToken, sha256Hex } = require('../lib/crypto');
 const { sendMail } = require('../lib/mailer');
@@ -102,8 +105,8 @@ function getOrgData(req, res, query) {
   const settingsRow = db.prepare('SELECT * FROM org_settings WHERE organization_id = ?').get(orgId);
   const departments = db.prepare('SELECT id, name, icon FROM departments WHERE organization_id = ? ORDER BY position ASC').all(orgId);
   const presetRows = db.prepare('SELECT data_json FROM shift_presets WHERE organization_id = ?').all(orgId);
-  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status, retired_at, retire_reason, retire_detail FROM employees WHERE organization_id = ?').all(orgId)
-    .map(({ night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status, retired_at, retire_reason, retire_detail, ...e }) => ({ ...e, email: email || '', phoneCountry: phone_country || '+57', phoneNumber: phone_number || '', nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '', countWorkedDays: count_worked_days === 1, documentType: document_type || 'CC', documentNumber: document_number || '',
+  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status, retired_at, retire_reason, retire_detail, contract_type, contract_start, contract_end FROM employees WHERE organization_id = ?').all(orgId)
+    .map(({ night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status, retired_at, retire_reason, retire_detail, contract_type, contract_start, contract_end, ...e }) => ({ ...e, contractType: CONTRACT_TYPES.includes(contract_type) ? contract_type : 'indefinido', contractStart: contract_start || '', contractEnd: contract_end || '', email: email || '', phoneCountry: phone_country || '+57', phoneNumber: phone_number || '', nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '', countWorkedDays: count_worked_days === 1, documentType: document_type || 'CC', documentNumber: document_number || '',
       status: status === 'retirado' ? 'retirado' : 'activo', retiredAt: retired_at || null, retireReason: retire_reason || null, retireDetail: retire_detail || null }));
   // Usuario de la suite vinculado a cada colaborador (solo para quien gestiona usuarios).
   if (can(req, 'users.view')) {
@@ -297,7 +300,7 @@ async function syncEmployeesAndShifts(req, res) {
     // Los empleados se ACTUALIZAN (no se borran y recrean) para no arrastrar en
     // cascada su historial de asistencia ni su perfil biometrico.
     const existing = new Map(
-      db.prepare('SELECT id, name, role, department, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
+      db.prepare('SELECT id, name, role, department, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status, contract_type, contract_start, contract_end FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
     );
     const incomingIds = new Set(body.employees.map(e => Number(e.id)));
     const toDelete = [...existing.keys()].filter(id => !incomingIds.has(id));
@@ -408,6 +411,20 @@ async function syncEmployeesAndShifts(req, res) {
       }
       const newName = String(e.name || '').slice(0, 120), newRole = String(e.role || '').slice(0, 120);
       upsert.run(e.id, orgId, newName, newRole, e.department || null, e.departmentId || null, salary, nightSurcharge, reason, email || null, countDays, docNumber ? docType : null, docNumber, phoneCountry, phoneNumber);
+      // Tipo de contrato (lo cambia quien maneja la nomina; las fechas son opcionales).
+      const prevContract = { type: prev && CONTRACT_TYPES.includes(prev.contract_type) ? prev.contract_type : 'indefinido', start: prev ? prev.contract_start || null : null, end: prev ? prev.contract_end || null : null };
+      let contract = prevContract;
+      if (canPayroll && e.contractType !== undefined) {
+        const type = CONTRACT_TYPES.includes(e.contractType) ? e.contractType : 'indefinido';
+        const okDate = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : null);
+        contract = { type, start: type === 'fijo' ? okDate(e.contractStart) : null, end: type === 'fijo' ? okDate(e.contractEnd) : null };
+      } else if (!canPayroll && e.contractType !== undefined && e.contractType !== prevContract.type) {
+        payrollIgnored = true;
+      }
+      if (!prev || contract.type !== prevContract.type || contract.start !== prevContract.start || contract.end !== prevContract.end) {
+        db.prepare('UPDATE employees SET contract_type = ?, contract_start = ?, contract_end = ? WHERE id = ? AND organization_id = ?')
+          .run(contract.type, contract.start, contract.end, e.id, orgId);
+      }
       // Auditoria: que se creo o que cambio exactamente en la ficha.
       if (!prev) {
         logAction({ organizationId: orgId, userId: req.user.id, action: 'employee.created', resourceType: 'employee', resourceId: String(e.id), ip: getClientIp(req),
@@ -422,6 +439,9 @@ async function syncEmployeesAndShifts(req, res) {
         chk('Correo', prev.email, email || null);
         chk('Documento', prev.document_number ? `${prev.document_type || 'CC'} ${prev.document_number}` : null, docNumber ? `${docType} ${docNumber}` : null);
         chk('Celular', prev.phone_number ? `${prev.phone_country || '+57'} ${prev.phone_number}` : null, phoneNumber ? `${phoneCountry} ${phoneNumber}` : null);
+        chk('Tipo de contrato', CONTRACT_LABELS[prevContract.type], CONTRACT_LABELS[contract.type]);
+        chk('Inicio del contrato', prevContract.start, contract.start);
+        chk('Terminación del contrato', prevContract.end, contract.end);
         if (cambios.length) logAction({ organizationId: orgId, userId: req.user.id, action: 'employee.updated', resourceType: 'employee', resourceId: String(e.id), ip: getClientIp(req), metadata: { colaborador: newName, cambios } });
       }
       // Trazabilidad: activar/desactivar el conteo de dias laborados.
