@@ -1830,6 +1830,9 @@ function novedadesSummary(req, res, query) {
 // gestion). No modifica nada de lo que ya calcula la suite.
 // ===========================================================================
 const ISO_D = /^\d{4}-\d{2}-\d{2}$/;
+// Desde esta fecha las incapacidades y demas inasistencias suman al ausentismo
+// (en todas las organizaciones; ademas se respeta el Dia 0 de cada una).
+const AUSENTISMO_NOVEDADES_DESDE = '2026-10-16';
 function monthlyDividerForDate(dateISO) {
   if (dateISO >= '2026-07-15') return 210;
   if (dateISO >= '2025-07-15') return 220;
@@ -1843,6 +1846,13 @@ function loadIndicatorData(orgId, from, to) {
   const employees = new Map(db.prepare('SELECT id, name, department, salary FROM employees WHERE organization_id = ?').all(orgId)
     .map(e => [e.id, { ...e, department: e.department || 'Sin área' }]));
   const shifts = [];
+  const absenceDays = [];        // incapacidad / inasistencias que cuentan para el ausentismo (en el rango)
+  // Inasistencias personalizadas: cuentan como ausentismo salvo que se desmarque
+  // "Cuenta como ausentismo" (ej. Compensatorio).
+  const customCounts = new Map();
+  for (const r of db.prepare('SELECT data_json FROM shift_presets WHERE organization_id = ?').all(orgId)) {
+    try { const p = JSON.parse(r.data_json); if (p && p.kind === 'absence') customCounts.set(String(p.id), { counts: p.countsAbsence !== false, name: p.name || 'Inasistencia' }); } catch { /* nada */ }
+  }
   const incapDays = [];          // { empId, date } de TODAS las fechas (para agrupar episodios)
   const workKeys = new Set();    // empId|date con turno de trabajo (corta un episodio)
   for (const r of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ?').all(orgId)) {
@@ -1855,6 +1865,15 @@ function loadIndicatorData(orgId, from, to) {
       } else if (s.isOffDay && s.absenceType === 'incapacidad') {
         incapDays.push({ empId: Number(s.empId), date: s.date });
       }
+      // Ausentismo: incapacidad + inasistencias personalizadas que cuentan.
+      // Nunca: descanso, vacaciones ni "Sin horario" (suspension).
+      if (s.isOffDay && s.absenceType && s.date >= from && s.date <= to && s.date >= AUSENTISMO_NOVEDADES_DESDE) {
+        if (s.absenceType === 'incapacidad') absenceDays.push({ empId: Number(s.empId), date: s.date, kind: 'incapacidad', label: 'Incapacidad' });
+        else if (!['vacaciones', 'sin_horario'].includes(s.absenceType)) {
+          const c = customCounts.get(String(s.absenceType));
+          if (!c || c.counts) absenceDays.push({ empId: Number(s.empId), date: s.date, kind: 'otra', label: c ? c.name : (s.shiftTitle || 'Inasistencia') });
+        }
+      }
     } catch { /* fila invalida */ }
   }
   const days = new Map(db.prepare(`SELECT employee_id, shift_date, status, entrada_real, salida_real, retraso_min, exceso_almuerzo_min,
@@ -1866,7 +1885,7 @@ function loadIndicatorData(orgId, from, to) {
         AND a.alert_type IN ('llegada_tarde','exceso_almuerzo','salida_anticipada','inasistencia','turno_sin_cerrar','marcacion_manual','etapa_extendida')`)
     .all(orgId, from, to);
   const mw = db.prepare('SELECT minimum_wage FROM org_settings WHERE organization_id = ?').get(orgId);
-  return { employees, shifts, days, alerts, dayZero: getDayZero(orgId), incapacityEpisodes: buildIncapacityEpisodes(incapDays, workKeys), minimumWage: (mw && Number(mw.minimum_wage)) || 1750905 };
+  return { employees, shifts, absenceDays, days, alerts, dayZero: getDayZero(orgId), incapacityEpisodes: buildIncapacityEpisodes(incapDays, workKeys), minimumWage: (mw && Number(mw.minimum_wage)) || 1750905 };
 }
 
 // Agrupa los dias de incapacidad de cada colaborador en EPISODIOS (una misma
@@ -1901,7 +1920,7 @@ function buildIncapacityEpisodes(incapDays, workKeys) {
 }
 
 function emptyBucket(name) {
-  return { name, programados: 0, asistidos: 0, ausencias: 0, ausenciasJustificadas: 0, entradas: 0, tarde: 0,
+  return { name, programados: 0, asistidos: 0, ausencias: 0, ausenciasJustificadas: 0, ausIncapacidad: 0, ausOtras: 0, entradas: 0, tarde: 0,
     minutosRetraso: 0, minutosAlmuerzo: 0, minutosPerdidos: 0, costoPerdido: 0, almuerzosExceso: 0, costoRetraso: 0, costoAlmuerzo: 0, extraDiurnaMin: 0, extraNocturnaMin: 0,
     extraGeneradaMin: 0, descuentoSalidaMin: 0, valorExtras: 0, sinCerrar: 0, manuales: 0,
     // Costo de extras y recargos (dias con turno cerrado, marcaciones reales).
@@ -1909,7 +1928,11 @@ function emptyBucket(name) {
 }
 function finishBucket(b) {
   const pct = (n, d) => d ? Math.round((n / d) * 1000) / 10 : null;
-  b.ausentismo = pct(b.ausencias, b.programados);
+  // Ausentismo = (faltas + incapacidad + otras inasistencias que cuentan) sobre
+  // los dias que debia trabajar (turnos programados + esos dias de inasistencia).
+  b.ausTotal = b.ausencias + b.ausIncapacidad + b.ausOtras;
+  b.diasDebia = b.programados + b.ausIncapacidad + b.ausOtras;
+  b.ausentismo = pct(b.ausTotal, b.diasDebia);
   b.ausentismoInjustificado = pct(b.ausencias - b.ausenciasJustificadas, b.programados);
   b.puntualidad = pct(b.entradas - b.tarde, b.entradas);
   b.costoPerdido = Math.round(b.costoPerdido);
@@ -1980,6 +2003,15 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
       if (retraso > 0) det.tardes.push({ employeeId: emp.id, name: emp.name, area: emp.department, date: s.date, programada: s.startTime, real: d.entrada_real, min: retraso });
       if (lost > 0) { const r = empRow(det.perdido, emp, { retraso: 0, almuerzo: 0, total: 0, costo: 0, dias: 0 }); r.retraso += retraso; r.almuerzo += almuerzo; r.total += lost; r.costo += lost * valorMinuto; r.dias++; }
     }
+  }
+  // Incapacidades e inasistencias que cuentan para el ausentismo (hasta hoy).
+  for (const x of (data.absenceDays || [])) {
+    if (x.date < from || x.date > to || x.date > today) continue;
+    if (data.dayZero && x.date <= data.dayZero) continue;
+    const emp = data.employees.get(x.empId);
+    if (!emp || (area && emp.department !== area)) continue;
+    for (const b of bucketsFor(emp)) { if (x.kind === 'incapacidad') b.ausIncapacidad++; else b.ausOtras++; }
+    if (det) det.ausencias.push({ employeeId: emp.id, name: emp.name, area: emp.department, date: x.date, turno: x.label, estado: 'novedad' });
   }
   // Horas extra de los dias cerrados (saldo positivo de extra diurna + extra nocturna).
   for (const d of data.days.values()) {

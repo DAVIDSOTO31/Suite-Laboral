@@ -2364,6 +2364,7 @@
                     <div id="absTypeColors" class="flex flex-wrap gap-2"></div>
                 </div>
                 <div class="flex items-center gap-2"><span class="text-slate-500">Así se verá:</span> <span id="absTypePreview"></span></div>
+                <label class="flex items-start gap-2 cursor-pointer"><input type="checkbox" id="absTypeCounts" class="w-4 h-4 mt-0.5" checked> <span><span class="font-semibold text-slate-700">Cuenta como ausentismo</span><span class="block text-3xs text-slate-500">Desmárcala si es un día de descanso ganado (ej. Compensatorio).</span></span></label>
                 <p class="text-3xs text-slate-500">Funciona igual que Vacaciones: ese día el colaborador no tiene horario, no marca en el kiosco y no suma horas.</p>
                 <p id="absTypeMsg" class="hidden text-rose-600 font-semibold"></p>
             </div>
@@ -3328,6 +3329,7 @@
             document.getElementById('absTypeTitle').textContent = p ? 'Editar inasistencia' : 'Nueva inasistencia';
             document.getElementById('absTypeName').value = p ? (p.name || '') : '';
             absenceColorKey = p && p.color ? p.color : 'amber';
+            document.getElementById('absTypeCounts').checked = !(p && p.countsAbsence === false);
             document.getElementById('absTypeColors').innerHTML = ABSENCE_COLOR_CHOICES.map(k => `<button type="button" data-abs-color="${k}" onclick="pickAbsenceColor('${k}')" title="${SHIFT_COLOR_THEMES[k].text}" class="w-7 h-7 rounded-full border-2 border-white shadow ${SHIFT_COLOR_THEMES[k].swatch}"></button>`).join('');
             pickAbsenceColor(absenceColorKey);
             document.getElementById('absTypeMsg').classList.add('hidden');
@@ -3350,11 +3352,11 @@
             if (taken) { msg.textContent = 'Ya existe una inasistencia con ese nombre.'; msg.classList.remove('hidden'); return; }
             if (editingAbsenceId) {
                 const p = appState.shiftPresets.find(x => x.id === editingAbsenceId);
-                if (p) { p.name = name.slice(0, 30); p.color = absenceColorKey; }
+                if (p) { p.name = name.slice(0, 30); p.color = absenceColorKey; p.countsAbsence = document.getElementById('absTypeCounts').checked; }
                 // Los días ya asignados toman el nombre nuevo.
                 appState.shifts.forEach(sh => { if (sh.absenceType === editingAbsenceId) { sh.shiftTitle = name; sh.functionTag = name; sh.color = absenceColorKey; } });
             } else {
-                appState.shiftPresets.push({ id: 'abs_' + Date.now(), kind: 'absence', name: name.slice(0, 30), color: absenceColorKey });
+                appState.shiftPresets.push({ id: 'abs_' + Date.now(), kind: 'absence', name: name.slice(0, 30), color: absenceColorKey, countsAbsence: document.getElementById('absTypeCounts').checked });
             }
             syncCustomAbsenceTypes();
             saveShiftPresets();
@@ -10099,7 +10101,7 @@
             const pctF = (v) => `${(Math.round(v * 10) / 10).toLocaleString('es-CO')} %`;
             const asist = t.asistidos || 0;
             switch (key) {
-                case 'ausentismo': return t.programados ? maxRule(t.ausentismo, g.ausentismoMax, pctF) : { st: null };
+                case 'ausentismo': return (t.diasDebia || t.programados) ? maxRule(t.ausentismo, g.ausentismoMax, pctF) : { st: null };
                 case 'puntualidad': {
                     if (g.puntualidadMin == null || t.puntualidad == null) return { st: null };
                     const st = t.puntualidad >= g.puntualidadMin ? 'ok' : t.puntualidad >= g.puntualidadMin - 5 ? 'warn' : 'bad';
@@ -10238,7 +10240,7 @@
             const minsFmt = (m) => fmtMins(m);
             document.getElementById('indCards').innerHTML = [
                 card('Tasa de ausentismo', 'fa-user-xmark', fmtPct(t.ausentismo),
-                    `${t.ausencias} ausencia(s) de ${t.programados} turno(s) · injustificado: ${fmtPct(t.ausentismoInjustificado)}`,
+                    `${t.ausTotal ?? t.ausencias} de ${t.diasDebia ?? t.programados} día(s) · Faltas ${t.ausencias} · Incapacidad ${t.ausIncapacidad || 0} · Otras ${t.ausOtras || 0} · injustificado: ${fmtPct(t.ausentismoInjustificado)}`,
                     indDelta(t.ausentismo, p.ausentismo, 'down', fmtPct, ' pts')),
                 card('Índice de puntualidad', 'fa-clock', fmtPct(t.puntualidad),
                     `${t.entradas - t.tarde} de ${t.entradas} entrada(s) a tiempo · ${t.tarde} tarde (${minsFmt(t.minutosRetraso)})`,
@@ -10313,11 +10315,11 @@
             if (!box) return;
             const det = d.details || {};
             if (!indSelectedCard) { box.innerHTML = ''; return; }
-            const EST = { pendiente: ['Pendiente', 'bg-slate-100 text-slate-600'], justificada: ['Justificada', 'bg-emerald-100 text-emerald-800'], injustificada: ['Injustificada', 'bg-rose-100 text-rose-800'] };
+            const EST = { pendiente: ['Pendiente', 'bg-slate-100 text-slate-600'], justificada: ['Justificada', 'bg-emerald-100 text-emerald-800'], injustificada: ['Injustificada', 'bg-rose-100 text-rose-800'], novedad: ['Novedad', 'bg-amber-100 text-amber-800'] };
             const est = (e) => { const x = EST[e] || EST.pendiente; return `<span class="px-2 py-0.5 rounded-full text-3xs font-bold ${x[1]}">${x[0]}</span>`; };
             const who = (r) => `<button type="button" onclick="indOpenEmployee(${r.employeeId})" class="font-semibold text-sky-700 hover:underline text-left">${escapeHtml(r.name)}</button>`;
             const cfg = {
-                ausentismo: { title: 'Ausencias del periodo', hint: 'Turnos terminados sin marcación de entrada. El estado viene de la alerta "No se presentó".',
+                ausentismo: { title: 'Ausencias del periodo', hint: 'Faltas (turnos terminados sin marcación de entrada; el estado viene de la alerta "No se presentó"), incapacidades y demás inasistencias que cuentan como ausentismo (estado "Novedad"). No cuentan descansos, vacaciones, "Sin horario" ni Compensatorio.',
                     head: ['Colaborador', 'Área', 'Fecha', 'Turno', 'Estado'], rows: (det.ausencias || []).map(r => [who(r), escapeHtml(r.area), pdfDate(r.date), escapeHtml(r.turno), est(r.estado)]) },
                 puntualidad: { title: 'Llegadas tarde del periodo', hint: 'Cada día con minutos de retraso en la entrada.',
                     head: ['Colaborador', 'Área', 'Fecha', 'Hora programada', 'Hora de llegada', 'Retraso'], rows: (det.tardes || []).map(r => [who(r), escapeHtml(r.area), pdfDate(r.date), escapeHtml(r.programada), escapeHtml(r.real || '-'), `<strong>${fmtMins(r.min)}</strong>`]) },
@@ -10359,7 +10361,7 @@
             if (!d || !indSelectedCard) return;
             const h = (m) => Math.round((Number(m) || 0) / 6) / 10; // minutos -> horas con 1 decimal
             const h2 = (m) => Math.round((Number(m) || 0) / 60 * 100) / 100; // minutos -> horas con 2 decimales
-            const EST = { pendiente: 'Pendiente', justificada: 'Justificada', injustificada: 'Injustificada' };
+            const EST = { pendiente: 'Pendiente', justificada: 'Justificada', injustificada: 'Injustificada', novedad: 'Novedad' };
             const doc = (id) => { const e = appState.employees.find(x => Number(x.id) === Number(id)); return e ? docLabel(e) : ''; };
             const X = {
                 ausentismo: ['Ausencias', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Turno', 'Estado'], (det.ausencias || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, r.turno, EST[r.estado] || r.estado])],
