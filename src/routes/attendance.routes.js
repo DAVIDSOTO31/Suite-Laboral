@@ -1903,11 +1903,14 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
     if (data.dayZero && s.date <= data.dayZero) continue;
     const emp = data.employees.get(Number(s.empId));
     if (!emp || (area && emp.department !== area)) continue;
-    // Solo turnos que YA terminaron (los que estan en curso aun no se evaluan).
+    // Turno EN CURSO: las llegadas tarde y los excesos de almuerzo cuentan al
+    // instante (si ya marco la entrada). La ausencia solo se cuenta cuando el
+    // turno termina (puede estar llegando tarde).
     const endRel = clockToRel(s.endTime, s.startTime);
-    if (bogota.minutesSinceShiftMidnight(now, s.date) < endRel) continue;
+    const inProgress = bogota.minutesSinceShiftMidnight(now, s.date) < endRel;
     const key = `${emp.id}|${s.date}`;
     const d = data.days.get(key);
+    if (inProgress && (!d || !d.entrada_real)) continue;
     const bs = bucketsFor(emp);
     const valorMinuto = (Number(emp.salary) || 0) / monthlyDividerForDate(s.date) / 60;
     for (const b of bs) b.programados++;
