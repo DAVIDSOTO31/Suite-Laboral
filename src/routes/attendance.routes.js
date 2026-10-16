@@ -169,7 +169,9 @@ function computeDayHours({ employeeId, shiftDateISO, scheduledStart, scheduledEn
   const marks = db.prepare(
     'SELECT mark_type, actual_at FROM attendance_marks WHERE employee_id = ? AND shift_date = ? ORDER BY actual_at ASC'
   ).all(employeeId, shiftDateISO);
+  const fixed = correctedAbsForDay(employeeId, shiftDateISO, scheduledStart);
   const absOf = (type) => {
+    if (fixed && fixed[type] != null) return fixed[type];
     const m = marks.find(x => x.mark_type === type);
     return m ? bogota.minutesSinceShiftMidnight(new Date(m.actual_at), shiftDateISO) : null;
   };
@@ -203,7 +205,8 @@ function splitLimitMinutes(shift) {
 // Horas de un dia de turno partido a partir de sus 4 marcaciones reales.
 function computeSplitDayHours(employeeId, shiftDateISO, shift, salidaAbsMin, nightEnabled) {
   const marks = db.prepare('SELECT mark_type, actual_at FROM attendance_marks WHERE employee_id = ? AND shift_date = ? ORDER BY actual_at ASC').all(employeeId, shiftDateISO);
-  const absOf = (type) => { const m = marks.find(x => x.mark_type === type); return m ? bogota.minutesSinceShiftMidnight(new Date(m.actual_at), shiftDateISO) : null; };
+  const fixed = correctedAbsForDay(employeeId, shiftDateISO, shift.startTime);
+  const absOf = (type) => { if (fixed && fixed[type] != null) return fixed[type]; const m = marks.find(x => x.mark_type === type); return m ? bogota.minutesSinceShiftMidnight(new Date(m.actual_at), shiftDateISO) : null; };
   const start = rules.timeToMinutes(shift.startTime);
   const e1 = absOf('entrada'), o1 = absOf('inicio_almuerzo'), i2 = absOf('fin_almuerzo');
   const o2 = salidaAbsMin != null ? salidaAbsMin : absOf('salida');
@@ -1119,7 +1122,8 @@ async function registerCorrection(req, res) {
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   const date = String(body.date || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: 'Fecha invalida.' });
-  if (date >= bogota.todayISOInBogota()) return sendJson(res, 400, { error: 'Solo se pueden corregir dias ya pasados.' });
+  const todayISO = bogota.todayISOInBogota();
+  if (date > todayISO) return sendJson(res, 400, { error: 'No se pueden corregir dias futuros.' });
   const reason = String(body.reason || '').trim().slice(0, 300);
   if (reason.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo de la correccion (minimo 5 caracteres).' });
   // Un dia que pertenece a un periodo CERRADO (recargos o extras) no se puede corregir.
@@ -1142,6 +1146,11 @@ async function registerCorrection(req, res) {
     salida: day ? day.salida_real : null,
   };
   const times = body.times && typeof body.times === 'object' ? body.times : {};
+  // MISMO DIA (turno aun en curso): solo se corrigen las marcaciones que ya se
+  // hicieron; las que faltan las sigue marcando el colaborador en el kiosco.
+  if (date === todayISO && !rules.MARK_SEQUENCE.every(k => current[k])) {
+    return registerSameDayCorrection(req, res, { orgId, employee, shift, day, current, times, reason, date });
+  }
   const final = {};
   for (const k of rules.MARK_SEQUENCE) {
     const v = times[k] != null && times[k] !== '' ? String(times[k]) : current[k];
@@ -1217,6 +1226,77 @@ async function registerCorrection(req, res) {
     metadata: { colaborador: employee.name, fecha: date, cambios: changes, motivo: reason },
   });
   sendJson(res, 200, { ok: true, changes, hours: { hod_min: cat.hod, hon_min: cat.hon, hed_min: hedFinal, hen_min: cat.hen } });
+}
+
+// Correccion del MISMO DIA: solo las marcaciones ya hechas. Recalcula el
+// retraso (si se corrige la entrada) y el exceso de almuerzo (si ya regreso);
+// las horas del dia se calculan al marcar la salida, usando estas horas corregidas.
+function registerSameDayCorrection(req, res, { orgId, employee, shift, day, current, times, reason, date }) {
+  if (!day || !current.entrada) return sendJson(res, 400, { error: 'El colaborador aun no ha marcado hoy: no hay nada que corregir.' });
+  const done = rules.MARK_SEQUENCE.filter(k => current[k]);
+  const final = {};
+  for (const k of rules.MARK_SEQUENCE) {
+    const v = times[k] != null && times[k] !== '' ? String(times[k]) : null;
+    if (!current[k]) {
+      if (v) return sendJson(res, 400, { error: 'Hoy solo se pueden corregir las marcaciones que el colaborador ya hizo; las que faltan las marca en el kiosco.' });
+      continue;
+    }
+    final[k] = v || current[k];
+    if (!HHMM.test(final[k])) return sendJson(res, 400, { error: 'Revisa las horas (formato HH:MM).' });
+  }
+  const abs = correctedAbsMinutes(final, shift.startTime);
+  if (abs[done[done.length - 1]] - abs.entrada > 24 * 60) return sendJson(res, 400, { error: 'Las horas no forman una jornada valida.' });
+  const nowRel = bogota.minutesSinceShiftMidnight(new Date(), date);
+  if (done.some(k => abs[k] > nowRel + 1)) return sendJson(res, 400, { error: 'No se puede poner una hora que todavia no ha llegado.' });
+  const scheduledEntradaMin = rules.timeToMinutes(shift.startTime);
+  const retraso = Math.max(0, abs.entrada - scheduledEntradaMin);
+  const exceso = (final.inicio_almuerzo && final.fin_almuerzo)
+    ? rules.classifyAlmuerzo(Number(shift.breakM) || 0, abs.fin_almuerzo - abs.inicio_almuerzo).excessMinutes
+    : (day.exceso_almuerzo_min || 0);
+  // El estado "llegada tarde / a tiempo" se ajusta si el dia aun esta en ese punto.
+  const status = (day.status === 'llegada_tarde' || day.status === 'llegada_anticipada')
+    ? (retraso > 0 ? 'llegada_tarde' : 'llegada_anticipada') : day.status;
+  db.prepare(`UPDATE attendance_days SET entrada_real = ?, inicio_almuerzo_real = ?, fin_almuerzo_real = ?,
+                retraso_min = ?, exceso_almuerzo_min = ?, status = ?, corrected = 1, updated_at = datetime('now')
+              WHERE employee_id = ? AND shift_date = ?`)
+    .run(final.entrada, final.inicio_almuerzo || null, final.fin_almuerzo || null, retraso, exceso, status, employee.id, date);
+  const insertCorr = db.prepare(`INSERT INTO attendance_corrections (id, organization_id, employee_id, shift_date, mark_type, original_time, corrected_time, reason, created_by, created_at)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-5 hours'))`);
+  const changes = [];
+  for (const k of done) {
+    if (current[k] !== final[k]) {
+      insertCorr.run(uid('corr'), orgId, employee.id, date, k, current[k], final[k], reason, req.user.id);
+      changes.push({ marcacion: k, antes: current[k], despues: final[k] });
+    }
+  }
+  logAction({
+    organizationId: orgId, userId: req.user.id, action: 'attendance.correction',
+    resourceType: 'employee', resourceId: String(employee.id), ip: getClientIp(req),
+    metadata: { colaborador: employee.name, fecha: date, cambios: changes, motivo: reason, mismoDia: true },
+  });
+  sendJson(res, 200, { ok: true, changes, sameDay: true });
+}
+// Minutos desde la medianoche del dia del turno para horas HH:MM en orden
+// (entrada, inicio almuerzo, fin almuerzo, salida); cruza medianoche si hace falta.
+function correctedAbsMinutes(clocks, shiftStartClock) {
+  const scheduledEntradaMin = rules.timeToMinutes(shiftStartClock);
+  const abs = {};
+  let prev = null;
+  for (const k of rules.MARK_SEQUENCE) {
+    if (!clocks[k]) continue;
+    let m = rules.timeToMinutes(clocks[k]);
+    if (prev === null) { if (m < scheduledEntradaMin - 720) m += 1440; }
+    else { while (m < prev) m += 1440; }
+    abs[k] = m; prev = m;
+  }
+  return abs;
+}
+// Si el dia tiene una correccion hecha el mismo dia, las horas se calculan con
+// las horas corregidas (no con las marcaciones originales, que no se modifican).
+function correctedAbsForDay(employeeId, shiftDateISO, shiftStartClock) {
+  const d = db.prepare('SELECT corrected, entrada_real, inicio_almuerzo_real, fin_almuerzo_real FROM attendance_days WHERE employee_id = ? AND shift_date = ?').get(employeeId, shiftDateISO);
+  if (!d || d.corrected !== 1) return null;
+  return correctedAbsMinutes({ entrada: d.entrada_real, inicio_almuerzo: d.inicio_almuerzo_real, fin_almuerzo: d.fin_almuerzo_real }, shiftStartClock);
 }
 
 // GET /api/attendance/corrections?from=&to=[&employeeId=]
