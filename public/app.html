@@ -3485,7 +3485,8 @@
             return sh && !sh.isOffDay ? sh : null;
         }
         // Qué se puede levantar de una celda: un turno de trabajo (se COPIA) o un
-        // día de descanso (se MUEVE dentro de la misma fila: intercambia con el turno destino).
+        // día de descanso (se LLEVA a la casilla destino, que queda en descanso).
+        // Nunca se intercambian posiciones: la casilla de origen no cambia.
         function rcSourceKind(td) {
             const c = rcCellInfo(td);
             if (!c) return null;
@@ -3533,7 +3534,7 @@
                 ghost.innerHTML = `<i class="fa-solid fa-copy"></i> ${escapeHtml(shiftTimeLabel(sh))}`;
             } else {
                 ghost.className = 'rc-drag-ghost px-2 py-1 rounded-lg border shadow-xl text-3xs font-black bg-rose-100 text-rose-700 border-rose-300';
-                ghost.innerHTML = '<i class="fa-solid fa-arrows-left-right"></i> Mover descanso';
+                ghost.innerHTML = '<i class="fa-solid fa-copy"></i> Descanso';
             }
             ghost.style.left = x + 'px'; ghost.style.top = y + 'px';
             document.body.appendChild(ghost);
@@ -3548,11 +3549,11 @@
             const td = el ? el.closest('#rosterTableBody td[data-rc-emp]') : null;
             if (!td) return;
             if (rcDrag.kind === 'rest') {
-                // El descanso se mueve a UN solo día de la misma persona.
+                // El descanso se lleva a UNA sola casilla (de cualquier colaborador).
                 rcClearMarks();
                 rcDrag.targets = [];
                 if (td === rcDrag.srcTd) return;
-                const ok = td.parentElement === rcDrag.srcTd.parentElement && rcCanDrop(td);
+                const ok = rcCanDrop(td);
                 td.classList.add(ok ? 'rc-drag-target' : 'rc-drag-blocked');
                 if (ok) rcDrag.targets = [td];
                 return;
@@ -3568,27 +3569,23 @@
             const edge = 70;
             if (y < edge) window.scrollBy(0, -14); else if (y > window.innerHeight - edge) window.scrollBy(0, 14);
         }
-        // Mueve el descanso: el día destino queda en descanso y su turno pasa al
-        // día donde estaba el descanso (si el destino no tenía turno, solo se mueve).
+        // Lleva el descanso: SOLO la casilla destino queda en descanso (si tenía
+        // turno, ese turno se reemplaza). La casilla de origen no cambia y nunca
+        // se intercambian posiciones.
         function rcApplyRestMove() {
-            const s0 = rcCellInfo(rcDrag.srcTd), t0 = rcCellInfo(rcDrag.targets[0]);
-            const emp = appState.employees.find(e => Number(e.id) === s0.empId);
+            const t0 = rcCellInfo(rcDrag.targets[0]);
+            if (isRosterAdminLocked(t0.empId, t0.date)) { rosterLockedToast(); return; }
+            const emp = appState.employees.find(e => Number(e.id) === t0.empId);
             if (!emp) return;
-            const prevSrc = appState.shifts.find(s => Number(s.empId) === s0.empId && s.date === s0.date) || null;
             const prevTgt = appState.shifts.find(s => Number(s.empId) === t0.empId && s.date === t0.date) || null;
-            appState.shifts = appState.shifts.filter(s => !(Number(s.empId) === s0.empId && (s.date === s0.date || s.date === t0.date)));
+            appState.shifts = appState.shifts.filter(s => !(Number(s.empId) === t0.empId && s.date === t0.date));
             appState.shifts.push(makeRestShift(emp.id, t0.date));
-            if (prevTgt && !prevTgt.isOffDay) {
-                const moved = cloneShiftToDate(prevTgt, emp, s0.date);
-                if (prevTgt.note) moved.note = prevTgt.note;
-                appState.shifts.push(moved);
-            }
-            rosterRelock(emp.id, s0.date); rosterRelock(emp.id, t0.date);
-            rcUndo = [{ empId: emp.id, date: s0.date, prev: prevSrc }, { empId: emp.id, date: t0.date, prev: prevTgt }];
+            rosterRelock(emp.id, t0.date);
+            rcUndo = [{ empId: emp.id, date: t0.date, prev: prevTgt }];
             renderWeeklyRoster();
             renderSelectedEmployeeLedger();
             const dn = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric' });
-            rcShowUndoBar(`Descanso de ${emp.name} movido al ${dn(t0.date)}${prevTgt && !prevTgt.isOffDay ? `; su turno pasó al ${dn(s0.date)}` : ''}.`);
+            rcShowUndoBar(`${emp.name}: el ${dn(t0.date)} quedó en descanso.`);
         }
         function rcApplyDrop() {
             if (rcDrag.kind === 'rest') return rcApplyRestMove();
