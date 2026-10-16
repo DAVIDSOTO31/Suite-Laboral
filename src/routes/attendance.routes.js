@@ -1471,6 +1471,27 @@ function scanMissingMarks(orgId, force = false) {
     const dayRow = db.prepare('SELECT entrada_real, salida_real, status FROM attendance_days WHERE employee_id = ? AND shift_date = ?');
     const markTypes = db.prepare('SELECT mark_type FROM attendance_marks WHERE employee_id = ? AND shift_date = ?');
     const waitingKiosk = employeesWithPendingKiosk(orgId);
+    // "No se presentó" que ya no aplica: el día volvió a ser descanso (o
+    // novedad) en el cuadro de turnos y la persona no tiene ninguna marcación
+    // ese día (ej. un turno puesto por error sobre su descanso). Se elimina.
+    const absAlerts = db.prepare(`SELECT id, employee_id, shift_date FROM attendance_alerts
+                                  WHERE organization_id = ? AND alert_type = 'inasistencia' AND shift_date BETWEEN ? AND ?`)
+      .all(orgId, bogota.addDaysISO(today, -3), today);
+    const removed = [];
+    for (const a of absAlerts) {
+      if (isWorkShift(shifts.get(`${a.employee_id}|${a.shift_date}`))) continue;
+      if (markTypes.all(a.employee_id, a.shift_date).length) continue;
+      const d = dayRow.get(a.employee_id, a.shift_date);
+      if (d && (d.entrada_real || d.salida_real)) continue;
+      db.prepare('DELETE FROM alert_management WHERE alert_id = ?').run(a.id);
+      db.prepare('DELETE FROM attendance_alerts WHERE id = ?').run(a.id);
+      const emp = employees.find(e => Number(e.id) === Number(a.employee_id));
+      removed.push(`${emp ? emp.name : 'Colaborador'} · ${a.shift_date}`);
+    }
+    if (removed.length) {
+      try { logAction({ organizationId: orgId, userId: null, action: 'attendance.absence_alert_removed', resourceType: 'alert', metadata: { cantidad: removed.length, detalle: removed.slice(0, 50) } }); } catch { /* nada */ }
+      live.publishAttendance(orgId, 'alert');
+    }
     for (let back = 3; back >= 0; back--) {
       const date = bogota.addDaysISO(today, -back);
       if (NOVEDADES_START && date < NOVEDADES_START) continue;
