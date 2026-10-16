@@ -128,6 +128,10 @@
         .ind-insight.warn { background: #fffbeb; border-left-color: #f59e0b; color: #78350f; }
         .ind-insight.bad { background: #fff1f2; border-left-color: #e11d48; color: #881337; }
         .ind-insight strong { font-weight: 700; }
+        /* Historial, Días laborados y Novedades por colaborador: encabezados fijos
+           al desplazarse (la tabla se desplaza dentro de su recuadro). */
+        .att-sticky-head { max-height: calc(100vh - 190px); overflow: auto; }
+        .att-sticky-head thead th { position: sticky; top: 0; z-index: 5; background: #f8fafc; box-shadow: inset 0 -1px 0 #e2e8f0; }
         /* Registro de rostro (Biometría): ventana pegada arriba y cámara lo más grande posible
            dejando ver debajo el botón de capturar y la autorización. */
         .enroll-panel { max-height: 100vh; max-height: 100dvh; border-radius: 0 0 14px 14px; }
@@ -997,7 +1001,7 @@
                             <button onclick="attendanceLoadNovedades()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
                             <button onclick="exportNovedadesXLSX()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel</button>
                         </div>
-                        <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                        <div class="overflow-x-auto att-sticky-head border border-slate-200 rounded-lg">
                             <table class="w-full text-xs">
                                 <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
                                     <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Área</th>
@@ -1246,7 +1250,7 @@
                             <button onclick="attendanceLoadWorkdays()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
                             <button onclick="exportWorkdaysXLSX()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel</button>
                         </div>
-                        <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                        <div class="overflow-x-auto att-sticky-head border border-slate-200 rounded-lg">
                             <table class="w-full text-xs">
                                 <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
                                     <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Área</th>
@@ -1291,7 +1295,7 @@
                             <button type="button" onclick="attHistoryQuickRange('month')" class="px-2.5 py-1 rounded-full border border-slate-300 bg-white hover:bg-slate-50 text-2xs font-semibold text-slate-700">Este mes</button>
                             <label class="ml-auto flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer"><input type="checkbox" id="attHistoryOnlyNovelty" onchange="attendanceLoadHistory()" class="rounded h-4 w-4"> Solo días con novedad</label>
                         </div>
-                        <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                        <div class="overflow-x-auto att-sticky-head border border-slate-200 rounded-lg">
                             <table class="w-full text-xs">
                                 <thead class="bg-slate-50 text-slate-500 uppercase"><tr>
                                     <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Fecha</th>
