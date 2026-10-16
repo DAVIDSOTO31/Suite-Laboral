@@ -422,7 +422,7 @@
                     <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-5">
                         <div>
                             <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-chart-line text-sky-600"></i> Tablero gerencial · Indicadores</h3>
-                            <p class="text-xs text-slate-500">Se calculan con los turnos programados que <strong>ya terminaron</strong> y sus marcaciones. Vacaciones, incapacidades y descansos no cuentan como ausencia. Cada cifra se compara con el periodo anterior de la misma duración.</p>
+                            <p class="text-xs text-slate-500">Se actualizan solos: las llegadas tarde y los excesos de almuerzo se suman <strong>al instante</strong>; las ausencias, cuando termina el turno. Vacaciones, incapacidades y descansos no cuentan como ausencia. Cada cifra se compara con el periodo anterior de la misma duración.</p>
                         </div>
                         <div class="flex flex-wrap items-end gap-3">
                             <div>
@@ -8206,7 +8206,7 @@
         function liveRefreshAttendance(view) {
             try {
                 if (CAN('attendance.view_alerts')) { refreshAttAlertsBadge(); loadNotifications(); }
-                if (view === 'gerencia') loadGerenciaHoy();
+                if (view === 'gerencia') { loadGerenciaHoy(); if (!liveUserBusy()) attendanceLoadIndicators(false, true); }
                 if (view !== 'attendance') return;
                 const loaders = { today: attendanceLoadToday, history: attendanceLoadHistory, alerts: attendanceLoadAlerts, workdays: attendanceLoadWorkdays, novedades: attendanceLoadNovedades, devices: attendanceLoadDevices, bio: attendanceLoadBioList };
                 const fn = loaders[currentAttendanceSubTab];
@@ -10208,11 +10208,12 @@
             document.getElementById('indFrom').value = from;
             document.getElementById('indTo').value = to;
         }
-        async function attendanceLoadIndicators(initial) {
+        // quiet = actualización en vivo (sin el aviso "Calculando…").
+        async function attendanceLoadIndicators(initial, quiet) {
             const fromEl = document.getElementById('indFrom'), toEl = document.getElementById('indTo');
             if (!fromEl.value || !toEl.value) indApplyPreset();
             const area = document.getElementById('indArea').value;
-            document.getElementById('indCards').innerHTML = '<p class="text-xs text-slate-400 py-4">Calculando…</p>';
+            if (!quiet) document.getElementById('indCards').innerHTML = '<p class="text-xs text-slate-400 py-4">Calculando…</p>';
             try {
                 const qs = new URLSearchParams({ from: fromEl.value, to: toEl.value });
                 if (area) qs.set('area', area);
@@ -10223,7 +10224,7 @@
                 sel.value = area;
                 renderIndicators(d);
             } catch (e) {
-                document.getElementById('indCards').innerHTML = `<p class="text-xs text-slate-400 py-4">${escapeHtml(e.message)}</p>`;
+                if (!quiet) document.getElementById('indCards').innerHTML = `<p class="text-xs text-slate-400 py-4">${escapeHtml(e.message)}</p>`;
             }
             if (initial && CAN('settings.manage')) loadDigestSettings();
         }
