@@ -798,6 +798,9 @@
                             <input type="text" id="empSearchInput" oninput="filterEmployeeList()" placeholder="Buscar colaborador..." class="w-full text-xs p-2 pl-7 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500">
                             <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-slate-400 text-xs"></i>
                         </div>
+                        <select id="empAreaFilter" onchange="appState.empAreaFilter = this.value; filterEmployeeList()" title="Ver solo los colaboradores de un área" class="w-full text-xs p-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+                            <option value="">Todas las áreas</option>
+                        </select>
 
                         <div id="employeesListContainer" class="space-y-2 max-h-[520px] overflow-y-auto pr-1 custom-scrollbar">
                             <!-- Dynamic list -->
@@ -4956,6 +4959,8 @@
                 const retired = !empActive(emp);
                 let card = document.createElement('div');
                 card.className = `p-3 rounded-xl cursor-pointer border transition flex items-center justify-between ${isSelected ? 'bg-sky-50 border-sky-400 shadow-sm' : retired ? 'bg-white border-dashed border-slate-300 opacity-80 hover:opacity-100' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'}`;
+                card.dataset.empDept = empAreaKey(emp);
+                card.dataset.empActive = retired ? '0' : '1';
                 card.onclick = () => selectEmployee(emp.id);
 
                 card.innerHTML = `
@@ -4983,6 +4988,8 @@
                 listContainer.appendChild(toggle);
                 if (appState.showRetired) [...retiredList].sort((a, b) => String(b.retiredAt).localeCompare(String(a.retiredAt))).forEach(addCard);
             }
+            renderEmpAreaFilter();
+            filterEmployeeList(); // conserva la búsqueda y el área elegidas al volver a pintar
 
             renderSelectedEmployeeLedger();
         }
@@ -5109,10 +5116,31 @@
 
         function filterEmployeeList() {
             let q = document.getElementById('empSearchInput')?.value.toLowerCase() || '';
+            const area = document.getElementById('empAreaFilter')?.value || '';
+            let visibleActive = 0;
             document.querySelectorAll('#employeesListContainer > div').forEach(card => {
                 let text = card.innerText.toLowerCase();
-                card.style.display = text.includes(q) ? '' : 'none';
+                const show = text.includes(q) && (!area || card.dataset.empDept === area);
+                card.style.display = show ? '' : 'none';
+                if (show && card.dataset.empActive === '1') visibleActive++;
             });
+            const badge = document.getElementById('empCountBadge');
+            if (badge) badge.innerText = area ? `${visibleActive} de ${activeEmployees().length}` : activeEmployees().length;
+        }
+        // Área de un colaborador para el filtro (misma regla del cuadro de turnos).
+        function empAreaKey(emp) {
+            const d = (appState.departments || []).find(x => (emp.departmentId && emp.departmentId === x.id) || (emp.department && String(emp.department).toLowerCase() === String(x.name).toLowerCase()));
+            return d ? d.id : '_otras';
+        }
+        function renderEmpAreaFilter() {
+            const sel = document.getElementById('empAreaFilter');
+            if (!sel) return;
+            const cur = appState.empAreaFilter || '';
+            const hasOther = appState.employees.some(e => empAreaKey(e) === '_otras');
+            sel.innerHTML = '<option value="">Todas las áreas</option>'
+                + (appState.departments || []).map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}</option>`).join('')
+                + (hasOther ? '<option value="_otras">Otras áreas / No asignados</option>' : '');
+            sel.value = [...sel.options].some(o => o.value === cur) ? cur : '';
         }
 
         function setShiftsSubTab(tab) {
