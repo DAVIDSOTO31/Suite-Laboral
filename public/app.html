@@ -5559,6 +5559,23 @@
             if (!skipRender) renderPayrollOvertimeView();
         }
         // Quincena en curso (hora Colombia): del 1 al 15 o del 16 a fin de mes.
+        // Posición de cada colaborador en el cuadro de turnos (área por área, en el
+        // mismo orden de la pantalla). Se usa para listar en ese mismo orden.
+        function rosterEmployeeOrder() {
+            const order = new Map();
+            let i = 0;
+            const seen = new Set();
+            (appState.departments || []).forEach(dept => {
+                appState.employees.forEach(e => {
+                    if (order.has(Number(e.id))) return;
+                    const inDept = (e.departmentId && e.departmentId === dept.id) || (e.department && String(e.department).toLowerCase() === String(dept.name).toLowerCase());
+                    if (inDept) order.set(Number(e.id), i++);
+                });
+                seen.add(String(dept.name).toLowerCase()); seen.add(dept.id);
+            });
+            appState.employees.forEach(e => { if (!order.has(Number(e.id))) order.set(Number(e.id), i++); }); // otras áreas / sin área
+            return order;
+        }
         function setPayrollOtCurrentPeriod(skipRender) {
             const t = bogotaTodayParts();
             document.getElementById('payrollOtMonth').value = `${t.y}-${String(t.m).padStart(2, '0')}`;
@@ -5973,7 +5990,11 @@
                 if (rows.length === 0) {
                     tbody.innerHTML = `<tr><td colspan="${domOn ? 7 : 6}" class="p-6 text-center text-slate-400 text-xs">No hay turnos registrados en el periodo/área seleccionada.</td></tr>`;
                 } else {
-                    tbody.innerHTML = rows.map(r => `
+                    // Mismo orden del cuadro de turnos: áreas en su orden y, dentro de
+                    // cada área, los colaboradores como aparecen en el cuadro.
+                    const ord = rosterEmployeeOrder();
+                    const at = (r) => (ord.has(Number(r.emp.id)) ? ord.get(Number(r.emp.id)) : 1e9);
+                    tbody.innerHTML = [...rows].sort((a, b) => at(a) - at(b) || a.emp.name.localeCompare(b.emp.name)).map(r => `
                         <tr class="hover:bg-slate-50">
                             <td class="p-2.5 font-bold text-slate-800">${r.emp.name}
                                 ${pendingByEmp[r.emp.id] ? `<span class="block mt-0.5 text-3xs font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 w-fit" title="Días sin marcación cerrada: no incluidos en el valor">${pendingByEmp[r.emp.id]} día(s) pendiente(s)</span>` : ''}
