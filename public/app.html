@@ -663,7 +663,12 @@
                             
                             <div class="h-6 w-px bg-slate-200 mx-1"></div>
 
-                            <input type="date" id="rosterWeekDateInput" onchange="onRosterDateInputPicked(this.value)" class="text-xs p-1.5 border border-slate-300 rounded-lg text-slate-700 focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                            <label class="flex items-center gap-1 text-3xs font-bold text-slate-500 uppercase" title="Primer día del cuadro">Desde
+                                <input type="date" id="rosterWeekDateInput" onchange="onRosterDateInputPicked(this.value)" class="text-xs font-normal normal-case p-1.5 border border-slate-300 rounded-lg text-slate-700 focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                            </label>
+                            <label class="flex items-center gap-1 text-3xs font-bold text-slate-500 uppercase" title="Último día del cuadro (ej. de lunes festivo a lunes). Máximo 14 días.">Hasta
+                                <input type="date" id="rosterRangeEndInput" onchange="onRosterRangeEndPicked(this.value)" class="text-xs font-normal normal-case p-1.5 border border-slate-300 rounded-lg text-slate-700 focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                            </label>
 
                             <button type="button" id="rosterPdfBtn" onclick="openRosterPdfOptions()" title="Descargar el cuadro de esta semana en PDF (todas las áreas o solo algunas)" class="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
                                 <i class="fa-solid fa-file-pdf"></i> Descargar PDF
@@ -3029,10 +3034,14 @@
             const box = document.getElementById('rosterAssignRepeatDays');
             if (!box) return;
             rosterRepeatDates = new Set();
-            const monday = getMondayOfDate(new Date(dateISO + 'T00:00:00'));
-            const names = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-            box.innerHTML = names.map((n, i) => {
-                const d = formatDateISO(addDays(monday, i));
+            // Días que se ofrecen: los del periodo que se ve en pantalla (si el día
+            // editado está en él) o, si no, su semana de lunes a domingo.
+            const rangeDays = rosterRangeDays().map(x => x.dateISO);
+            const repeatDays = rangeDays.includes(dateISO) ? rangeDays
+                : getWeekDaysArray(getMondayOfDate(new Date(dateISO + 'T00:00:00'))).map(x => x.dateISO);
+            const names = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+            box.innerHTML = repeatDays.map((d) => {
+                const n = names[new Date(d + 'T00:00:00').getDay()];
                 const current = d === dateISO;
                 const existing = appState.shifts.find(s => s.empId === empId && s.date === d);
                 const isAbs = !!(existing && existing.absenceType);
@@ -3358,7 +3367,7 @@
             if (!appState.rosterCurrentMonday) return;
             if (!force && Date.now() - shiftLocksFetchedAt < 30000) return;
             if (shiftLocksLoading) return shiftLocksLoading;
-            const from = formatDateISO(appState.rosterCurrentMonday), to = formatDateISO(addDays(appState.rosterCurrentMonday, 6));
+            const from = formatDateISO(appState.rosterCurrentMonday), to = formatDateISO(rosterRangeEnd());
             const today = bogotaTodayISO(), yesterday = formatDateISO(addDays(new Date(today + 'T00:00:00'), -1));
             shiftLocksFetchedAt = Date.now();
             if (to < yesterday || from > today) { if (shiftLocks.size) { shiftLocks = new Map(); renderWeeklyRoster(); } return; }
@@ -4524,23 +4533,35 @@
             if (mondayCheck && !shiftsLoaded(formatDateISO(mondayCheck))) {
                 // Semana anterior a la ventana cargada: se trae del servidor y se vuelve a pintar.
                 const tb = document.getElementById('rosterTableBody');
-                if (tb) tb.innerHTML = '<tr><td colspan="9" class="p-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin"></i> Cargando turnos de esta semana…</td></tr>';
+                if (tb) tb.innerHTML = `<tr><td colspan="${rosterDayCount() + 2}" class="p-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin"></i> Cargando turnos de esta semana…</td></tr>`;
                 ensureShiftsLoaded(formatDateISO(mondayCheck)).then(renderWeeklyRoster).catch(e => showAppToast('No se pudieron cargar los turnos: ' + e.message));
                 return;
             }
             scheduleDataSync();
             renderPublishBanner();
             const monday = appState.rosterCurrentMonday;
-            const sunday = addDays(monday, 6);
-            const weekDays = getWeekDaysArray(monday);
+            const sunday = rosterRangeEnd();
+            const weekDays = rosterRangeDays();
+            const nDays = weekDays.length;
+            const customRange = rosterIsCustomRange();
+            const hoursLimit = rosterHoursLimit();
+            const dayCap = (x) => x.charAt(0) + x.slice(1).toLowerCase();
 
             const label = document.getElementById('rosterWeekRangeLabel');
             if (label) {
-                label.innerText = `Semana: Lun ${monday.getDate()}/${monday.getMonth() + 1} - Dom ${sunday.getDate()}/${sunday.getMonth() + 1}/${sunday.getFullYear()}`;
+                label.innerText = customRange
+                    ? `Periodo: ${dayCap(weekDays[0].shortName)} ${monday.getDate()}/${monday.getMonth() + 1} - ${dayCap(weekDays[nDays - 1].shortName)} ${sunday.getDate()}/${sunday.getMonth() + 1}/${sunday.getFullYear()} (${nDays} días)`
+                    : `Semana: Lun ${monday.getDate()}/${monday.getMonth() + 1} - Dom ${sunday.getDate()}/${sunday.getMonth() + 1}/${sunday.getFullYear()}`;
             }
             const datePicker = document.getElementById('rosterWeekDateInput');
             if (datePicker) {
                 datePicker.value = formatDateISO(monday);
+            }
+            const endPicker = document.getElementById('rosterRangeEndInput');
+            if (endPicker) {
+                endPicker.value = formatDateISO(sunday);
+                endPicker.min = formatDateISO(monday);
+                endPicker.max = formatDateISO(addDays(monday, ROSTER_MAX_DAYS - 1));
             }
 
             const theadRow = document.getElementById('rosterTableHeaderRow');
@@ -4549,13 +4570,13 @@
                     <th class="p-3 w-56 font-bold uppercase tracking-wider text-[11px] border-r border-slate-800 bg-slate-900 text-white">
                         <span>Colaborador</span>
                     </th>
-                    <th colspan="7" class="p-2.5 text-center border-r border-slate-800 bg-slate-900 text-white">
+                    <th colspan="${nDays}" class="p-2.5 text-center border-r border-slate-800 bg-slate-900 text-white">
                         <span class="block text-sm italic font-semibold">"Ninguno de nosotros es tan bueno como todos nosotros juntos."</span>
                         <span class="block text-3xs font-normal text-slate-400 mt-0.5">— Ray Kroc</span>
                     </th>
                     <th class="p-2.5 text-center font-bold text-[11px] w-28 bg-slate-950 text-white">
-                        <span>Horas Semanales</span>
-                        <span class="block text-3xs font-normal text-emerald-400">Ley 2101 (42h)</span>
+                        <span>${nDays !== 7 ? 'Horas del periodo' : 'Horas Semanales'}</span>
+                        <span class="block text-3xs font-normal text-emerald-400">${nDays !== 7 ? `Tope ${hoursLimit} h (${nDays} días)` : 'Ley 2101 (42h)'}</span>
                     </th>
                 `;
             }
@@ -4567,7 +4588,7 @@
             if (appState.employees.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="9" class="p-8 text-center text-slate-400">
+                        <td colspan="${nDays + 2}" class="p-8 text-center text-slate-400">
                             No hay colaboradores en la nómina. Vincule colaboradores para programar turnos.
                         </td>
                     </tr>
@@ -4576,7 +4597,7 @@
                 return;
             }
 
-            const dailyCoverageCounters = [0, 0, 0, 0, 0, 0, 0];
+            const dailyCoverageCounters = new Array(nDays).fill(0);
             const deptGroups = [];
             const seenDepts = new Set();
 
@@ -4668,7 +4689,7 @@
                     emptyRow.className = 'border-b border-slate-100 bg-slate-50/40 text-slate-400 text-3xs italic';
                     emptyRow.dataset.rosterDept = dept.id;
                     emptyRow.innerHTML = `
-                        <td colspan="9" class="p-3 text-center">
+                        <td colspan="${nDays + 2}" class="p-3 text-center">
                             No hay colaboradores asignados actualmente a <strong>${dept.name}</strong>.
                         </td>
                     `;
@@ -4745,7 +4766,7 @@
                         }
                     }).join('');
 
-                    const limit = appState.settings.weeklyLimit;
+                    const limit = hoursLimit;
                     const isOverLimit = empWeeklyHours > limit;
 
                     let totalTd = `
@@ -4755,8 +4776,8 @@
                                     ${empWeeklyHours.toFixed(2)} h
                                 </span>
                                 ${isOverLimit ? `
-                                    <span class="text-4xs bg-rose-100 text-rose-800 font-bold px-1.5 rounded flex items-center gap-0.5" title="Excede las 42 horas máximas permitidas por semana">
-                                        <i class="fa-solid fa-triangle-exclamation"></i> >42h
+                                    <span class="text-4xs bg-rose-100 text-rose-800 font-bold px-1.5 rounded flex items-center gap-0.5" title="${nDays === 7 ? 'Excede las 42 horas máximas permitidas por semana' : `Excede el tope del periodo (${limit} h: 42 h por semana llevadas a ${nDays} días)`}">
+                                        <i class="fa-solid fa-triangle-exclamation"></i> >${limit}h
                                     </span>
                                 ` : `
                                     <span class="text-4xs bg-emerald-100 text-emerald-800 font-bold px-1.5 rounded">
@@ -6367,11 +6388,11 @@
         function renderPublishBanner() {
             const box = document.getElementById('rosterPublishBanner');
             if (!box) return;
-            const days = getWeekDaysArray(appState.rosterCurrentMonday).map(d => d.dateISO);
+            const days = rosterRangeDays().map(d => d.dateISO);
             const pending = days.filter(d => !isDatePublishedCO(d));
             const fmt = (iso) => iso.split('-').reverse().join('/');
             if (!pending.length) {
-                const pub = (appState.publications || []).filter(p => p.to >= days[0] && p.from <= days[6]).slice(-1)[0];
+                const pub = (appState.publications || []).filter(p => p.to >= days[0] && p.from <= days[days.length - 1]).slice(-1)[0];
                 box.innerHTML = `<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 font-semibold"><i class="fa-solid fa-circle-check"></i> Semana publicada: los colaboradores la ven en "Mi horario".${pub && pub.publishedAt ? ` Última publicación: ${escapeHtml(pub.publishedAt)} por ${escapeHtml(pub.publishedBy || '-')}.` : ''} Si cambias un turno, se registra en el historial y se avisa al colaborador.</div>`;
                 return;
             }
@@ -6379,15 +6400,15 @@
             const daysToStart = Math.round((new Date(pending[0] + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
             const urgent = daysToStart <= 2;
             box.innerHTML = `<div class="rounded-lg border ${urgent ? 'border-rose-300 bg-rose-50 text-rose-800' : 'border-amber-300 bg-amber-50 text-amber-800'} px-3 py-2 text-xs font-semibold flex flex-wrap items-center justify-between gap-2">
-                <span><i class="fa-solid fa-triangle-exclamation"></i> ${pending.length === 7 ? 'La semana del ' + fmt(days[0]) + ' al ' + fmt(days[6]) + ' aún no está publicada' : pending.length + ' día(s) de esta semana sin publicar (' + pending.map(fmt).join(', ') + ')'}: los colaboradores todavía no los ven en "Mi horario". La marcación en el kiosco funciona igual.
+                <span><i class="fa-solid fa-triangle-exclamation"></i> ${pending.length === days.length ? (rosterIsCustomRange() ? 'El periodo del ' : 'La semana del ') + fmt(days[0]) + ' al ' + fmt(days[days.length - 1]) + (rosterIsCustomRange() ? ' aún no está publicado' : ' aún no está publicada') : pending.length + ' día(s) de ' + (rosterIsCustomRange() ? 'este periodo' : 'esta semana') + ' sin publicar (' + pending.map(fmt).join(', ') + ')'}: los colaboradores todavía no los ven en "Mi horario". La marcación en el kiosco funciona igual.
                 ${urgent ? (daysToStart <= 0 ? ' <strong>¡Ya empezó!</strong>' : ` <strong>Empieza en ${daysToStart} día(s).</strong>`) : ''}</span>
                 <button data-perm="shifts.edit" onclick="openPublishModal()" class="px-3 py-1 rounded-lg ${urgent ? 'bg-rose-600 hover:bg-rose-700' : 'bg-amber-600 hover:bg-amber-700'} text-white">Publicar</button>
             </div>`;
         }
         function openPublishModal() {
-            const days = getWeekDaysArray(appState.rosterCurrentMonday).map(d => d.dateISO);
+            const days = rosterRangeDays().map(d => d.dateISO);
             document.getElementById('publishFrom').value = days[0];
-            document.getElementById('publishTo').value = days[6];
+            document.getElementById('publishTo').value = days[days.length - 1];
             const mailOn = appState.shiftEmailsEnabled === true;
             document.getElementById('publishNotify').checked = mailOn;
             document.getElementById('publishNotifyRow').classList.toggle('hidden', !mailOn);
@@ -6430,7 +6451,10 @@
         function openCopyWeekModal() {
             const mon = appState.rosterCurrentMonday, prev = addDays(mon, -7);
             const f = (d) => `${d.getDate()}/${d.getMonth() + 1}`;
-            document.getElementById('copyWeekInfo').innerHTML = `Copia los turnos de la semana del <strong>${f(prev)} al ${f(addDays(prev, 6))}</strong> a la semana que estás viendo (<strong>${f(mon)} al ${f(addDays(mon, 6))}</strong>), día por día. Los turnos copiados quedan en <strong>borrador</strong> hasta que publiques.`;
+            const nCopy = rosterDayCount();
+            document.getElementById('copyWeekInfo').innerHTML = rosterIsCustomRange()
+                ? `Copia los turnos del <strong>${f(prev)} al ${f(addDays(prev, nCopy - 1))}</strong> (7 días antes) al periodo que estás viendo (<strong>${f(mon)} al ${f(addDays(mon, nCopy - 1))}</strong>), día por día. Los turnos copiados quedan en <strong>borrador</strong> hasta que publiques.`
+                : `Copia los turnos de la semana del <strong>${f(prev)} al ${f(addDays(prev, 6))}</strong> a la semana que estás viendo (<strong>${f(mon)} al ${f(addDays(mon, 6))}</strong>), día por día. Los turnos copiados quedan en <strong>borrador</strong> hasta que publiques.`;
             fillDeptSelect('copyWeekDept');
             openModal('modalCopyWeek');
         }
@@ -6458,7 +6482,7 @@
             const emps = activeEmployees().filter(e => dept === '_ALL_' || e.department === dept);
             let copied = 0, skipped = 0;
             for (const emp of emps) {
-                for (let i = 0; i < 7; i++) {
+                for (let i = 0; i < rosterDayCount(); i++) {
                     const src = formatDateISO(addDays(prev, i)), dst = formatDateISO(addDays(mon, i));
                     if (isShiftLocked(emp.id, dst)) { skipped++; continue; } // día ya iniciado
                     const from = appState.shifts.find(s => Number(s.empId) === Number(emp.id) && s.date === src);
@@ -6586,15 +6610,16 @@
 
         // ---- Historial de cambios en turnos publicados ----
         async function openShiftChangesModal() {
-            const days = getWeekDaysArray(appState.rosterCurrentMonday).map(d => d.dateISO);
+            const days = rosterRangeDays().map(d => d.dateISO);
+            const last = days[days.length - 1];
             const fmt = (iso) => iso.split('-').reverse().join('/');
-            document.getElementById('shiftChangesSubtitle').textContent = `Turnos de la semana del ${fmt(days[0])} al ${fmt(days[6])} que se cambiaron después de publicados.`;
+            document.getElementById('shiftChangesSubtitle').textContent = `Turnos ${rosterIsCustomRange() ? 'del periodo' : 'de la semana'} del ${fmt(days[0])} al ${fmt(last)} que se cambiaron después de publicados.`;
             const body = document.getElementById('shiftChangesBody');
             body.innerHTML = '<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>';
             openModal('modalShiftChanges');
             try {
                 await flushDataSync();
-                const { rows } = await apiFetch(`/api/shifts/changes?from=${days[0]}&to=${days[6]}`);
+                const { rows } = await apiFetch(`/api/shifts/changes?from=${days[0]}&to=${last}`);
                 body.innerHTML = rows.map(c => `<tr class="border-t border-slate-100 align-top">
                     <td class="px-3 py-2 whitespace-nowrap text-slate-500">${escapeHtml(c.changedAt)}</td>
                     <td class="px-3 py-2">${escapeHtml(c.changedBy || '-')}</td>
@@ -7500,39 +7525,69 @@
             return `${y}-${m}-${d}`;
         }
 
+        // ---- Periodo del cuadro: semana normal (lunes a domingo) o un rango
+        // elegido con "Desde" y "Hasta" (ej. de lunes festivo a lunes). ----
+        const ROSTER_MAX_DAYS = 14;
+        function rosterDayCount() {
+            const n = Number(appState.rosterDays);
+            return n >= 1 && n <= ROSTER_MAX_DAYS ? n : 7;
+        }
+        function rosterRangeEnd() { return addDays(appState.rosterCurrentMonday, rosterDayCount() - 1); }
+        function rosterIsCustomRange() { return rosterDayCount() !== 7 || appState.rosterCurrentMonday.getDay() !== 1; }
+        function rosterRangeDays() { return getWeekDaysArray(appState.rosterCurrentMonday, rosterDayCount()); }
+        // Tope de horas del periodo: 42 h por semana (6 h por día) llevado a los días del rango.
+        function rosterHoursLimit() {
+            const n = rosterDayCount();
+            return n === 7 ? appState.settings.weeklyLimit : Math.round(appState.settings.weeklyLimit / 7 * n * 100) / 100;
+        }
+
         function changeRosterWeek(direction) {
-            appState.rosterCurrentMonday = addDays(appState.rosterCurrentMonday, direction * 7);
+            // Las flechas siempre vuelven a la semana normal (lunes a domingo).
+            const base = rosterIsCustomRange() ? getMondayOfDate(appState.rosterCurrentMonday) : appState.rosterCurrentMonday;
+            appState.rosterDays = 7;
+            appState.rosterCurrentMonday = addDays(base, direction * 7);
             renderWeeklyRoster();
         }
 
         function goToCurrentWeek() {
+            appState.rosterDays = 7;
             appState.rosterCurrentMonday = getMondayOfDate(new Date());
             renderWeeklyRoster();
         }
 
+        // "Desde": primer día del cuadro. "Hasta" queda 7 días después (se puede cambiar).
         function onRosterDateInputPicked(val) {
             if (!val) return;
-            const chosen = new Date(val + 'T00:00:00');
-            appState.rosterCurrentMonday = getMondayOfDate(chosen);
+            appState.rosterCurrentMonday = new Date(val + 'T00:00:00');
+            appState.rosterDays = 7;
+            renderWeeklyRoster();
+        }
+        function onRosterRangeEndPicked(val) {
+            if (!val) return;
+            const start = formatDateISO(appState.rosterCurrentMonday);
+            const n = Math.round((new Date(val + 'T00:00:00') - new Date(start + 'T00:00:00')) / 86400000) + 1;
+            if (n < 1) { showAppToast('"Hasta" debe ser igual o posterior a "Desde".'); renderWeeklyRoster(); return; }
+            if (n > ROSTER_MAX_DAYS) { showAppToast(`El cuadro puede tener máximo ${ROSTER_MAX_DAYS} días.`); renderWeeklyRoster(); return; }
+            appState.rosterDays = n;
             renderWeeklyRoster();
         }
 
-        function getWeekDaysArray(mondayDate) {
+        function getWeekDaysArray(mondayDate, count = 7) {
             const days = [];
-            const dayNames = ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'];
-            const fullDayNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+            const dayNames = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
+            const fullDayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
-            for (let i = 0; i < 7; i++) {
+            for (let i = 0; i < count; i++) {
                 const d = addDays(mondayDate, i);
                 const iso = formatDateISO(d);
                 days.push({
                     index: i,
-                    shortName: dayNames[i],
-                    fullName: fullDayNames[i],
+                    shortName: dayNames[d.getDay()],
+                    fullName: fullDayNames[d.getDay()],
                     date: d,
                     dateISO: iso,
                     displayDate: `${d.getDate()}/${d.getMonth() + 1}`,
-                    isSunday: i === 6,
+                    isSunday: d.getDay() === 0,
                     holidayName: holidayNameCO(iso)
                 });
             }
@@ -7666,7 +7721,7 @@
             if (viewId === 'employees') renderEmployeesView();
             if (viewId === 'shifts') {
                 // Al entrar al módulo siempre se muestra la semana actual.
-                appState.rosterCurrentMonday = getMondayOfDate(new Date());
+                appState.rosterCurrentMonday = getMondayOfDate(new Date()); appState.rosterDays = 7;
                 renderShiftsView();
             }
             if (viewId === 'payrollot') renderPayrollOvertimeView();
@@ -7805,6 +7860,7 @@
 
             appState.selectedEmpId = 101;
             appState.rosterCurrentMonday = getMondayOfDate(new Date('2026-08-31'));
+            appState.rosterDays = 7;
 
             showAppToast('Áreas y turnos ordenados: Cocina, Restaurante, Hotel, Mantenimiento/Jardineria, Recepción/Admin.');
             renderEmployeesView();
@@ -9082,8 +9138,8 @@
         }
 
         const MONTHS_ES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-        function rosterWeekTitle(monday) {
-            const sunday = addDays(monday, 6);
+        function rosterWeekTitle(monday, endDate) {
+            const sunday = endDate || addDays(monday, 6);
             const d1 = monday.getDate(), m1 = MONTHS_ES[monday.getMonth()], y1 = monday.getFullYear();
             const d2 = sunday.getDate(), m2 = MONTHS_ES[sunday.getMonth()], y2 = sunday.getFullYear();
             if (y1 !== y2) return `Semana del ${d1} de ${m1} de ${y1} al ${d2} de ${m2} de ${y2}`;
@@ -9111,7 +9167,7 @@
                     <span class="font-semibold">${escapeHtml(r.dataset.rosterDeptName)}</span><span class="text-slate-400">(${n})</span></label>`;
             }).join('') || '<p class="text-xs text-slate-400">No hay áreas en el cuadro.</p>';
             document.getElementById('rosterPdfAll').checked = true;
-            document.getElementById('rosterPdfWeekLabel').textContent = rosterWeekTitle(appState.rosterCurrentMonday);
+            document.getElementById('rosterPdfWeekLabel').textContent = rosterWeekTitle(appState.rosterCurrentMonday, rosterRangeEnd());
             openModal('modalRosterPdf');
         }
         function rosterPdfToggleAll(on) {
@@ -9141,7 +9197,8 @@
                 await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
 
                 const monday = appState.rosterCurrentMonday;
-                const title = rosterWeekTitle(monday);
+                const rangeEnd = rosterRangeEnd();
+                const title = rosterWeekTitle(monday, rangeEnd);
 
                 // Copia del cuadro fuera de la pantalla, a un ancho fijo, para
                 // que el PDF salga completo (sin barras de desplazamiento).
@@ -9181,7 +9238,7 @@
                     const keep = new Set(areas.map(a => String(a.id)));
                     clone.querySelectorAll('tbody tr[data-roster-dept]').forEach(tr => { if (!keep.has(tr.dataset.rosterDept)) tr.remove(); });
                     const empIds = new Set([...clone.querySelectorAll('tbody tr[data-roster-emp]')].map(tr => String(tr.dataset.rosterEmp)));
-                    const days = getWeekDaysArray(monday);
+                    const days = rosterRangeDays();
                     const counts = days.map(d => appState.shifts.filter(s => empIds.has(String(s.empId)) && s.date === d.dateISO && !s.isOffDay).length);
                     const footCells = clone.querySelectorAll('tfoot tr td');
                     counts.forEach((c, i) => { const sp = footCells[i + 1] && footCells[i + 1].querySelector('span'); if (sp) sp.textContent = c; });
@@ -9206,7 +9263,7 @@
                 pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pageW, pageH);
                 const areaSuffix = Array.isArray(areas) && areas.length
                     ? '_' + areas.map(a => String(a.name).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '')).join('_').slice(0, 60) : '';
-                pdf.save(`Turnos_${formatDateISO(monday)}_al_${formatDateISO(addDays(monday, 6))}${areaSuffix}.pdf`);
+                pdf.save(`Turnos_${formatDateISO(monday)}_al_${formatDateISO(rangeEnd)}${areaSuffix}.pdf`);
                 showAppToast('PDF descargado.');
             } catch (e) {
                 showAppToast('No se pudo generar el PDF: ' + e.message);
