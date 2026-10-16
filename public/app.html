@@ -7523,7 +7523,7 @@
             const shift = appState.shifts.find(s => Number(s.empId) === Number(empId) && s.date === dateISO && !s.isOffDay);
             if (!emp || !shift) { showAppToast('Ese día el colaborador no tiene un turno con horario.'); return; }
             const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
-            if (dateISO >= today) { showAppToast('Solo se pueden corregir días ya pasados.'); return; }
+            if (dateISO > today) { showAppToast('No se pueden corregir días futuros.'); return; }
             document.getElementById('corrEmpId').value = emp.id;
             document.getElementById('corrDate').value = dateISO;
             document.getElementById('corrReason').value = '';
@@ -7544,12 +7544,18 @@
                 entrada: day && day.entrada_real, inicio_almuerzo: day && day.inicio_almuerzo_real,
                 fin_almuerzo: day && day.fin_almuerzo_real, salida: day && day.salida_real,
             };
-            document.getElementById('corrFields').innerHTML = Object.keys(labels).map(k => `
+            // Hoy, con el turno en curso: solo se corrigen las marcaciones ya hechas.
+            const sameDay = dateISO === today && !Object.values(current).every(Boolean);
+            if (sameDay && !current.entrada) { showAppToast('El colaborador aún no ha marcado hoy: no hay nada que corregir.'); return; }
+            document.getElementById('corrDate').dataset.sameDay = sameDay ? '1' : '';
+            document.getElementById('corrFields').innerHTML = (sameDay ? `<p class="col-span-2 text-3xs bg-sky-50 border border-sky-200 text-sky-800 rounded-lg px-2.5 py-1.5"><i class="fa-solid fa-circle-info"></i> Turno en curso: solo puedes corregir las marcaciones que ya hizo. Las que faltan las marca normalmente en el kiosco.</p>` : '') + Object.keys(labels).map(k => {
+                const locked = sameDay && !current[k];
+                return `
                 <div>
                     <label class="block font-semibold text-slate-700 mb-1">${labels[k]}</label>
-                    <input type="time" id="corrTime_${k}" value="${current[k] || ''}" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none ${current[k] ? '' : 'border-amber-400 bg-amber-50'}">
-                    <span class="block text-3xs mt-0.5 ${current[k] ? 'text-slate-400' : 'text-amber-700 font-semibold'}">${current[k] ? 'Registrada: ' + current[k] : 'Sin marcación registrada'}</span>
-                </div>`).join('');
+                    <input type="time" id="corrTime_${k}" value="${current[k] || ''}" ${locked ? 'disabled' : ''} class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none ${locked ? 'bg-slate-100 text-slate-400' : (current[k] ? '' : 'border-amber-400 bg-amber-50')}">
+                    <span class="block text-3xs mt-0.5 ${current[k] ? 'text-slate-400' : (locked ? 'text-slate-400' : 'text-amber-700 font-semibold')}">${current[k] ? 'Registrada: ' + current[k] : (locked ? 'Aún no la marca' : 'Sin marcación registrada')}</span>
+                </div>`; }).join('');
             const histBox = document.getElementById('corrHistory');
             if (corrections.length) {
                 histBox.classList.remove('hidden');
@@ -7564,13 +7570,14 @@
             const date = document.getElementById('corrDate').value;
             const reason = document.getElementById('corrReason').value.trim();
             const times = {};
-            ['entrada', 'inicio_almuerzo', 'fin_almuerzo', 'salida'].forEach(k => { times[k] = document.getElementById('corrTime_' + k).value; });
-            if (Object.values(times).some(v => !v)) { showAppToast('Completa las 4 horas del día.'); return; }
+            const sameDay = document.getElementById('corrDate').dataset.sameDay === '1';
+            ['entrada', 'inicio_almuerzo', 'fin_almuerzo', 'salida'].forEach(k => { const el = document.getElementById('corrTime_' + k); if (!el.disabled) times[k] = el.value; });
+            if (Object.values(times).some(v => !v)) { showAppToast(sameDay ? 'Completa las horas de las marcaciones que ya hizo.' : 'Completa las 4 horas del día.'); return; }
             if (reason.length < 5) { showAppToast('Escribe el motivo de la corrección (mínimo 5 caracteres).'); return; }
             try {
                 await apiFetch('/api/attendance/corrections', { method: 'POST', body: JSON.stringify({ employeeId: empId, date, times, reason }) });
                 closeModal('modalAttCorrection');
-                showAppToast('Corrección guardada. El día se recalculó con las horas corregidas.');
+                showAppToast(sameDay ? 'Corrección guardada. Al marcar la salida, las horas del día se calculan con las horas corregidas.' : 'Corrección guardada. El día se recalculó con las horas corregidas.');
                 if (!document.getElementById('view-payrollot').classList.contains('hidden')) {
                     const dm = document.getElementById('payrollOtDetailModal');
                     if (dm) { dm.classList.add('hidden'); dm.classList.remove('flex'); }
@@ -9721,7 +9728,7 @@
                         <td class="px-3 py-2">${attMinutesLabel(r.hed_min)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.hen_min)}</td>
                         <td class="px-3 py-2">${attStatusBadge(r.status, r.is_split)}${r.corrected ? '<span class="block mt-0.5 text-3xs font-bold text-sky-700"><i class="fa-solid fa-pen"></i> Corregido</span>' : ''}${r.manual_marks ? `<span class="block mt-0.5 text-3xs font-bold text-violet-700" title="Ver motivo en la pestaña Alertas"><i class="fa-solid fa-hand-pointer"></i> Manual (${r.manual_marks})</span>` : ''}${r.offline_marks ? `<span class="block mt-0.5 text-3xs font-bold text-amber-700" title="Marcada en el kiosco sin internet y enviada después, con su hora real"><i class="fa-solid fa-wifi"></i> Sin conexión (${r.offline_marks})</span>` : ''}</td>
-                        <td class="px-3 py-2 text-right" data-perm="attendance.mark">${r.shift_date < bogotaTodayISO() ? `<button onclick="openAttendanceCorrection(${r.employee_id}, '${r.shift_date}')" class="text-2xs font-semibold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200">Corregir</button>` : ''}</td>
+                        <td class="px-3 py-2 text-right" data-perm="attendance.mark">${(r.shift_date < bogotaTodayISO() || (r.shift_date === bogotaTodayISO() && r.entrada_real)) ? `<button onclick="openAttendanceCorrection(${r.employee_id}, '${r.shift_date}')" class="text-2xs font-semibold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200">Corregir</button>` : ''}</td>
                     </tr>`).join('') || `<tr><td colspan="15" class="px-3 py-6 text-center text-slate-400">${document.getElementById('attHistoryOnlyNovelty')?.checked ? 'Sin días con novedad en este rango de fechas.' : 'Sin marcaciones en este rango de fechas.'}</td></tr>`;
 
                 const closed = rows.filter(r => r.status === 'turno_finalizado');
