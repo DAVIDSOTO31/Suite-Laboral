@@ -365,9 +365,6 @@
                     <span id="breadcrumbCurrent" class="text-slate-800 font-bold">Planilla & Cuadre Semanal</span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button onclick="seedDemoData()" data-perm="settings.manage" class="px-3 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-xs font-semibold flex items-center gap-1.5 transition">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i> Restaurar Datos y Orden de Áreas
-                    </button>
                     <button onclick="exportToCSV()" data-perm="reports.view" class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm">
                         <i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel
                     </button>
@@ -7961,107 +7958,6 @@
                 showAppToast(years ? `Depuración activada${r.deleted ? `: se eliminaron ${r.deleted} turno(s) antiguos` : ''}.` : 'Depuración desactivada: se conservarán todos los turnos.');
             } catch (e) { showAppToast(e.message); }
         }
-        function seedDemoData() {
-            // Protección del historial: los datos de ejemplo solo se cargan en una
-            // organización vacía (antes reemplazaban y borraban a los colaboradores reales).
-            if (appState.employees.length > 0) {
-                showAppToast('Los datos de ejemplo solo se pueden cargar en una organización sin colaboradores. Tus colaboradores y su historial se conservan.');
-                return;
-            }
-            if (appState.shifts.length > 0) {
-                const ok = confirm('Esto reemplazará los turnos y áreas actuales por datos de ejemplo. ¿Deseas continuar?');
-                if (!ok) return;
-            }
-            // EXACT ORDER REQUIRED:
-            // 1. Cocina
-            // 2. Restaurante
-            // 3. Hotel
-            // 4. Mantenimiento/Jardineria
-            // 5. Recepción/Admin
-            appState.departments = getPredefinedDepartments();
-            saveDepartmentsToStorage();
-
-            appState.employees = [
-                // 1. Cocina
-                { id: 101, name: "Mateo Valencia Arango", role: "Chef de Cocina", department: "Cocina", departmentId: "dept_cocina", salary: 1750905 },
-                { id: 102, name: "Daniela Osorio Gómez", role: "Auxiliar de Cocina", department: "Cocina", departmentId: "dept_cocina", salary: 1750905 },
-
-                // 2. Restaurante
-                { id: 103, name: "Santiago Morales Henao", role: "Capitán de Meseros", department: "Restaurante", departmentId: "dept_restaurante", salary: 1750905 },
-                { id: 104, name: "Camila Ruiz Londoño", role: "Mesera / Servicio", department: "Restaurante", departmentId: "dept_restaurante", salary: 1750905 },
-
-                // 3. Hotel
-                { id: 105, name: "Patricia Elena Buendía", role: "Supervisora de Pisos", department: "Hotel", departmentId: "dept_hotel", salary: 1750905 },
-                { id: 106, name: "Juan David Morales", role: "Camarero de Habitaciones", department: "Hotel", departmentId: "dept_hotel", salary: 1750905 },
-
-                // 4. Mantenimiento/Jardineria
-                { id: 107, name: "José Fernando Castrillón", role: "Técnico Mantenimiento & Jardines", department: "Mantenimiento/Jardineria", departmentId: "dept_mantenimiento_jardineria", salary: 1750905 },
-
-                // 5. Recepción/Admin
-                { id: 108, name: "Maria Fernanda Gómez", role: "Recepcionista Principal", department: "Recepción/Admin", departmentId: "dept_recepcion_admin", salary: 1750905 },
-                { id: 109, name: "Carlos Eduardo Restrepo", role: "Supervisor Administrativo", department: "Recepción/Admin", departmentId: "dept_recepcion_admin", salary: 1750905 }
-            ];
-
-            appState.shifts = [
-                // Cocina
-                { empId: 101, date: "2026-08-31", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
-                { empId: 101, date: "2026-09-01", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
-                { empId: 101, date: "2026-09-02", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
-                { empId: 101, date: "2026-09-03", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
-                { empId: 101, date: "2026-09-04", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Cocina Caliente', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
-
-                { empId: 102, date: "2026-08-31", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'purple', shiftTitle: 'Tarde', functionTag: 'Preparación', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
-                { empId: 102, date: "2026-09-01", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'purple', shiftTitle: 'Tarde', functionTag: 'Preparación', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
-                { empId: 102, date: "2026-09-02", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'purple', shiftTitle: 'Tarde', functionTag: 'Preparación', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
-                { empId: 102, date: "2026-09-04", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'purple', shiftTitle: 'Tarde', functionTag: 'Preparación', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
-                { empId: 102, date: "2026-09-05", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana', functionTag: 'Preparación', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
-
-                // Restaurante
-                { empId: 103, date: "2026-08-31", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
-                { empId: 103, date: "2026-09-01", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
-                { empId: 103, date: "2026-09-03", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
-                { empId: 103, date: "2026-09-04", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
-                { empId: 103, date: "2026-09-05", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'amber', shiftTitle: 'Servicio', functionTag: 'Mesas / Salón', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
-
-                // Hotel
-                { empId: 105, date: "2026-08-31", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
-                { empId: 105, date: "2026-09-01", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
-                { empId: 105, date: "2026-09-02", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
-                { empId: 105, date: "2026-09-03", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
-                { empId: 105, date: "2026-09-04", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'teal', shiftTitle: 'Pisos', functionTag: 'Ama de Llaves', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
-
-                // Mantenimiento / Jardinería
-                { empId: 107, date: "2026-08-31", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
-                { empId: 107, date: "2026-09-01", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
-                { empId: 107, date: "2026-09-02", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
-                { empId: 107, date: "2026-09-03", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
-                { empId: 107, date: "2026-09-04", startTime: "07:00", endTime: "15:20", breakM: 20, limit: 8, color: 'slate', shiftTitle: 'Mantenimiento', functionTag: 'Técnico General', isOffDay: false, res: calculateShift("07:00", "15:20", 20, 8, false, false, 1750905) },
-
-                // Recepción / Admin
-                { empId: 108, date: "2026-08-31", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
-                { empId: 108, date: "2026-09-01", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
-                { empId: 108, date: "2026-09-02", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'purple', shiftTitle: 'Tarde Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
-                { empId: 108, date: "2026-09-04", startTime: "13:40", endTime: "22:00", breakM: 20, limit: 8, color: 'purple', shiftTitle: 'Tarde Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("13:40", "22:00", 20, 8, false, false, 1750905) },
-                { empId: 108, date: "2026-09-05", startTime: "06:00", endTime: "14:20", breakM: 20, limit: 8, color: 'emerald', shiftTitle: 'Mañana Recep.', functionTag: 'Recepción', isOffDay: false, res: calculateShift("06:00", "14:20", 20, 8, false, false, 1750905) },
-
-                { empId: 109, date: "2026-08-31", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 1750905) },
-                { empId: 109, date: "2026-09-01", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 1750905) },
-                { empId: 109, date: "2026-09-02", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 1750905) },
-                { empId: 109, date: "2026-09-03", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 1750905) },
-                { empId: 109, date: "2026-09-04", startTime: "08:00", endTime: "15:20", breakM: 20, limit: 8, color: 'sky', shiftTitle: 'Oficina', functionTag: 'Administración', isOffDay: false, res: calculateShift("08:00", "15:20", 20, 8, false, false, 1750905) }
-            ];
-
-            appState.selectedEmpId = 101;
-            appState.rosterCurrentMonday = getMondayOfDate(new Date('2026-08-31'));
-            appState.rosterDays = 7;
-
-            showAppToast('Áreas y turnos ordenados: Cocina, Restaurante, Hotel, Mantenimiento/Jardineria, Recepción/Admin.');
-            renderEmployeesView();
-            renderWeeklyRoster();
-            renderMasterShiftsTable();
-            runLiveSimulation();
-        }
-
         async function exportToCSV() {
             try { await ensureAllShiftsLoaded(); } catch (e) { showAppToast('No se pudo cargar el historial: ' + e.message); return; }
             const activeShifts = appState.shifts.filter(s => !s.isOffDay);
@@ -8741,7 +8637,7 @@
             }
 
             if (data.isEmpty && CAN('settings.manage')) {
-                showAppToast('Esta organización aún no tiene datos. Usa "Restaurar Datos y Orden de Áreas" para cargar un ejemplo.');
+                showAppToast('Esta organización aún no tiene datos. Empieza creando sus áreas y colaboradores.');
             }
         }
 

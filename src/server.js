@@ -107,7 +107,6 @@ route('GET', '/api/superadmin/audit', [requireSuperAdmin], (req, res, params, qu
 // ---- Organization-scoped endpoints ----
 route('GET', '/api/org/data', [], (req, res, params, query) => org.getOrgData(req, res, query));
 // Reemplaza TODOS los datos por un ejemplo: solo quien administra la configuracion.
-route('POST', '/api/org/seed-demo', [requirePermission('settings.manage')], (req, res, params, query) => org.seedDemo(req, res, query));
 route('PUT', '/api/org/settings', [requirePermission('settings.manage')], (req, res) => org.updateSettings(req, res));
 // Ajustes manuales de la liquidacion: los ve quien ve nomina; solo el administrador los hace.
 route('GET', '/api/payroll/adjustments', [requirePermission('reports.view')], (req, res, params, query) => org.listPayrollAdjustments(req, res, query));
