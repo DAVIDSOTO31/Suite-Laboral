@@ -3421,6 +3421,41 @@
             const v = document.getElementById('view-shifts');
             if (v && !v.classList.contains('hidden')) refreshShiftLocks(true);
         }, 60000);
+        // -----------------------------------------------------------------
+        // CANDADO DE PROGRAMACIÓN (solo pantalla, solo quien edita turnos)
+        // Todo turno o novedad asignada queda bloqueado: el pincel, el pincel de
+        // notas, arrastrar y el clic para editar no lo cambian. Se desbloquea
+        // tocando el candado y se vuelve a bloquear solo apenas se modifica.
+        // Al copiar la semana anterior, las casillas copiadas quedan desbloqueadas.
+        // No se guarda en el servidor: al recargar la página todo vuelve a quedar bloqueado.
+        // -----------------------------------------------------------------
+        const rosterUnlocked = new Set();
+        function rosterLockKey(empId, dateISO) { return `${Number(empId)}|${dateISO}`; }
+        function rosterCellHasAssignment(empId, dateISO) {
+            const sh = appState.shifts.find(s => Number(s.empId) === Number(empId) && s.date === dateISO);
+            return !!(sh && !(sh.isOffDay && !sh.absenceType));
+        }
+        function isRosterAdminLocked(empId, dateISO) {
+            if (!CAN('shifts.edit')) return false;
+            if (isShiftLocked(empId, dateISO)) return false; // ya tiene su propio candado (marcó entrada)
+            return rosterCellHasAssignment(empId, dateISO) && !rosterUnlocked.has(rosterLockKey(empId, dateISO));
+        }
+        function rosterRelock(empId, dateISO) { rosterUnlocked.delete(rosterLockKey(empId, dateISO)); }
+        function rosterUnlock(empId, dateISO) { rosterUnlocked.add(rosterLockKey(empId, dateISO)); }
+        function toggleRosterLock(ev, empId, dateISO) {
+            if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+            const k = rosterLockKey(empId, dateISO);
+            if (rosterUnlocked.has(k)) rosterUnlocked.delete(k); else rosterUnlocked.add(k);
+            renderWeeklyRoster();
+        }
+        function rosterLockedToast() {
+            showAppToast('Turno bloqueado: toca el candado para desbloquearlo y poder cambiarlo.');
+        }
+        function rosterLockBtn(empId, dateISO) {
+            if (!CAN('shifts.edit') || isShiftLocked(empId, dateISO) || !rosterCellHasAssignment(empId, dateISO)) return '';
+            const open = rosterUnlocked.has(rosterLockKey(empId, dateISO));
+            return `<button type="button" data-rc-lock="1" onclick="toggleRosterLock(event, ${Number(empId)}, '${dateISO}')" title="${open ? 'Desbloqueado: puedes cambiarlo. Toca para bloquear' : 'Bloqueado: toca para desbloquear y cambiarlo'}" class="absolute -top-0.5 -right-0.5 z-10 w-4 h-4 rounded-full flex items-center justify-center text-[8px] border shadow-sm ${open ? 'bg-emerald-500 border-emerald-600 text-white' : 'bg-white border-slate-300 text-slate-500 hover:text-slate-800'}"><i class="fa-solid ${open ? 'fa-lock-open' : 'fa-lock'}"></i></button>`;
+        }
         function lockedToast(empId, dateISO) {
             const emp = appState.employees.find(e => Number(e.id) === Number(empId));
             const t = shiftLockTime(empId, dateISO);
@@ -3472,6 +3507,7 @@
             if (!emp) return false;
             if (emp.retiredAt && c.date > emp.retiredAt) return false;
             if (isShiftLocked(c.empId, c.date)) return false;
+            if (isRosterAdminLocked(c.empId, c.date)) return false;
             const ex = appState.shifts.find(s => Number(s.empId) === c.empId && s.date === c.date);
             return !(ex && ex.absenceType);
         }
@@ -3547,6 +3583,7 @@
                 if (prevTgt.note) moved.note = prevTgt.note;
                 appState.shifts.push(moved);
             }
+            rosterRelock(emp.id, s0.date); rosterRelock(emp.id, t0.date);
             rcUndo = [{ empId: emp.id, date: s0.date, prev: prevSrc }, { empId: emp.id, date: t0.date, prev: prevTgt }];
             renderWeeklyRoster();
             renderSelectedEmployeeLedger();
@@ -3557,9 +3594,10 @@
             if (rcDrag.kind === 'rest') return rcApplyRestMove();
             const src = rcDrag.sh;
             const changes = [];
-            let skipped = 0;
+            let skipped = 0, lockedSkip = 0;
             rcDrag.targets.forEach(td => {
                 const c = rcCellInfo(td);
+                if (isRosterAdminLocked(c.empId, c.date)) { lockedSkip++; return; }
                 if (!rcCanDrop(td)) { skipped++; return; }
                 const emp = appState.employees.find(e => Number(e.id) === c.empId);
                 const prev = appState.shifts.find(s => Number(s.empId) === c.empId && s.date === c.date) || null;
@@ -3567,8 +3605,10 @@
                 copy.empId = emp.id;
                 appState.shifts = appState.shifts.filter(s => !(Number(s.empId) === c.empId && s.date === c.date));
                 appState.shifts.push(copy);
+                rosterRelock(emp.id, c.date);
                 changes.push({ empId: emp.id, date: c.date, prev });
             });
+            if (!changes.length && lockedSkip) { rosterLockedToast(); return; }
             if (!changes.length) { if (skipped) showAppToast('No se copió: esos días tienen vacaciones/incapacidad o son posteriores al retiro.'); return; }
             rcUndo = changes;
             renderWeeklyRoster();
@@ -3602,6 +3642,7 @@
         }
         document.addEventListener('pointerdown', (e) => {
             if (e.button !== 0 && e.pointerType === 'mouse') return;
+            if (e.target.closest && e.target.closest('[data-rc-lock]')) return; // tocar el candado no levanta el turno
             const td = e.target.closest && e.target.closest('#rosterTableBody td[data-rc-emp]');
             if (!td || !CAN('shifts.edit') || !rcSourceKind(td)) return;
             rcCancelHold();
@@ -3635,6 +3676,8 @@
 
         function handleRosterCellClick(empId, dateISO, empName, dateFormatted) {
             if (!CAN('shifts.edit')) return;
+            if (isRosterAdminLocked(empId, dateISO)) { rosterLockedToast(); return; }
+            rosterRelock(empId, dateISO); // al modificarlo se vuelve a bloquear solo
             if (appState.quickBrushMode === 'manual') {
                 openRosterQuickAssignModal(empId, dateISO, empName, dateFormatted);
                 return;
@@ -4835,7 +4878,8 @@
                                 : '') + extraBadge;
 
                             return `
-                                <td data-rc-emp="${emp.id}" data-rc-date="${d.dateISO}" class="p-1 border-r border-slate-200 text-center align-middle">
+                                <td data-rc-emp="${emp.id}" data-rc-date="${d.dateISO}" class="p-1 border-r border-slate-200 text-center align-middle relative">
+                                    ${rosterLockBtn(emp.id, d.dateISO)}
                                     <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${escapeHtml(shiftTimeLabel(shift))} · ${shift.res.totalHours.toFixed(2)}h${extraMin ? ' · ' + hmLabel(extraMin) + ' extra programadas' : ''}${shift.note ? ' · Nota: ' + escapeHtml(shift.note) : ''} — Clic para editar" class="px-1 py-0.5 rounded-md border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs text-center">
                                         ${isShiftLocked(emp.id, d.dateISO) ? `<div class="text-[9px] font-bold leading-tight text-slate-700"><i class="fa-solid fa-lock"></i> Entrada ${shiftLockTime(emp.id, d.dateISO)}</div>` : ''}
                                         ${shift.isSplit && shift.splitOut && shift.splitIn ? `
@@ -4854,7 +4898,8 @@
                             const a = ABSENCE_TYPES[shift.absenceType];
                             const theme = SHIFT_COLOR_THEMES[a.color];
                             return `
-                                <td data-rc-emp="${emp.id}" data-rc-date="${d.dateISO}" class="p-1 border-r border-slate-200 text-center align-middle">
+                                <td data-rc-emp="${emp.id}" data-rc-date="${d.dateISO}" class="p-1 border-r border-slate-200 text-center align-middle relative">
+                                    ${rosterLockBtn(emp.id, d.dateISO)}
                                     <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${a.label}: sin marcación este día${shift.note ? ' · Nota: ' + escapeHtml(shift.note) : ''}. Clic para cambiar" class="px-1 py-1 rounded-md border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs flex flex-col items-center justify-center">
                                         <div class="font-extrabold text-3xs uppercase leading-tight">
                                             <span>${a.label}</span>
@@ -6655,7 +6700,7 @@
                     if (from && from.absenceType && !withAbs) { continue; }
                     // Reemplazar: la semana queda igual a la anterior (incluidos los descansos).
                     if (mode === 'replace' && existing && !(existing.absenceType && !withAbs)) appState.shifts = appState.shifts.filter(s => s !== existing);
-                    if (from) { appState.shifts.push(cloneShiftToDate(from, emp, dst)); copied++; }
+                    if (from) { appState.shifts.push(cloneShiftToDate(from, emp, dst)); rosterUnlock(emp.id, dst); copied++; }
                 }
             }
             closeModal('modalCopyWeek');
