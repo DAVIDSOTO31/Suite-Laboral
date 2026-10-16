@@ -5765,7 +5765,9 @@
                     hon = real.hon_min / 60;
                     hed = real.hed_min / 60;
                     hen = real.hen_min / 60;
-                    ordHours = ((real.hod_min || 0) + (real.hon_min || 0)) / 60;
+                    // Horas ordinarias para dominical/festivo: sin el almuerzo (dato del servidor);
+                    // si no viene, hod + hon como antes.
+                    ordHours = (real.ord_worked_min != null ? real.ord_worked_min : ((real.hod_min || 0) + (real.hon_min || 0))) / 60;
                     origin = 'real';
                 } else {
                     // Sin marcacion real todavia: se usa el turno programado como estimado.
