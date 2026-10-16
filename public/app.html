@@ -815,6 +815,7 @@
                                 <p class="text-xs text-slate-500 mt-0.5 hidden" id="detailEmpDoc"></p>
                                 <p class="text-xs text-slate-500 mt-0.5 hidden" id="detailEmpEmail"></p>
                                 <p class="text-xs text-slate-500 mt-0.5 hidden" id="detailEmpPhone"></p>
+                                <p class="text-xs text-slate-500 mt-0.5" id="detailEmpContract"></p>
                                 <p class="text-xs mt-1 hidden px-2 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700" id="detailEmpRetiredInfo"></p>
                                 <div class="flex flex-wrap items-center gap-2 mt-2">
                                     <button type="button" data-perm="employees.edit" onclick="openEmployeeModal(appState.selectedEmpId)" class="text-xs px-2.5 py-1 rounded-lg border border-slate-300 hover:bg-slate-50 font-semibold text-slate-700 flex items-center gap-1">
@@ -2062,6 +2063,25 @@
                         <input type="tel" id="newEmpPhone" maxlength="18" inputmode="tel" placeholder="Ej. 300 123 4567" aria-label="Número de celular" class="flex-1 min-w-0 p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
                     </div>
                     <p class="text-3xs text-slate-400 mt-1">Más adelante se usará para enviar por WhatsApp los llamados de atención y demás avisos al colaborador.</p>
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Tipo de contrato</label>
+                    <select id="newEmpContractType" onchange="onEmpContractTypeChange()" class="w-full p-2 border rounded-lg bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                        <option value="indefinido">Término indefinido</option>
+                        <option value="fijo">Término fijo</option>
+                        <option value="servicios">Prestación de servicios</option>
+                    </select>
+                    <p class="text-3xs text-slate-400 mt-1" id="newEmpContractHint"></p>
+                    <div id="newEmpContractDates" class="hidden grid grid-cols-2 gap-2 mt-2">
+                        <div>
+                            <label class="block text-3xs font-semibold text-slate-600 mb-1">Inicio <span class="font-normal text-slate-400">(opcional)</span></label>
+                            <input type="date" id="newEmpContractStart" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-3xs font-semibold text-slate-600 mb-1">Terminación <span class="font-normal text-slate-400">(opcional)</span></label>
+                            <input type="date" id="newEmpContractEnd" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                        </div>
+                    </div>
                 </div>
                 <div>
                     <label class="block font-semibold text-slate-700 mb-1">Salario Mensual Base ($ COP)</label>
@@ -4266,6 +4286,40 @@
         }
 
         // Abre el formulario del colaborador: nuevo (empId = null) o edición.
+        // ---- Tipo de contrato ----
+        const CONTRACT_INFO = {
+            indefinido: { label: 'Término indefinido', hint: 'Jornada de 42 horas semanales, con recargo nocturno.', applied: 'Se activó el recargo nocturno y no se contabilizan los días laborados.' },
+            fijo: { label: 'Término fijo', hint: 'Jornada de 42 horas semanales, con recargo nocturno. Las fechas son opcionales.', applied: 'Se activó el recargo nocturno y no se contabilizan los días laborados.' },
+            servicios: { label: 'Prestación de servicios', hint: 'Sin recargo nocturno; se contabilizan los días trabajados (Asistencia → Días laborados). Las horas extra se calculan con el salario de la ficha.', applied: 'Se quitó el recargo nocturno y se contabilizan los días laborados.' },
+        };
+        function empContractType(emp) { return emp && CONTRACT_INFO[emp.contractType] ? emp.contractType : 'indefinido'; }
+        function applyContractDefaults(emp) {
+            if (empContractType(emp) === 'servicios') {
+                emp.nightSurcharge = false;
+                emp.nightSurchargeReason = 'Contrato de prestación de servicios';
+                emp.countWorkedDays = true;
+            } else {
+                emp.nightSurcharge = true;
+                emp.nightSurchargeReason = '';
+                emp.countWorkedDays = false;
+            }
+        }
+        function onEmpContractTypeChange() {
+            const t = document.getElementById('newEmpContractType').value;
+            document.getElementById('newEmpContractHint').textContent = (CONTRACT_INFO[t] || CONTRACT_INFO.indefinido).hint;
+            document.getElementById('newEmpContractDates').classList.toggle('hidden', t !== 'fijo');
+            // Colaborador nuevo: el recargo nocturno lo define el tipo de contrato en prestación de servicios.
+            const nightBox = document.getElementById('newEmpNightSurcharge')?.closest('[data-perm]');
+            if (nightBox) nightBox.style.display = (nightBox.dataset.editing === '1' || t === 'servicios') ? 'none' : '';
+        }
+        function contractDetailText(emp) {
+            const t = empContractType(emp);
+            const f = (iso) => iso ? iso.split('-').reverse().join('/') : '';
+            let txt = CONTRACT_INFO[t].label;
+            if (t === 'fijo' && (emp.contractStart || emp.contractEnd)) txt += ` · ${emp.contractStart ? f(emp.contractStart) : '¿?'} – ${emp.contractEnd ? f(emp.contractEnd) : '¿?'}`;
+            return txt;
+        }
+
         function openEmployeeModal(empId) {
             const emp = empId != null ? appState.employees.find(e => e.id === empId) : null;
             document.getElementById('editEmpId').value = emp ? emp.id : '';
@@ -4289,9 +4343,16 @@
             document.getElementById('newEmpSalaryHint').textContent = canPay
                 ? 'Por defecto el salario mínimo vigente (SMLMV). Puede modificarse si el colaborador devenga un salario diferente.'
                 : 'Solo el administrador puede modificar el salario. Los colaboradores nuevos quedan con el salario mínimo vigente.';
+            const ctSel = document.getElementById('newEmpContractType');
+            ctSel.value = emp ? empContractType(emp) : 'indefinido';
+            ctSel.disabled = !canPay;
+            ctSel.classList.toggle('bg-slate-100', !canPay);
+            document.getElementById('newEmpContractStart').value = emp && emp.contractStart ? emp.contractStart : '';
+            document.getElementById('newEmpContractEnd').value = emp && emp.contractEnd ? emp.contractEnd : '';
             // El recargo nocturno de un colaborador existente se cambia desde su ficha.
             const nightBox = document.getElementById('newEmpNightSurcharge')?.closest('[data-perm]');
-            if (nightBox) nightBox.style.display = emp ? 'none' : '';
+            if (nightBox) nightBox.dataset.editing = emp ? '1' : '';
+            onEmpContractTypeChange();
             openModal('modalAddEmp');
         }
 
@@ -4347,22 +4408,34 @@
             }
             const foundDept = appState.departments.find(d => d.name === dept);
             const deptId = foundDept ? foundDept.id : 'dept_cocina';
+            // Tipo de contrato (fechas opcionales solo para término fijo).
+            const contractType = canPay ? (document.getElementById('newEmpContractType').value || 'indefinido') : (editing ? empContractType(editing) : 'indefinido');
+            let contractStart = contractType === 'fijo' ? (document.getElementById('newEmpContractStart').value || '') : '';
+            let contractEnd = contractType === 'fijo' ? (document.getElementById('newEmpContractEnd').value || '') : '';
+            if (!canPay && editing) { contractStart = editing.contractStart || ''; contractEnd = editing.contractEnd || ''; }
+            if (contractStart && contractEnd && contractEnd < contractStart) { showAppToast('La terminación del contrato debe ser posterior al inicio.'); return; }
 
             if (editing) {
                 const salaryChanged = Number(editing.salary) !== Number(salary);
-                Object.assign(editing, { name, role, department: dept, departmentId: deptId, salary, email, documentType, documentNumber, phoneCountry: phoneNumber ? phoneCountry : '+57', phoneNumber });
-                if (salaryChanged) recomputeShiftsForEmployee(editing.id);
+                const typeChanged = empContractType(editing) !== contractType;
+                Object.assign(editing, { name, role, department: dept, departmentId: deptId, salary, email, documentType, documentNumber, phoneCountry: phoneNumber ? phoneCountry : '+57', phoneNumber, contractType, contractStart, contractEnd });
+                // Al cambiar el tipo de contrato se ajustan solos el recargo nocturno
+                // y el conteo de días laborados (se pueden cambiar a mano después).
+                if (typeChanged) applyContractDefaults(editing);
+                if (salaryChanged || typeChanged) recomputeShiftsForEmployee(editing.id);
                 closeModal('modalAddEmp');
-                showAppToast(`Ficha de ${name} actualizada.`);
+                showAppToast(typeChanged ? `Ficha de ${name} actualizada: ${CONTRACT_INFO[contractType].label}. ${CONTRACT_INFO[contractType].applied}` : `Ficha de ${name} actualizada.`);
             } else {
-                const nightSurcharge = !canPay || document.getElementById('newEmpNightSurcharge')?.checked !== false;
+                const nightSurcharge = !canPay || contractType === 'servicios' || document.getElementById('newEmpNightSurcharge')?.checked !== false;
                 const nightSurchargeReason = (document.getElementById('newEmpNightReason')?.value || '').trim();
                 if (!nightSurcharge && !nightSurchargeReason) {
                     showAppToast('Indique el motivo por el que no aplica el recargo nocturno.');
                     return;
                 }
                 let id = Date.now();
-                appState.employees.push({ id, name, role, department: dept, departmentId: deptId, salary, email, documentType, documentNumber, phoneCountry: phoneNumber ? phoneCountry : '+57', phoneNumber, nightSurcharge, nightSurchargeReason: nightSurcharge ? '' : nightSurchargeReason });
+                const newEmp = { id, name, role, department: dept, departmentId: deptId, salary, email, documentType, documentNumber, phoneCountry: phoneNumber ? phoneCountry : '+57', phoneNumber, nightSurcharge, nightSurchargeReason: nightSurcharge ? '' : nightSurchargeReason, contractType, contractStart, contractEnd };
+                if (contractType === 'servicios') applyContractDefaults(newEmp);
+                appState.employees.push(newEmp);
                 appState.selectedEmpId = id;
                 closeModal('modalAddEmp');
                 if (document.getElementById('newEmpNightSurcharge')) {
@@ -4444,6 +4517,8 @@
                     ? `<i class="fa-brands fa-whatsapp text-emerald-600"></i> <a href="https://wa.me/${escapeHtml(String(emp.phoneCountry || '+57').replace(/\D/g, '') + emp.phoneNumber)}" target="_blank" rel="noopener" title="Abrir chat de WhatsApp" class="hover:underline">${escapeHtml(emp.phoneCountry || '+57')} ${escapeHtml(formatPhoneLocal(emp.phoneCountry, emp.phoneNumber))}</a>`
                     : '';
             }
+            const contractEl = document.getElementById('detailEmpContract');
+            if (contractEl) contractEl.innerHTML = `<i class="fa-regular fa-file-lines"></i> ${escapeHtml(contractDetailText(emp))}`;
             const userBox = document.getElementById('detailEmpUserBox');
             if (userBox) {
                 if (emp.linkedUser) {
@@ -4769,7 +4844,15 @@
                     const limit = hoursLimit;
                     const isOverLimit = empWeeklyHours > limit;
 
-                    let totalTd = `
+                    // Prestación de servicios: solo las horas del periodo (sin tope de 42 h ni "Cumple CST").
+                    let totalTd = empContractType(emp) === 'servicios' ? `
+                        <td class="px-1 py-1 text-center bg-slate-50 font-mono">
+                            <div class="flex flex-col items-center leading-tight">
+                                <span class="font-black text-xs text-slate-800">${empWeeklyHours.toFixed(2)} h</span>
+                                <span class="text-4xs bg-slate-200 text-slate-700 font-bold px-1.5 rounded" title="Prestación de servicios">Horas del periodo</span>
+                            </div>
+                        </td>
+                    ` : `
                         <td class="px-1 py-1 text-center bg-slate-50 font-mono">
                             <div class="flex flex-col items-center leading-tight">
                                 <span class="font-black text-xs ${isOverLimit ? 'text-rose-600' : 'text-slate-800'}">
