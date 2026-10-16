@@ -1850,6 +1850,20 @@
         </div>
     </div>
 
+    <!-- MODAL: Detalle de las correcciones de un día (Historial) -->
+    <div id="modalCorrDetail" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-5 shadow-2xl space-y-3 border border-slate-200 max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-start border-b pb-3">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-pen text-red-600"></i> Correcciones del día</h3>
+                    <p class="text-xs text-slate-500 mt-0.5" id="corrDetailSub">-</p>
+                </div>
+                <button onclick="closeModal('modalCorrDetail')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div id="corrDetailBody" class="text-xs space-y-2"></div>
+        </div>
+    </div>
+
     <!-- MODAL: Gestionar novedad de asistencia (justificar / injustificar) -->
     <div id="modalAlertMgmt" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
         <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-4 border border-slate-200 max-h-[92vh] overflow-y-auto">
@@ -7516,6 +7530,27 @@
         // ---- Corrección de marcaciones de un día (solo Administrador) ----
         const CORR_LABELS = { entrada: 'Entrada', inicio_almuerzo: 'Inicio de almuerzo', fin_almuerzo: 'Fin de almuerzo', salida: 'Salida' };
         const CORR_SPLIT_LABELS = { entrada: 'Inicio Etapa 1', inicio_almuerzo: 'Final Etapa 1', fin_almuerzo: 'Inicio Etapa 2', salida: 'Final Etapa 2' };
+        // Historial: al tocar "Corregido" se ve qué marcación se cambió, de qué hora a cuál, por qué, quién y cuándo.
+        async function showDayCorrections(empId, dateISO, isSplit) {
+            const emp = appState.employees.find(e => Number(e.id) === Number(empId));
+            document.getElementById('corrDetailSub').textContent = `${emp ? emp.name : ''} · ${dateISO.split('-').reverse().join('/')}`;
+            const body = document.getElementById('corrDetailBody');
+            body.innerHTML = '<p class="text-slate-400 py-3 text-center">Cargando…</p>';
+            openModal('modalCorrDetail');
+            try {
+                const { rows } = await apiFetch(`/api/attendance/corrections?from=${dateISO}&to=${dateISO}&employeeId=${empId}`);
+                const labels = isSplit ? CORR_SPLIT_LABELS : CORR_LABELS;
+                body.innerHTML = rows.length ? rows.map(c => `
+                    <div class="rounded-lg border border-red-200 bg-red-50/50 p-2.5">
+                        <p class="font-bold text-slate-800">${escapeHtml(labels[c.mark_type] || c.mark_type)}:
+                            <span class="font-mono text-slate-500 line-through">${escapeHtml(c.original_time || 'sin marcar')}</span>
+                            <i class="fa-solid fa-arrow-right text-red-600 text-[10px] mx-0.5"></i>
+                            <span class="font-mono text-red-700">${escapeHtml(c.corrected_time)}</span></p>
+                        <p class="text-slate-600 mt-0.5"><strong>Motivo:</strong> ${escapeHtml(c.reason || '-')}</p>
+                        <p class="text-3xs text-slate-400 mt-0.5">${escapeHtml(c.created_by_email || '-')} · ${escapeHtml(c.created_at || '')} (hora Colombia)</p>
+                    </div>`).join('') : '<p class="text-slate-400 py-3 text-center">No se encontró el detalle de la corrección.</p>';
+            } catch (e) { body.innerHTML = `<p class="text-rose-600 py-3 text-center">${escapeHtml(e.message)}</p>`; }
+        }
         async function openAttendanceCorrection(empId, dateISO) {
             if (!CAN('attendance.mark')) return;
             if (!shiftsLoaded(dateISO)) { try { await ensureShiftsLoaded(dateISO); } catch (e) { /* sin conexion */ } }
@@ -9727,7 +9762,7 @@
                         <td class="px-3 py-2">${attRecargoCell(r)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.hed_min)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.hen_min)}</td>
-                        <td class="px-3 py-2">${attStatusBadge(r.status, r.is_split)}${r.corrected ? '<span class="block mt-0.5 text-3xs font-bold text-sky-700"><i class="fa-solid fa-pen"></i> Corregido</span>' : ''}${r.manual_marks ? `<span class="block mt-0.5 text-3xs font-bold text-violet-700" title="Ver motivo en la pestaña Alertas"><i class="fa-solid fa-hand-pointer"></i> Manual (${r.manual_marks})</span>` : ''}${r.offline_marks ? `<span class="block mt-0.5 text-3xs font-bold text-amber-700" title="Marcada en el kiosco sin internet y enviada después, con su hora real"><i class="fa-solid fa-wifi"></i> Sin conexión (${r.offline_marks})</span>` : ''}</td>
+                        <td class="px-3 py-2">${attStatusBadge(r.status, r.is_split)}${r.corrected ? `<button type="button" onclick="showDayCorrections(${r.employee_id}, '${r.shift_date}', ${r.is_split ? 'true' : 'false'})" title="Ver qué se corrigió" class="block mt-0.5 px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white text-3xs font-bold"><i class="fa-solid fa-pen"></i> Corregido</button>` : ''}${r.manual_marks ? `<span class="block mt-0.5 text-3xs font-bold text-violet-700" title="Ver motivo en la pestaña Alertas"><i class="fa-solid fa-hand-pointer"></i> Manual (${r.manual_marks})</span>` : ''}${r.offline_marks ? `<span class="block mt-0.5 text-3xs font-bold text-amber-700" title="Marcada en el kiosco sin internet y enviada después, con su hora real"><i class="fa-solid fa-wifi"></i> Sin conexión (${r.offline_marks})</span>` : ''}</td>
                         <td class="px-3 py-2 text-right" data-perm="attendance.mark">${(r.shift_date < bogotaTodayISO() || (r.shift_date === bogotaTodayISO() && r.entrada_real)) ? `<button onclick="openAttendanceCorrection(${r.employee_id}, '${r.shift_date}')" class="text-2xs font-semibold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200">Corregir</button>` : ''}</td>
                     </tr>`).join('') || `<tr><td colspan="15" class="px-3 py-6 text-center text-slate-400">${document.getElementById('attHistoryOnlyNovelty')?.checked ? 'Sin días con novedad en este rango de fechas.' : 'Sin marcaciones en este rango de fechas.'}</td></tr>`;
 
