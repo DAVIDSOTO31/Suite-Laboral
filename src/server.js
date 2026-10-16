@@ -156,6 +156,7 @@ route('GET', '/api/attendance/my-history', [requirePermission('self.view')], (re
 route('GET', '/api/attendance/alerts', [requirePermission('attendance.view_alerts')], (req, res, params, query) => attendance.listAlerts(req, res, query));
 route('GET', '/api/attendance/evidence', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listMarkEvidence(req, res, query));
 route('GET', '/api/attendance/evidence/:id/photo', [requirePermission('attendance.view')], (req, res, params) => attendance.getMarkEvidencePhoto(req, res, params));
+route('POST', '/api/attendance/evidence/:id/env-ok', [requirePermission('attendance.view_alerts')], (req, res, params) => attendance.confirmEvidenceEnvOk(req, res, params));
 route('GET', '/api/attendance/evidence-settings', [requirePermission('attendance.view')], (req, res, params, query) => attendance.getEvidenceSettings(req, res, query));
 route('PUT', '/api/attendance/evidence-settings', [requirePermission('settings.manage')], (req, res) => attendance.saveEvidenceSettings(req, res));
 route('POST', '/api/attendance/devices/:id/env-reset', [requirePermission('attendance.manage_devices')], (req, res, params) => attendance.resetDeviceEnv(req, res, params));

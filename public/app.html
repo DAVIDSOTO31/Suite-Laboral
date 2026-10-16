@@ -9555,7 +9555,12 @@
             box.className = 'grid grid-cols-2 md:grid-cols-4 gap-3';
             const envChip = (r) => r.envStatus === 'diferente' ? '<span class="inline-block px-1.5 py-0.5 rounded bg-fuchsia-600 text-white text-3xs font-bold"><i class="fa-solid fa-user-secret"></i> Entorno diferente</span>'
                 : r.envStatus === 'normal' ? '<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-3xs font-bold"><i class="fa-solid fa-check"></i> Entorno habitual</span>'
-                : r.envStatus === 'aprendiendo' ? '<span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-3xs font-semibold">Aprendiendo el entorno</span>' : '';
+                : r.envStatus === 'aprendiendo' ? '<span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-3xs font-semibold">Aprendiendo el entorno</span>'
+                : r.envStatus === 'aprobado' ? '<span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-3xs font-bold"><i class="fa-solid fa-check"></i> Mismo lugar (confirmado)</span>' : '';
+            // "Es el mismo lugar": el kiosco aprende ese fondo (ej. de noche) y deja de alertar por él.
+            const learnBtn = (r) => (r.envStatus === 'diferente' && r.canLearn && CAN('attendance.view_alerts'))
+                ? `<button type="button" onclick="confirmEvidenceEnvOk('${r.id}')" class="mt-1 block w-full px-2 py-1 rounded-md border border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-700 text-3xs font-bold"><i class="fa-solid fa-check"></i> Es el mismo lugar</button>` : '';
+            lastEvidenceRows = rows;
             box.innerHTML = rows.map(r => `<figure class="border ${r.envStatus === 'diferente' ? 'border-fuchsia-400 ring-2 ring-fuchsia-200' : 'border-slate-200'} rounded-lg overflow-hidden bg-slate-50">
                 ${r.hasPhoto ? `<a href="/api/attendance/evidence/${encodeURIComponent(r.id)}/photo" target="_blank" rel="noopener"><img src="/api/attendance/evidence/${encodeURIComponent(r.id)}/photo" alt="Foto de ${escapeHtml(r.markLabel)}" loading="lazy" class="w-full aspect-[4/3] object-cover bg-slate-200"></a>`
                     : '<div class="w-full aspect-[4/3] flex items-center justify-center text-slate-400 text-2xs bg-slate-100">Sin foto</div>'}
@@ -9564,13 +9569,28 @@
                     <p class="text-slate-500">${escapeHtml(r.time)}${r.device ? ' · ' + escapeHtml(r.device) : ''}</p>
                     <p class="text-slate-500">${escapeHtml(r.method)}</p>
                     ${envChip(r)}
+                    ${learnBtn(r)}
                 </figcaption></figure>`).join('');
+        }
+        let lastEvidenceRows = [];
+        let lastEvidenceUrl = null;
+        async function confirmEvidenceEnvOk(id) {
+            if (!confirm('¿Confirmas que esta marcación se hizo en el mismo lugar de siempre (solo cambió la luz)?\n\nEl kiosco aprenderá este fondo y no volverá a alertar por él. La marcación sospechosa quedará justificada.')) return;
+            try {
+                const r = await apiFetch(`/api/attendance/evidence/${encodeURIComponent(id)}/env-ok`, { method: 'POST', body: '{}' });
+                lastEvidenceRows.forEach(x => { if (x.id === id) x.envStatus = 'aprobado'; });
+                renderEvidenceCards(lastEvidenceRows);
+                if (lastEvidenceUrl) { try { renderEvidenceCards((await apiFetch(lastEvidenceUrl)).rows); } catch (e) { /* se queda lo ya pintado */ } }
+                showAppToast(`Listo: el kiosco aprendió este fondo.${r.alertJustified ? ' La marcación sospechosa quedó justificada.' : ''}${r.alsoJustified ? ` También se justificaron ${r.alsoJustified} parecida(s).` : ''}`);
+                refreshAttAlertsBadge();
+            } catch (e) { showAppToast(e.message); }
         }
         async function openMarkEvidence(empId, date, name) {
             document.getElementById('evModalSub').textContent = `${name} · ${String(date).split('-').reverse().join('/')}`;
             document.getElementById('evModalBody').innerHTML = '<p class="py-6 text-center text-slate-400 text-sm">Cargando…</p>';
             openModal('modalEvidence');
-            try { const r = await apiFetch(`/api/attendance/evidence?employeeId=${encodeURIComponent(empId)}&date=${encodeURIComponent(date)}`); renderEvidenceCards(r.rows); }
+            lastEvidenceUrl = `/api/attendance/evidence?employeeId=${encodeURIComponent(empId)}&date=${encodeURIComponent(date)}`;
+            try { const r = await apiFetch(lastEvidenceUrl); renderEvidenceCards(r.rows); }
             catch (e) { document.getElementById('evModalBody').innerHTML = `<p class="py-6 text-center text-rose-600 text-sm">${escapeHtml(e.message)}</p>`; }
         }
         async function openOfflineEvidence(offlineId) {
@@ -9578,7 +9598,8 @@
             document.getElementById('evModalSub').textContent = `Marcación sin conexión · ${r0.device_name || ''} · ${r0.captured_local || ''}`;
             document.getElementById('evModalBody').innerHTML = '<p class="py-6 text-center text-slate-400 text-sm">Cargando…</p>';
             openModal('modalEvidence');
-            try { const r = await apiFetch(`/api/attendance/evidence?offlineId=${encodeURIComponent(offlineId)}`); renderEvidenceCards(r.rows); }
+            lastEvidenceUrl = `/api/attendance/evidence?offlineId=${encodeURIComponent(offlineId)}`;
+            try { const r = await apiFetch(lastEvidenceUrl); renderEvidenceCards(r.rows); }
             catch (e) { document.getElementById('evModalBody').innerHTML = `<p class="py-6 text-center text-rose-600 text-sm">${escapeHtml(e.message)}</p>`; }
         }
         // Muestra u oculta los ajustes de los kioscos (salud y evidencia).

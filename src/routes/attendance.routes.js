@@ -551,14 +551,14 @@ function evidenceRowOut(r) {
   return {
     id: r.id, markType: r.mark_type, markLabel: EV_MARK_LABELS[r.mark_type] || r.mark_type || 'Marcación sin conexión',
     method: EV_METHOD_LABELS[r.method] || r.method || '', time: r.taken_at ? (() => { const s = bogotaLabel(Date.parse(r.taken_at)); return `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)} ${s.slice(11, 16)}`; })() : '',
-    hasPhoto: !!r.has_photo, envStatus: r.env_status || null, envDistance: r.env_distance, device: r.device_name || '',
+    hasPhoto: !!r.has_photo, envStatus: r.env_status || null, envDistance: r.env_distance, device: r.device_name || '', canLearn: !!r.can_learn,
   };
 }
 // GET /api/attendance/evidence?employeeId=&date=  (fotos de un dia)  |  ?offlineId=
 function listMarkEvidence(req, res, query) {
   const orgId = resolveOrgId(req, query);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
-  const sel = `SELECT p.id, p.mark_type, p.method, p.taken_at, p.env_status, p.env_distance, (p.data IS NOT NULL) AS has_photo, d.device_name
+  const sel = `SELECT p.id, p.mark_type, p.method, p.taken_at, p.env_status, p.env_distance, (p.data IS NOT NULL) AS has_photo, (p.env_sig IS NOT NULL) AS can_learn, d.device_name
     FROM mark_photos p LEFT JOIN attendance_devices d ON d.id = p.device_id WHERE p.organization_id = ?`;
   let rows;
   if (query.offlineId) rows = db.prepare(`${sel} AND p.offline_id = ? ORDER BY p.taken_at`).all(orgId, String(query.offlineId));
@@ -1592,13 +1592,20 @@ function learnSuspiciousBackground(orgId, alert, userId) {
   let meta = {};
   try { meta = JSON.parse(alert.metadata_json || '{}') || {}; } catch { meta = {}; }
   if (!meta.evidenceId) return { learned: false, alsoJustified: 0 };
-  const r = evidenceLib.learnEnvFromEvidence(meta.evidenceId);
+  return learnBackgroundFromEvidence(orgId, meta.evidenceId, alert.id, userId);
+}
+// Aprende el fondo de una foto de evidencia y justifica las marcaciones
+// sospechosas PENDIENTES del mismo kiosco con un fondo parecido.
+function learnBackgroundFromEvidence(orgId, evidenceId, excludeAlertId, userId) {
+  const r = evidenceLib.learnEnvFromEvidence(evidenceId);
   if (!r) return { learned: false, alsoJustified: 0 };
+  const markOk = db.prepare("UPDATE mark_photos SET env_status = 'aprobado' WHERE id = ? AND env_status = 'diferente'");
+  markOk.run(String(evidenceId));
   const pending = db.prepare(`
     SELECT a.id, a.metadata_json FROM attendance_alerts a
     LEFT JOIN alert_management m ON m.alert_id = a.id
     WHERE a.organization_id = ? AND a.alert_type = 'entorno_diferente' AND a.id <> ? AND m.alert_id IS NULL
-  `).all(orgId, alert.id);
+  `).all(orgId, excludeAlertId || '');
   const ins = db.prepare(`INSERT OR IGNORE INTO alert_management (alert_id, organization_id, status, note, managed_by, managed_at, auto_marked)
                           VALUES (?, ?, 'justificada', ?, ?, datetime('now', '-5 hours'), 0)`);
   const note = 'Justificada al aprender el fondo del kiosco: se parece al de otra marcación sospechosa que se justificó.';
@@ -1609,10 +1616,38 @@ function learnSuspiciousBackground(orgId, alert, userId) {
     const sig = evidenceLib.evidenceSignature(m.evidenceId);
     if (!sig) continue;
     const d = evidenceLib.envDistance(sig, r.sig);
-    if (d != null && d <= evidenceLib.ENV_ALERT) n += ins.run(p.id, orgId, note, userId).changes;
+    if (d != null && d <= evidenceLib.ENV_ALERT) {
+      const c = ins.run(p.id, orgId, note, userId).changes;
+      if (c) { n += c; markOk.run(String(m.evidenceId)); }
+    }
   }
-  if (n) live.publishAttendance(orgId, 'env_learned');
+  live.publishAttendance(orgId, 'env_learned');
   return { learned: true, alsoJustified: n };
+}
+
+// POST /api/attendance/evidence/:id/env-ok -- "Es el mismo lugar": desde la
+// foto marcada como "Entorno diferente", el kiosco aprende ese fondo (ej. de
+// noche) y la marcacion sospechosa queda justificada.
+function confirmEvidenceEnvOk(req, res, params) {
+  const orgId = req.user.organizationId;
+  const row = db.prepare('SELECT id, env_status, env_sig, employee_id, shift_date FROM mark_photos WHERE id = ? AND organization_id = ?').get(String(params.id), orgId);
+  if (!row) return sendJson(res, 404, { error: 'La foto no existe o ya se borró.' });
+  if (row.env_status !== 'diferente') return sendJson(res, 409, { error: 'Esta marcación no está marcada como entorno diferente.' });
+  if (!row.env_sig) return sendJson(res, 409, { error: 'Esta marcación es anterior a la actualización y no guardó el fondo: justifícala en Alertas. Con la próxima marcación sospechosa sí podrás enseñarle el fondo al kiosco.' });
+  const alert = db.prepare(`SELECT a.id FROM attendance_alerts a WHERE a.organization_id = ? AND a.alert_type = 'entorno_diferente' AND a.metadata_json LIKE ?`)
+    .get(orgId, `%"evidenceId":"${row.id}"%`);
+  let alertJustified = false;
+  if (alert && !db.prepare('SELECT 1 FROM alert_management WHERE alert_id = ?').get(alert.id)) {
+    db.prepare(`INSERT INTO alert_management (alert_id, organization_id, status, note, managed_by, managed_at, auto_marked)
+                VALUES (?, ?, 'justificada', ?, ?, datetime('now', '-5 hours'), 0)`)
+      .run(alert.id, orgId, 'El administrador confirmó que es el mismo lugar (otra luz). El kiosco aprendió este fondo.', req.user.id);
+    alertJustified = true;
+  }
+  const learned = learnBackgroundFromEvidence(orgId, row.id, alert ? alert.id : null, req.user.id);
+  if (!learned.learned) return sendJson(res, 409, { error: 'No se pudo aprender el fondo de esta foto.' });
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.env_learned', resourceType: 'employee', resourceId: String(row.employee_id || ''), ip: getClientIp(req),
+    metadata: { fecha: row.shift_date, alertaJustificada: alertJustified, otrasJustificadas: learned.alsoJustified } });
+  sendJson(res, 200, { ok: true, alertJustified, alsoJustified: learned.alsoJustified });
 }
 
 // GET /api/attendance/alerts/:id/attachment -- descarga el soporte adjunto.
@@ -2561,7 +2596,7 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(HOURS_ENGINE_
 
 module.exports = {
   kioskLiveVersion, kioskOfflineCache,
-  listMarkEvidence, getMarkEvidencePhoto, getEvidenceSettings, saveEvidenceSettings, resetDeviceEnv,
+  listMarkEvidence, getMarkEvidencePhoto, getEvidenceSettings, saveEvidenceSettings, resetDeviceEnv, confirmEvidenceEnvOk,
   getIndicatorGoalsRoute, saveIndicatorGoals,
   recalculateFinalizedDays,
   listEmployeesToday, registerMark, listHistory, listMyHistory, listAlerts, registerCorrection, listCorrections, listFaceProfiles, enrollFaceProfile, deactivateFaceProfile, registerMarkByFace,
