@@ -695,6 +695,7 @@
                         <button type="button" data-perm="shifts.view" onclick="openShiftChangesModal()" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5"><i class="fa-solid fa-clock-rotate-left"></i> Historial de cambios</button>
                     </div>
                     <div id="rosterPublishBanner"></div>
+                    <div id="rosterHiddenAreasBar" class="hidden text-3xs font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5"></div>
 
                     <!-- Cuadrícula Semanal (Lunes a Domingo) -->
                     <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -4676,6 +4677,28 @@
             });
         }
 
+        // -----------------------------------------------------------------
+        // OCULTAR ÁREAS DEL CUADRO (solo en la pantalla de quien programa).
+        // Las filas de un área oculta no se ven ni se pueden cambiar por error.
+        // Se recuerda en este equipo. El PDF, la publicación y lo que ven los
+        // colaboradores siempre incluyen todas las áreas.
+        // -----------------------------------------------------------------
+        function rosterHiddenAreasKey() { return CURRENT_USER && CURRENT_USER.id ? `suiteAreasOcultas:${CURRENT_USER.organizationId || ''}:${CURRENT_USER.id}` : 'suiteAreasOcultas'; }
+        function rosterHiddenAreas() {
+            try { const v = JSON.parse(localStorage.getItem(rosterHiddenAreasKey()) || '[]'); return new Set(Array.isArray(v) ? v.map(String) : []); } catch (e) { return new Set(); }
+        }
+        function saveRosterHiddenAreas(set) {
+            try { localStorage.setItem(rosterHiddenAreasKey(), JSON.stringify([...set])); } catch (e) { /* sin almacenamiento */ }
+        }
+        function toggleRosterArea(ev, deptId) {
+            if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+            const set = rosterHiddenAreas();
+            if (set.has(String(deptId))) set.delete(String(deptId)); else set.add(String(deptId));
+            saveRosterHiddenAreas(set);
+            renderWeeklyRoster();
+        }
+        function showAllRosterAreas() { saveRosterHiddenAreas(new Set()); renderWeeklyRoster(); }
+
         function renderWeeklyRoster() {
             try { renderRosterColorLegend(); } catch (e) { /* leyenda opcional */ }
             try { refreshShiftLocks(); } catch (e) { /* bloqueos opcionales */ }
@@ -4780,7 +4803,15 @@
                 });
             }
 
+            const hiddenAreas = rosterHiddenAreas();
+            const hiddenCount = deptGroups.filter(g => hiddenAreas.has(String(g.dept.id))).length;
+            const hiddenBar = document.getElementById('rosterHiddenAreasBar');
+            if (hiddenBar) {
+                hiddenBar.classList.toggle('hidden', !hiddenCount);
+                hiddenBar.innerHTML = hiddenCount ? `<i class="fa-solid fa-eye-slash"></i> ${hiddenCount} área${hiddenCount === 1 ? '' : 's'} oculta${hiddenCount === 1 ? '' : 's'} en tu pantalla (el PDF y la publicación incluyen todas) <button type="button" onclick="showAllRosterAreas()" class="ml-2 px-2 py-0.5 rounded-md bg-amber-500 hover:bg-amber-600 text-white font-bold">Mostrar todas</button>` : '';
+            }
             deptGroups.forEach(({ dept, emps }, groupIndex) => {
+                const areaHidden = hiddenAreas.has(String(dept.id));
                 const deptRow = document.createElement('tr');
                 deptRow.className = 'bg-slate-800 text-white font-bold border-y-2 border-slate-700 select-none';
                 deptRow.dataset.rosterDept = dept.id;
@@ -4810,13 +4841,16 @@
                                         <span class="text-xs tracking-wide uppercase font-black text-amber-300 leading-tight" style="overflow-wrap:anywhere;" title="${dept.name}">${String(dept.name).replace(/\//g, '/<wbr>')}</span>
                                     </div>
                                     <span class="text-4xs text-slate-300 font-semibold">
-                                        ${emps.length} colaborador${emps.length === 1 ? '' : 'es'}
+                                        ${emps.length} colaborador${emps.length === 1 ? '' : 'es'}${areaHidden ? ' · <span class="text-amber-300 font-bold">oculta</span>' : ''}
                                     </span>
                                 </div>
                             </div>
+                            <div class="flex flex-col gap-1 shrink-0">
+                            <button type="button" onclick="toggleRosterArea(event, '${dept.id}')" title="${areaHidden ? 'Mostrar esta área' : 'Ocultar esta área (sus turnos no se pueden cambiar mientras esté oculta)'}" class="shrink-0 text-3xs ${areaHidden ? 'text-slate-900 bg-amber-400 hover:bg-amber-300 border-amber-300' : 'text-slate-200 hover:text-white bg-slate-800 hover:bg-slate-700 border-slate-600'} px-1.5 py-1 rounded border transition"><i class="fa-solid ${areaHidden ? 'fa-chevron-right' : 'fa-chevron-down'} text-[9px]"></i></button>
                             <button type="button" onclick="promptEditDepartmentName('${dept.id}')" data-perm="settings.manage" title="Renombrar área" class="shrink-0 text-3xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-1.5 py-1 rounded border border-slate-600 transition">
                                 <i class="fa-solid fa-pen text-[9px]"></i>
                             </button>
+                            </div>
                         </div>
                     </td>
                     ${weekDays.map(d => `
@@ -4838,6 +4872,7 @@
                     const emptyRow = document.createElement('tr');
                     emptyRow.className = 'border-b border-slate-100 bg-slate-50/40 text-slate-400 text-3xs italic';
                     emptyRow.dataset.rosterDept = dept.id;
+                    if (areaHidden) { emptyRow.classList.add('hidden'); emptyRow.dataset.rosterCollapsed = '1'; }
                     emptyRow.innerHTML = `
                         <td colspan="${nDays + 2}" class="p-3 text-center">
                             No hay colaboradores asignados actualmente a <strong>${dept.name}</strong>.
@@ -4853,6 +4888,7 @@
                     tr.className = 'hover:bg-sky-50/30 transition border-b border-slate-200';
                     tr.dataset.rosterDept = dept.id;
                     tr.dataset.rosterEmp = emp.id;
+                    if (areaHidden) { tr.classList.add('hidden'); tr.dataset.rosterCollapsed = '1'; }
 
                     let empTd = `
                         <td class="py-1 pr-3 border-r border-slate-200 bg-slate-50/60 pl-4">
@@ -9348,6 +9384,8 @@
                 box.className = 'bg-white rounded-xl border border-slate-200 overflow-hidden';
                 const clone = table.cloneNode(true);
                 clone.style.width = '100%';
+                // Las áreas ocultas en pantalla SIEMPRE salen en el PDF.
+                clone.querySelectorAll('tr[data-roster-collapsed]').forEach(tr => tr.classList.remove('hidden'));
                 // En la copia para el PDF los textos no se recortan: la
                 // herramienta que "fotografía" el cuadro corta las palabras que
                 // en pantalla van en una sola línea con "…". Aquí se dejan
