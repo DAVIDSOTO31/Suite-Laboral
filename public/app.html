@@ -9191,7 +9191,7 @@
             if (!table) return;
             if (btn) { btn.disabled = true; btn.classList.add('opacity-60'); }
             showAppToast('Generando PDF del cuadro de turnos…');
-            let wrap = null;
+            let wrap = null, pdfFixStyle = null;
             try {
                 await loadScriptOnce('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js', () => !!window.html2canvas);
                 await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
@@ -9252,6 +9252,18 @@
                 document.body.appendChild(wrap);
                 if (document.fonts && document.fonts.ready) await document.fonts.ready;
 
+                // Ajustes para que la "foto" del cuadro salga nítida:
+                //  - Las cifras con números tabulares se dibujaban con espacios ("10 :30").
+                //  - La herramienta calcula dónde va cada texto con una imagen de
+                //    prueba; los estilos de la suite muestran las imágenes "en bloque"
+                //    y eso corría los textos hacia abajo (salían montados sobre los
+                //    recuadros y la marca naranja de horas extra quedaba como una mancha).
+                //    Mientras se genera el PDF, las imágenes vuelven a ir "en línea".
+                wrap.querySelectorAll('*').forEach(el => { el.style.fontVariantNumeric = 'normal'; });
+                wrap.querySelectorAll('button').forEach(el => el.remove()); // botones de pantalla (ej. renombrar área)
+                pdfFixStyle = document.createElement('style');
+                pdfFixStyle.textContent = 'img { display: inline-block !important; }';
+                document.head.appendChild(pdfFixStyle);
                 const canvas = await window.html2canvas(wrap, { scale: 2, backgroundColor: '#ffffff', logging: false });
 
                 // Una sola página del tamaño del cuadro: se ve completo y
@@ -9269,6 +9281,7 @@
                 showAppToast('No se pudo generar el PDF: ' + e.message);
             } finally {
                 if (wrap) wrap.remove();
+                if (pdfFixStyle) pdfFixStyle.remove();
                 if (btn) { btn.disabled = false; btn.classList.remove('opacity-60'); }
             }
         }
