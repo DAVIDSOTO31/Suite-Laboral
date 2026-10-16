@@ -123,6 +123,9 @@ function describeAudit(row, ctx = {}) {
       `Reinició el aprendizaje del entorno del kiosco ${val(m.deviceName)}: volverá a aprender cómo se ve su lugar.`);
     case 'attendance.alerts_auto_unjustified': return out('Asistencia', 'Novedades injustificadas automáticamente',
       `La suite marcó como injustificada(s) ${m.cantidad || 0} novedad(es) que nadie gestionó en ${m.horas || 24} horas. Se pueden cambiar a justificada en Asistencia → Alertas.`, [], 'Sistema (automático)');
+    case 'attendance.env_learned': return out('Asistencia', 'Kiosco aprendió un fondo',
+      `Confirmó que una marcación sospechosa del ${dayName(m.fecha)} era en el mismo lugar (otra luz): el kiosco aprendió ese fondo.`,
+      [m.alertaJustificada ? 'La marcación sospechosa quedó justificada.' : null, m.otrasJustificadas ? `También se justificaron ${m.otrasJustificadas} marcación(es) sospechosa(s) parecida(s).` : null].filter(Boolean));
     case 'attendance.false_late_fixed': return out('Asistencia', 'Llegadas tarde corregidas',
       `La suite corrigió ${m.cantidad || 0} llegada(s) tarde que en realidad fueron a tiempo (marcadas en el último minuto antes de la hora de entrada; los segundos se redondeaban al minuto siguiente).`, (m.marcaciones || []).slice(0, 10), 'Sistema (automático)');
     case 'attendance.alerts_auto_justified': return out('Asistencia', 'Salidas anticipadas justificadas automáticamente',
