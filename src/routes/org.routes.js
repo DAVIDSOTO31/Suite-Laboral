@@ -10,6 +10,33 @@ const { describeAudit } = require('../lib/audit-describe');
 const { randomToken, sha256Hex } = require('../lib/crypto');
 const { sendMail } = require('../lib/mailer');
 const crypto = require('node:crypto');
+
+// Una sola vez: crea la inasistencia "Compensatorio" en cada organizacion (o
+// marca la que ya exista con ese nombre) como que NO cuenta para el ausentismo.
+const COMPENSATORIO_MIG = 'inasistencia_compensatorio_v1';
+if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(COMPENSATORIO_MIG)) {
+  db.exec('BEGIN');
+  try {
+    for (const o of db.prepare('SELECT id FROM organizations').all()) {
+      const rows = db.prepare('SELECT id, data_json FROM shift_presets WHERE organization_id = ?').all(o.id);
+      let found = false;
+      for (const r of rows) {
+        let p; try { p = JSON.parse(r.data_json); } catch { continue; }
+        if (p && p.kind === 'absence' && !p.hidden && String(p.name || '').trim().toLowerCase() === 'compensatorio') {
+          found = true;
+          if (p.countsAbsence !== false) { p.countsAbsence = false; db.prepare('UPDATE shift_presets SET data_json = ? WHERE id = ?').run(JSON.stringify(p), r.id); }
+        }
+      }
+      if (!found) {
+        const id = uid('abs');
+        db.prepare('INSERT INTO shift_presets (id, organization_id, data_json) VALUES (?, ?, ?)')
+          .run(id, o.id, JSON.stringify({ id, kind: 'absence', name: 'Compensatorio', color: 'teal', countsAbsence: false }));
+      }
+    }
+    db.prepare("INSERT INTO app_migrations (name, applied_at) VALUES (?, datetime('now', '-5 hours'))").run(COMPENSATORIO_MIG);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); console.error('[compensatorio]', e.message); }
+}
 // Ultimo guardado completo por organizacion (para detectar guardados repetidos sin cambios).
 const lastSyncHash = new Map();
 // Correos de turnos (publicación y cambios en días ya publicados): APAGADOS por
