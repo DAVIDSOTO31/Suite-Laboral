@@ -4831,7 +4831,7 @@
                             const extraMin = plannedExtraMinutes(shift);
                             const extraBadge = extraMin ? `<span class="text-[9px] px-1 rounded bg-orange-500 text-white font-bold shrink-0" title="${hmLabel(extraMin)} extra programadas">+${hmLabel(extraMin).replace(' h', 'h')}</span>` : '';
                             const funcBadge = (shift.note
-                                ? `<span class="text-[9px] px-1 rounded ${theme.badgeBg} font-semibold tracking-tight whitespace-nowrap overflow-hidden text-ellipsis min-w-0" title="Nota del día: ${escapeHtml(shift.note)}"><i class="fa-solid fa-note-sticky"></i> ${escapeHtml(shift.note)}</span>`
+                                ? `<span class="text-[9px] px-1 rounded bg-white text-slate-900 border border-slate-500 shadow-sm font-bold tracking-tight whitespace-nowrap overflow-hidden text-ellipsis min-w-0" title="Nota del día: ${escapeHtml(shift.note)}"><i class="fa-solid fa-note-sticky"></i> ${escapeHtml(shift.note)}</span>`
                                 : '') + extraBadge;
 
                             return `
@@ -4859,7 +4859,7 @@
                                         <div class="font-extrabold text-3xs uppercase leading-tight">
                                             <span>${a.label}</span>
                                         </div>
-                                        ${shift.note ? `<span class="text-4xs font-semibold opacity-80 line-clamp-1 break-all leading-tight"><i class="fa-solid fa-note-sticky"></i> ${escapeHtml(shift.note)}</span>` : ''}
+                                        ${shift.note ? `<span class="text-4xs px-1 rounded bg-white text-slate-900 border border-slate-500 shadow-sm font-bold line-clamp-1 break-all leading-tight mt-0.5"><i class="fa-solid fa-note-sticky"></i> ${escapeHtml(shift.note)}</span>` : ''}
                                     </div>
                                 </td>
                             `;
