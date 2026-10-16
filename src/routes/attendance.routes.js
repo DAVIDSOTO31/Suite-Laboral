@@ -1098,10 +1098,32 @@ function listPayrollAttendance(req, res, query) {
   const from = query.from || bogota.todayISOInBogota();
   const to = query.to || from;
   const rows = db.prepare(`
-    SELECT employee_id, shift_date, status, hod_min, hon_min, hed_min, hen_min, retraso_min, exceso_almuerzo_min, salida_anticipada_min, corrected, manual_marks
+    SELECT employee_id, shift_date, status, hod_min, hon_min, hed_min, hen_min, retraso_min, exceso_almuerzo_min, salida_anticipada_min, corrected, manual_marks,
+           scheduled_entrada, scheduled_salida
     FROM attendance_days
     WHERE organization_id = ? AND shift_date BETWEEN ? AND ? AND status = 'turno_finalizado'
   `).all(orgId, from, to);
+  // Pago de dominicales y festivos (solo si la organizacion lo tiene activo):
+  // horas ordinarias trabajadas SIN el almuerzo. En un turno 100 % nocturno el
+  // almuerzo no se descuenta del recargo nocturno (regla de la organizacion),
+  // pero tampoco debe sumar horas al dominical/festivo.
+  const st = db.prepare('SELECT include_sunday_holiday FROM org_settings WHERE organization_id = ?').get(orgId);
+  if (st && st.include_sunday_holiday === 1) {
+    for (const r of rows) {
+      if (!r.scheduled_entrada || !r.scheduled_salida) continue;
+      const shift = getShiftForEmployeeDate(orgId, r.employee_id, r.shift_date);
+      if (!shift || shift.isSplit) continue; // turno partido: el almuerzo ya queda fuera de la jornada
+      try {
+        const cat = computeDayHours({
+          employeeId: r.employee_id, shiftDateISO: r.shift_date,
+          scheduledStart: r.scheduled_entrada, scheduledEnd: r.scheduled_salida,
+          salidaAbsMin: null, scheduledBreakMinutes: Number(shift.breakM) || 0, nightEnabled: 1,
+        });
+        r.ord_worked_min = Math.min(cat.ordWorked, (r.hod_min || 0) + (r.hon_min || 0));
+      } catch { /* si falla, se usa hod + hon como antes */ }
+    }
+  }
+  for (const r of rows) { delete r.scheduled_entrada; delete r.scheduled_salida; }
   sendJson(res, 200, { rows });
 }
 

@@ -228,6 +228,10 @@ function categorizeWorkedMinutes({
     hon: Math.max(0, Math.round(hon)),
     hed: Math.round(extraDay),
     hen: Math.round(extraNightFinal),
+    // Jornada ordinaria realmente trabajada (SIN el almuerzo). Solo informativo:
+    // no cambia hod/hon/hed/hen. Lo usa el pago de dominicales y festivos para
+    // que el almuerzo nunca sume horas (el recargo nocturno si lo incluye).
+    ordWorked: Math.max(0, Math.round(ordinaryGross - Math.max(0, breakMinutes || 0))),
   };
 }
 
