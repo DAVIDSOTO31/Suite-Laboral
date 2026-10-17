@@ -11249,6 +11249,10 @@
             if (h.battery != null) parts.push(`<span class="${h.warnings.includes('bateria_baja') ? 'text-rose-700 font-bold' : ''}"><i class="fa-solid ${h.charging ? 'fa-plug' : 'fa-battery-half'}"></i> ${h.battery} %${h.charging ? ' cargando' : ''}</span>`);
             parts.push(`<span class="${h.warnings.includes('camara') ? 'text-rose-700 font-bold' : ''}">${CAMERA_LABELS[h.camera] || h.camera}</span>`);
             if (h.pending) parts.push(`<span class="text-amber-700 font-bold">${h.pending} marcación(es) pendiente(s) por enviar</span>`);
+            if (h.cacheMin != null) {
+                const stale = h.cacheMin > 24 * 60;
+                parts.push(`<span class="${stale ? 'text-amber-700 font-bold' : ''}" title="Copia que usa el kiosco para reconocer rostros y decir el nombre sin internet">Copia sin internet: ${minutesAgoLabel(h.cacheMin)} · ${h.cacheFaces || 0} rostro(s)${h.storage === 'basico' ? ' · almacenamiento básico' : ''}</span>`);
+            }
             return `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full ${chip} text-2xs font-bold"><span class="w-2 h-2 rounded-full ${dot}"></span>${label}</span>
                 <span class="block text-3xs text-slate-500 mt-0.5 space-x-1">${parts.join(' · ')}</span>`;
         }

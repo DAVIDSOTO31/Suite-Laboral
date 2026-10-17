@@ -254,8 +254,62 @@ function scheduleQuickHeartbeat() {
 // identificar a la persona (la copia local solo sirve para confirmar).
 const MARK_ORDER = ['entrada', 'inicio_almuerzo', 'fin_almuerzo', 'salida'];
 function bogotaTodayKiosk() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date()); }
-function getOfflineCache() { try { return JSON.parse(localStorage.getItem('kioskOfflineCache') || 'null'); } catch (e) { return null; } }
-function saveOfflineCache(c) { try { localStorage.setItem('kioskOfflineCache', JSON.stringify(c)); } catch (e) { /* sin espacio */ } }
+// ---- Almacenamiento PERMANENTE del kiosco (IndexedDB) ----
+// Las marcaciones sin internet y la copia de rostros se guardan aquí: se
+// escriben en disco antes de confirmar (sobreviven a un apagado de golpe) y hay
+// mucho más espacio que en localStorage (~5 MB). localStorage queda solo como
+// respaldo liviano (sin fotos) o si el navegador no tiene IndexedDB.
+const KDB_NAME = 'kioscoRRHH', KDB_STORE = 'kv';
+let kdbPromise = null;
+function kdb() {
+  if (kdbPromise) return kdbPromise;
+  kdbPromise = new Promise((resolve) => {
+    try {
+      if (!window.indexedDB) return resolve(null);
+      const rq = indexedDB.open(KDB_NAME, 1);
+      rq.onupgradeneeded = () => { try { rq.result.createObjectStore(KDB_STORE); } catch (e) { /* ya existe */ } };
+      rq.onsuccess = () => resolve(rq.result);
+      rq.onerror = () => resolve(null);
+      rq.onblocked = () => resolve(null);
+    } catch (e) { resolve(null); }
+  });
+  return kdbPromise;
+}
+async function kdbGet(key) {
+  const d = await kdb();
+  if (!d) return undefined;
+  return new Promise((resolve) => {
+    try {
+      const r = d.transaction(KDB_STORE, 'readonly').objectStore(KDB_STORE).get(key);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => resolve(undefined);
+    } catch (e) { resolve(undefined); }
+  });
+}
+// Resuelve true SOLO cuando la escritura quedó confirmada en disco.
+async function kdbSet(key, val) {
+  const d = await kdb();
+  if (!d) return false;
+  return new Promise((resolve) => {
+    try {
+      let tx;
+      try { tx = d.transaction(KDB_STORE, 'readwrite', { durability: 'strict' }); } catch (e) { tx = d.transaction(KDB_STORE, 'readwrite'); }
+      tx.objectStore(KDB_STORE).put(val, key);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
+    } catch (e) { resolve(false); }
+  });
+}
+let CACHE_MEM = (() => { try { return JSON.parse(localStorage.getItem('kioskOfflineCache') || 'null'); } catch (e) { return null; } })();
+function getOfflineCache() { return CACHE_MEM; }
+function saveOfflineCache(c) {
+  CACHE_MEM = c;
+  storageReady.then(() => kdbSet('cache', c)).then((ok) => {
+    if (ok) { try { localStorage.removeItem('kioskOfflineCache'); } catch (e) { /* nada */ } } // libera espacio
+    else { try { localStorage.setItem('kioskOfflineCache', JSON.stringify(c)); } catch (e) { /* sin espacio */ } }
+  });
+}
 async function loadOfflineCache() {
   if (!getToken()) return;
   try {
@@ -345,7 +399,8 @@ function resetDevice() {
   stopCameraStream(document.getElementById('video'));
   localStorage.removeItem('kioskDeviceToken');
   localStorage.removeItem('kioskOfflineCache');
-  location.reload();
+  CACHE_MEM = null;
+  kdbSet('cache', null).finally(() => location.reload()); // las marcaciones pendientes NO se borran
 }
 
 async function init() {
@@ -581,7 +636,7 @@ async function runSingleFaceAttempt() {
 
 async function submitFaceMark(descriptor, evidence) {
   const statusEl = document.getElementById('faceStatus');
-  if (likelyOffline()) { saveOfflineFace(descriptor, evidence); return; }
+  if (likelyOffline()) { await saveOfflineFace(descriptor, evidence); return; }
   try {
     const r = await apiKiosk('/api/kiosk/mark-by-face', { method: 'POST', timeoutMs: 7000, body: JSON.stringify({ descriptor, evidence }) });
     if (r && r.employeeId) advanceCachedMark(r.employeeId, r.markType);
@@ -589,16 +644,17 @@ async function submitFaceMark(descriptor, evidence) {
     speakConfirmation(r);
     statusEl.textContent = 'Listo. Presiona "Iniciar marcación" para el siguiente colaborador.';
   } catch (e) {
-    if (e.network) { saveOfflineFace(descriptor, evidence); return; }
+    if (e.network) { await saveOfflineFace(descriptor, evidence); return; }
     statusEl.textContent = e.message;
   }
 }
-function saveOfflineFace(descriptor, evidence) {
+async function saveOfflineFace(descriptor, evidence) {
   // Se reconoce con la copia local para confirmar nombre y tipo de marcación.
   const who = matchFaceLocally(descriptor);
   if (who && recentOfflineMark(who.id)) { renderAlreadyMarked(who.name); document.getElementById('faceStatus').textContent = 'Listo. Presiona "Iniciar marcación" para el siguiente colaborador.'; return; }
   const ev = evidenceForQueue(evidence);
-  enqueueOffline({ kind: 'face', descriptor, ...(who ? { localEmpId: who.id } : {}), ...(ev ? { evidence: ev } : {}) });
+  const saved = await enqueueOffline({ kind: 'face', descriptor, ...(who ? { localEmpId: who.id } : {}), ...(ev ? { evidence: ev } : {}) });
+  if (!saved) { renderSaveFailed(who ? who.name : null); document.getElementById('faceStatus').textContent = 'Presiona "Iniciar marcación" para intentar de nuevo.'; return; }
   if (who) {
     const mt = cachedNextMark(who.id);
     renderOfflineResult(who.name, mt, who.isSplit, cachedHasShiftToday(who.id));
@@ -611,6 +667,18 @@ function saveOfflineFace(descriptor, evidence) {
   document.getElementById('faceStatus').textContent = 'Listo. Presiona "Iniciar marcación" para el siguiente colaborador.';
 }
 
+// La marcación NO quedó guardada en el equipo (no hay espacio o el navegador
+// lo impidió): se avisa claro, nunca se dice "guardada".
+function renderSaveFailed(name) {
+  const box = document.getElementById('resultBox');
+  const time = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+  box.className = 'mt-4 bg-rose-900/70 border-2 border-rose-500 rounded-xl p-4';
+  box.innerHTML = `${name ? `<p class="font-bold text-lg">${escapeHtml(name)}</p>` : ''}
+    <p class="text-rose-200 font-extrabold text-lg">No se pudo guardar la marcación en este equipo</p>
+    <p class="text-sm text-rose-100">Hora: <strong>${time}</strong> · Avisa al administrador para que la registre. Intenta de nuevo en un momento.</p>`;
+  box.classList.remove('hidden');
+  speakText(`${name ? spokenName(name) + '. ' : ''}No se pudo guardar la marcación. Avisa al administrador.`);
+}
 function renderOfflineResult(name, markType, isSplit, hasShift) {
   const box = document.getElementById('resultBox');
   const time = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
@@ -689,20 +757,21 @@ async function doManualMark() {
   if (markBtn) { markBtn.disabled = true; markBtn.classList.add('opacity-50'); }
   const evidence = await captureManualEvidence();
   if (markBtn) { markBtn.disabled = false; markBtn.classList.remove('opacity-50'); }
-  const saveOfflineManual = () => {
+  const saveOfflineManual = async () => {
     const empId = Number(sel.value);
     const cached = cachedEmployee(empId);
     const name = cached ? cached.name : (sel.selectedOptions[0]?.textContent || '').split(' — ')[0];
     if (recentOfflineMark(empId)) { renderAlreadyMarked(name); return; }
     const ev = evidenceForQueue(evidence);
-    enqueueOffline({ kind: 'manual', employeeId: empId, localEmpId: empId, employeeName: name, reason, ...(ev ? { evidence: ev } : {}) });
+    const saved = await enqueueOffline({ kind: 'manual', employeeId: empId, localEmpId: empId, employeeName: name, reason, ...(ev ? { evidence: ev } : {}) });
+    if (!saved) { renderSaveFailed(name); return; }
     reasonEl.value = '';
     const mt = cachedNextMark(empId);
     renderOfflineResult(name, mt, cached && cached.isSplit, cachedHasShiftToday(empId));
     speakOfflineConfirmation(name, mt, cached && cached.isSplit);
     if (mt) advanceCachedMark(empId, mt);
   };
-  if (likelyOffline()) { saveOfflineManual(); return; }
+  if (likelyOffline()) { await saveOfflineManual(); return; }
   try {
     const r = await apiKiosk('/api/kiosk/mark', { method: 'POST', timeoutMs: 7000, body: JSON.stringify({ employeeId: Number(sel.value), reason, evidence }) });
     if (r && r.employeeId) advanceCachedMark(r.employeeId, r.markType);
@@ -710,7 +779,7 @@ async function doManualMark() {
     renderResult(r);
     loadEmployeesForManual();
   } catch (e) {
-    if (e.network) { saveOfflineManual(); return; }
+    if (e.network) { await saveOfflineManual(); return; }
     document.getElementById('resultBox').className = 'mt-4 bg-rose-900/50 border border-rose-700 rounded-xl p-4 text-rose-200 text-sm';
     document.getElementById('resultBox').innerHTML = escapeHtml(e.message);
     document.getElementById('resultBox').classList.remove('hidden');
@@ -726,7 +795,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-token1';
+const KIOSK_VERSION = '2026.10-almacen1';
 let cameraState = 'desconocido';
 let batteryRef = null;
 async function detectCameraState() {
@@ -766,7 +835,9 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 async function sendHeartbeat() {
   if (!getToken()) return;
-  const body = { camera: cameraState, pending: offlineQueue().length, version: KIOSK_VERSION + (isInstalledApp() ? ' · app' : ' · web') };
+  const cc = getOfflineCache();
+  const body = { camera: cameraState, pending: offlineQueue().length, version: KIOSK_VERSION + (isInstalledApp() ? ' · app' : ' · web'),
+    cacheAt: cc && cc.savedAt ? cc.savedAt : null, cacheFaces: cc && Array.isArray(cc.employees) ? cc.employees.filter(e => Array.isArray(e.descriptor)).length : 0, storage: storageMode };
   try {
     if (!batteryRef && navigator.getBattery) batteryRef = await navigator.getBattery();
     if (batteryRef) body.battery = { level: batteryRef.level, charging: batteryRef.charging };
@@ -788,12 +859,45 @@ async function sendHeartbeat() {
 // el navegador) con la hora del equipo y la diferencia conocida entre el reloj
 // del equipo y el del servidor, para registrarla después con su hora real.
 const QUEUE_KEY = 'kioskOfflineQueue';
-function offlineQueue() {
-  try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch (e) { return []; }
-}
-function saveQueue(q) {
-  try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch (e) { /* almacenamiento lleno */ }
+// Cola en memoria (fuente de verdad mientras la página está abierta). Al abrir,
+// se arma con lo guardado en el almacenamiento permanente + el respaldo de
+// localStorage (incluye lo que versiones anteriores del kiosco dejaron ahí).
+let QUEUE_MEM = (() => { try { const v = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } })();
+let storageMode = 'basico';
+const storageReady = (async () => {
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* nada */ } // que la tablet no borre estos datos
+  const d = await kdb();
+  if (!d) return;
+  const saved = await kdbGet('queue');
+  const byId = new Map();
+  (Array.isArray(saved) ? saved : []).forEach(x => { if (x && x.clientId) byId.set(x.clientId, x); });
+  QUEUE_MEM.forEach(x => { if (x && x.clientId && !byId.has(x.clientId)) byId.set(x.clientId, x); });
+  QUEUE_MEM = [...byId.values()].sort((a, b) => String(a.capturedAt).localeCompare(String(b.capturedAt)));
+  if (await kdbSet('queue', QUEUE_MEM)) storageMode = 'permanente';
+  const c = await kdbGet('cache');
+  if (c && (!CACHE_MEM || (c.savedAt || 0) >= (CACHE_MEM.savedAt || 0))) CACHE_MEM = c;
+  if (CACHE_MEM && await kdbSet('cache', CACHE_MEM)) { try { localStorage.removeItem('kioskOfflineCache'); } catch (e) { /* nada */ } }
+  lsMirrorQueue(QUEUE_MEM);
   updatePendingLabel();
+})();
+function offlineQueue() { return QUEUE_MEM.slice(); }
+// Respaldo liviano en localStorage (sin fotos cuando ya hay almacenamiento
+// permanente). Si no cabe, se borra para no dejar un respaldo desactualizado.
+function lsMirrorQueue(q) {
+  const strip = (arr) => arr.map(x => (x.evidence && x.evidence.photo) ? { ...x, evidence: (({ photo, ...rest }) => rest)(x.evidence) } : x);
+  const tries = storageMode === 'permanente' ? [strip(q)] : [q, strip(q)];
+  for (const t of tries) { try { localStorage.setItem(QUEUE_KEY, JSON.stringify(t)); return true; } catch (e) { /* sin espacio */ } }
+  try { localStorage.removeItem(QUEUE_KEY); } catch (e) { /* nada */ }
+  return false;
+}
+// Resuelve true si la cola quedó guardada (en disco o, como mínimo, en el respaldo).
+async function saveQueue(q) {
+  QUEUE_MEM = q;
+  const ls = lsMirrorQueue(q);
+  await storageReady;
+  const idb = await kdbSet('queue', QUEUE_MEM);
+  updatePendingLabel();
+  return idb || ls;
 }
 function rememberServerOffset(serverTimeIso, sentAt) {
   const server = Date.parse(serverTimeIso);
@@ -805,12 +909,13 @@ function newClientId() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
   return 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 }
-function enqueueOffline(item) {
+async function enqueueOffline(item) {
   const q = offlineQueue();
   const off = localStorage.getItem('kioskServerOffset');
   q.push({ ...item, clientId: newClientId(), capturedAt: new Date().toISOString(), offsetAtCapture: off == null ? null : Number(off) });
-  saveQueue(q);
+  const ok = await saveQueue(q);
   setConnStatus(false, navigator.onLine ? 'Sin conexión con el servidor' : 'Sin internet');
+  return ok;
 }
 function updatePendingLabel() {
   const n = offlineQueue().length;
@@ -820,6 +925,7 @@ function updatePendingLabel() {
 }
 let syncing = false;
 async function syncOfflineQueue() {
+  await storageReady;
   if (syncing) return;
   const q = offlineQueue();
   if (!q.length) return;

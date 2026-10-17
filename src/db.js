@@ -721,6 +721,8 @@ for (const [col, def] of [
   ['hb_at_ms', 'INTEGER NULL'], ['hb_battery', 'REAL NULL'], ['hb_charging', 'INTEGER NULL'], ['hb_camera', 'TEXT NULL'],
   ['hb_pending', 'INTEGER NULL'], ['hb_version', 'TEXT NULL'], ['hb_ua', 'TEXT NULL'], ['hb_online_since_ms', 'INTEGER NULL'],
   ['offline_since_ms', 'INTEGER NULL'], ['offline_notified', 'INTEGER NOT NULL DEFAULT 0'], ['battery_notified_date', 'TEXT NULL'],
+  // Copia para trabajar sin internet: cuándo se actualizó, cuántos rostros tiene y tipo de almacenamiento.
+  ['hb_cache_at_ms', 'INTEGER NULL'], ['hb_cache_faces', 'INTEGER NULL'], ['hb_storage', 'TEXT NULL'],
 ]) {
   if (!devCols.includes(col)) db.exec(`ALTER TABLE attendance_devices ADD COLUMN ${col} ${def}`);
 }
