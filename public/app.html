@@ -5877,6 +5877,11 @@
                 const domPay = domHours * dayRate * domPct;
                 acc.hon += hon;
                 acc.hed += hed;
+                // Para la tarjeta de extras diurnas: lo generado y lo descontado
+                // por salidas anticipadas (hed ya viene neto de la salida).
+                const salidaH = real ? (Number(real.salida_anticipada_min) || 0) / 60 : 0;
+                acc.hedGen = (acc.hedGen || 0) + hed + salidaH;
+                acc.hedSal = (acc.hedSal || 0) + salidaH;
                 acc.hen += hen;
                 acc.honPay += honPay;
                 acc.hedPay += hedPay;
@@ -5908,7 +5913,7 @@
                 r.adjustment = edit || null;
                 if (edit) {
                     if (edit.hon !== null && edit.hon !== undefined) r.hon = edit.hon;
-                    if (edit.hed !== null && edit.hed !== undefined) r.hed = edit.hed;
+                    if (edit.hed !== null && edit.hed !== undefined) { r.hed = edit.hed; r.hedEdited = true; }
                     if (edit.hen !== null && edit.hen !== undefined) r.hen = edit.hen;
                     r.honPay = r.hon * r.rateHon;
                     r.hedPay = r.hed * r.rateHed;
@@ -6066,19 +6071,38 @@
             const periodLabel = (cache.startDate && cache.endDate)
                 ? `Del ${cache.startDate.split('-').reverse().join('/')} al ${cache.endDate.split('-').reverse().join('/')}` : '';
 
+            // Tarjeta de extras diurnas: la cuenta (generadas - salidas anticipadas
+            // de quienes quedan con saldo a favor), lo compensado con extras
+            // nocturnas y lo pendiente que pasa al siguiente periodo. Solo informativo.
+            const hedCardDetail = () => {
+                const out = [];
+                const pos = rows.filter(r => (r.hed || 0) > 0);
+                const closedX = !!(cache.closures && cache.closures.extras);
+                if (pos.length && !closedX && !pos.some(r => r.hedEdited)) {
+                    const gen = pos.reduce((a, r) => a + (r.hedGen || 0), 0);
+                    const sal = pos.reduce((a, r) => a + (r.hedSal || 0), 0);
+                    const prev = pos.reduce((a, r) => a + (r.carryIn || 0) + (r.openHed || 0), 0);
+                    if (sal > 0.004 || Math.abs(prev) > 0.004) {
+                        out.push(`<span class="block text-3xs font-semibold text-amber-900 mt-1">Generadas ${formatHMSigned(gen)} · Salidas anticipadas −${formatHMSigned(sal)}${Math.abs(prev) > 0.004 ? ` · Saldos anteriores ${prev > 0 ? '+' : ''}${formatHMSigned(prev)}` : ''}</span>`);
+                    }
+                }
+                const off = rows.reduce((a, r) => a + (r.offsetHours || 0), 0);
+                if (off > 0.004) out.push(`<span class="block text-3xs font-semibold text-slate-600 mt-0.5">Compensado con extras nocturnas: ${formatHMSigned(off)}</span>`);
+                if (rows.some(r => r.carryOut)) out.push(`<span class="block text-3xs font-bold text-rose-700 mt-0.5">Pendiente por compensar: ${formatHMSigned(rows.reduce((a, r) => a + (r.carryOut || 0), 0))} (${rows.filter(r => r.carryOut).length} colab.) → pasa al siguiente periodo</span>`);
+                return out.join('');
+            };
             const kpiContainer = document.getElementById('payrollOtKpiCards');
             if (kpiContainer) {
-                const card = (cls, labelCls, title, hours, pay, extra) => `
+                const card = (cls, labelCls, title, hours, pay, extra, hoursSuffix) => `
                     <div class="${cls} p-4 rounded-xl border">
                         <span class="text-3xs ${labelCls} font-bold uppercase block">${title}</span>
                         <span class="text-xl font-black font-mono block">${money(pay)}</span>
-                        <span class="block text-2xs font-semibold font-mono mt-0.5">${formatHMSigned(hours)} <span class="opacity-70">(${hours.toFixed(2)} h)</span></span>
+                        <span class="block text-2xs font-semibold font-mono mt-0.5">${formatHMSigned(hours)} <span class="opacity-70">(${hours.toFixed(2)} h)</span>${hoursSuffix || ''}</span>
                         ${extra || ''}
                     </div>`;
                 kpiContainer.innerHTML = `
                     ${card('bg-purple-50 border-purple-200 text-purple-950', 'text-purple-700', 'Recargo Nocturno Ordinario (+35%)' + (cache.closures && cache.closures.recargos ? ' · 🔒' : ''), sumHON, sumHONPay)}
-                    ${card('bg-amber-50 border-amber-200 text-amber-950', 'text-amber-700', 'Horas Extra Diurnas (+25%)' + (cache.closures && cache.closures.extras ? ' · 🔒' : ''), sumHED, sumHEDPay,
-                        rows.some(r => r.carryOut) ? `<span class="block text-3xs font-bold text-rose-700 mt-1">Saldo negativo a trasladar: ${formatHMSigned(rows.reduce((a, r) => a + (r.carryOut || 0), 0))} (${rows.filter(r => r.carryOut).length} colab.)</span>` : '')}
+                    ${card('bg-amber-50 border-amber-200 text-amber-950', 'text-amber-700', 'Horas Extra Diurnas (+25%)' + (cache.closures && cache.closures.extras ? ' · 🔒' : ''), sumHED, sumHEDPay, hedCardDetail(), ' <span class="font-sans font-bold">a pagar</span>')}
                     ${card('bg-rose-50 border-rose-200 text-rose-950', 'text-rose-700', 'Horas Extra Nocturnas (+75%)' + (cache.closures && cache.closures.extras ? ' · 🔒' : ''), sumHEN, sumHENPay,
                         rows.some(r => r.offsetValue) ? `<span class="block text-3xs font-bold text-rose-700 mt-1">Incluye descuento por deuda diurna: -${money(rows.reduce((a, r) => a + (r.offsetValue || 0), 0))}</span>` : '')}
                     ${domOn ? card('bg-blue-50 border-blue-200 text-blue-950', 'text-blue-700', `Recargo Dominical / Festivo (+${Math.round(legalSundayPctForDate(cache.endDate || formatDateISO(new Date())) * 100)}%)`, sumDomHours, sumDomPay) : ''}
