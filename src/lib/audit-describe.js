@@ -126,6 +126,11 @@ function describeAudit(row, ctx = {}) {
     case 'attendance.env_learned': return out('Asistencia', 'Kiosco aprendió un fondo',
       `Confirmó que una marcación sospechosa del ${dayName(m.fecha)} era en el mismo lugar (otra luz): el kiosco aprendió ese fondo.`,
       [m.alertaJustificada ? 'La marcación sospechosa quedó justificada.' : null, m.otrasJustificadas ? `También se justificaron ${m.otrasJustificadas} marcación(es) sospechosa(s) parecida(s).` : null].filter(Boolean));
+    case 'attendance.mark_voided': return out('Asistencia', m.reasignadaA ? 'Marcación reasignada' : 'Marcación anulada',
+      m.reasignadaA
+        ? `Pasó la marcación de ${val(m.marcacion)} de las ${val(m.hora)} del ${dayName(m.fecha)} de ${val(m.colaborador)} a ${val(m.reasignadaA)} (el kiosco la había registrado a la persona equivocada).`
+        : `Anuló la marcación de ${val(m.marcacion)} de las ${val(m.hora)} del ${dayName(m.fecha)} de ${val(m.colaborador)}.`,
+      [m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));
     case 'attendance.absence_alert_removed': return out('Asistencia', '"No se presentó" eliminada',
       `La suite eliminó ${m.cantidad || 0} alerta(s) de "no se presentó" porque ese día quedó como descanso (o novedad) en el cuadro de turnos y la persona no tenía marcaciones.`, (m.detalle || []).slice(0, 10), 'Sistema (automático)');
     case 'attendance.false_late_fixed': return out('Asistencia', 'Llegadas tarde corregidas',

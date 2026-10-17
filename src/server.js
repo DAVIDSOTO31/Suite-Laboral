@@ -149,6 +149,8 @@ route('POST', '/api/attendance/mark', [requirePermission('attendance.mark')], (r
 route('GET', '/api/attendance/history', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listHistory(req, res, query));
 // Correccion de marcaciones de dias pasados: solo quien puede marcar manualmente (Administrador).
 route('POST', '/api/attendance/corrections', [requirePermission('attendance.mark')], (req, res) => attendance.registerCorrection(req, res));
+route('GET', '/api/attendance/day-marks', [requirePermission('attendance.mark')], (req, res, params, query) => attendance.listDayMarks(req, res, query));
+route('POST', '/api/attendance/marks/:id/void', [requirePermission('attendance.mark')], (req, res, params) => attendance.voidMark(req, res, params));
 route('GET', '/api/attendance/corrections', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listCorrections(req, res, query));
 // "Mis marcaciones": cada usuario ve solo las de su propia ficha de colaborador.
 route('GET', '/api/attendance/my-history', [requirePermission('self.view')], (req, res, params, query) => attendance.listMyHistory(req, res, query));

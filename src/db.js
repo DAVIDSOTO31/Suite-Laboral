@@ -448,6 +448,32 @@ CREATE INDEX IF NOT EXISTS idx_payroll_closures_org ON payroll_closures(organiza
 // marcaciones originales NUNCA se modifican: la correccion se guarda aparte y
 // el dia (attendance_days) se recalcula con las horas corregidas.
 db.exec(`
+CREATE TABLE IF NOT EXISTS attendance_mark_archive (
+  -- Marcaciones retiradas de attendance_marks al ANULAR o REASIGNAR una
+  -- marcacion (nunca se pierden: quedan aqui con quien, cuando y por que).
+  -- action: 'anulada' (la marcacion equivocada) o 'reprocesada' (las demas del
+  -- dia, que se vuelven a registrar en orden con su hora original).
+  id TEXT PRIMARY KEY,
+  original_mark_id TEXT NOT NULL,
+  organization_id TEXT NOT NULL,
+  employee_id INTEGER NOT NULL,
+  shift_date TEXT NOT NULL,
+  mark_type TEXT NOT NULL,
+  scheduled_time TEXT,
+  actual_at TEXT NOT NULL,
+  method TEXT,
+  marked_by_user_id TEXT,
+  manual_reason TEXT,
+  original_created_at TEXT,
+  action TEXT NOT NULL,
+  reason TEXT,
+  target_employee_id INTEGER,
+  new_mark_id TEXT,
+  archived_by TEXT,
+  archived_at TEXT NOT NULL DEFAULT (datetime('now', '-5 hours'))
+);
+CREATE INDEX IF NOT EXISTS idx_mark_archive_emp_day ON attendance_mark_archive(organization_id, employee_id, shift_date);
+
 CREATE TABLE IF NOT EXISTS attendance_corrections (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL,
