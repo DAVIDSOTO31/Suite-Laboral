@@ -114,6 +114,9 @@ function upsertAttendanceDay(orgId, employeeId, shiftDateISO, shift, patch) {
     .run(...values, employeeId, shiftDateISO);
 }
 
+// Mientras se reprocesa un dia (anular/reasignar marcacion) no se envian avisos
+// al celular por las alertas que se vuelven a crear.
+let alertPushMuted = false;
 function insertAlert(orgId, employeeId, shiftDateISO, alertType, scheduledTime, actualTime, diffMinutes, metadata) {
   const alertId = uid('alert');
   db.prepare(`
@@ -122,7 +125,7 @@ function insertAlert(orgId, employeeId, shiftDateISO, alertType, scheduledTime, 
   `).run(alertId, orgId, employeeId, shiftDateISO, alertType, scheduledTime || null, actualTime || null, diffMinutes == null ? null : Math.round(diffMinutes), JSON.stringify(metadata || {}));
   // Centro de notificaciones: aviso al celular del administrador (agrupado y
   // respetando el horario de silencio). Nunca debe afectar la marcacion.
-  try { push.onAlertCreated(orgId, alertId, alertType, shiftDateISO); } catch (e) { console.error('[avisos]', e.message); }
+  if (!alertPushMuted) { try { push.onAlertCreated(orgId, alertId, alertType, shiftDateISO); } catch (e) { console.error('[avisos]', e.message); } }
   live.publishAttendance(orgId, 'alert');
 }
 
@@ -317,7 +320,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
   if (employee.status === 'retirado' && employee.retired_at && bogota.todayISOInBogota(now) > employee.retired_at) {
     return { httpStatus: 409, body: { error: `Este colaborador fue retirado el ${employee.retired_at.split('-').reverse().join('/')}.`, state: 'retirado' } };
   }
-  const shiftDateISO = resolveShiftDateForMark(orgId, employeeId, now);
+  const shiftDateISO = opts.shiftDate || resolveShiftDateForMark(orgId, employeeId, now);
   const shift = getShiftForEmployeeDate(orgId, employeeId, shiftDateISO);
   if (!shift || shift.isOffDay) {
     return { httpStatus: 409, body: { error: 'Este colaborador no tiene un turno asignado para hoy.', state: 'sin_turno' } };
@@ -474,7 +477,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
     });
   }
 
-  logAction({ organizationId: orgId, userId, action: 'attendance.mark', resourceType: 'employee', resourceId: String(employeeId), ip, metadata: { colaborador: employee.name, markType, isSplit: !!shift.isSplit, shiftDateISO, actualClock, method, ...(isManual ? { motivo: reason } : {}) } });
+  if (!opts.silent) logAction({ organizationId: orgId, userId, action: 'attendance.mark', resourceType: 'employee', resourceId: String(employeeId), ip, metadata: { colaborador: employee.name, markType, isSplit: !!shift.isSplit, shiftDateISO, actualClock, method, ...(isManual ? { motivo: reason } : {}) } });
 
   return {
     httpStatus: 200,
@@ -542,6 +545,11 @@ function listHistory(req, res, query) {
       FROM mark_photos WHERE organization_id = ? AND shift_date BETWEEN ? AND ? GROUP BY employee_id, shift_date`).all(orgId, from, to)
     .map(r => [`${r.employee_id}|${r.shift_date}`, r]));
   for (const row of rows) { const e = evid.get(`${row.employee_id}|${row.shift_date}`); row.evidence_count = e ? e.n : 0; row.evidence_env_diff = e ? e.dif : 0; }
+  // Marcaciones anuladas (puestas por error a esta persona) de cada dia.
+  const voided = new Map(db.prepare(`SELECT employee_id, shift_date, COUNT(*) AS n FROM attendance_mark_archive
+      WHERE organization_id = ? AND action = 'anulada' AND shift_date BETWEEN ? AND ? GROUP BY employee_id, shift_date`).all(orgId, from, to)
+    .map(r => [`${r.employee_id}|${r.shift_date}`, r.n]));
+  for (const row of rows) row.voided_count = voided.get(`${row.employee_id}|${row.shift_date}`) || 0;
   sendJson(res, 200, { rows });
 }
 
@@ -1322,6 +1330,159 @@ function correctedAbsForDay(employeeId, shiftDateISO, shiftStartClock) {
 }
 
 // GET /api/attendance/corrections?from=&to=[&employeeId=]
+// ===========================================================================
+// ANULAR / REASIGNAR UNA MARCACION (solo Administrador, motivo obligatorio)
+// Caso: el kiosco confundio el rostro y le registro la marcacion a otra persona.
+// Las marcaciones son inmutables: la equivocada NO se borra, se pasa a
+// attendance_mark_archive (con quien, cuando y por que). El dia se REPROCESA:
+// las demas marcaciones de ese dia se vuelven a registrar en orden, con su hora
+// original y las mismas reglas de siempre, como si la equivocada no hubiera
+// existido (tipo de marcacion, horas, recargo, extras y alertas). La gestion
+// (justificada/injustificada) de las alertas que se mantienen se conserva.
+// ===========================================================================
+const MARK_DERIVED_ALERTS = ['llegada_tarde', 'etapa_extendida', 'exceso_almuerzo', 'salida_anticipada', 'hora_extra', 'marcacion_manual'];
+function alertCarryKey(a) {
+  let mt = '';
+  // Marcacion manual: se identifica por su motivo (el tipo puede cambiar al reprocesar).
+  if (a.alert_type === 'marcacion_manual') { try { mt = (JSON.parse(a.metadata_json || '{}').motivo) || ''; } catch { /* nada */ } }
+  return `${a.alert_type}|${a.actual_time || ''}|${mt}`;
+}
+function blockedDayReason(orgId, employeeId, date) {
+  const closed = db.prepare(`SELECT closure_type, period_start, period_end FROM payroll_closures
+    WHERE organization_id = ? AND status = 'cerrado' AND period_start <= ? AND period_end >= ?`).all(orgId, date, date);
+  if (closed.length) return `Ese dia pertenece a un periodo cerrado (${closed.map(c => `${c.closure_type} ${c.period_start} al ${c.period_end}`).join(' y ')}). Primero reabre el periodo.`;
+  const day = db.prepare('SELECT corrected FROM attendance_days WHERE employee_id = ? AND shift_date = ?').get(employeeId, date);
+  if (day && day.corrected) return 'Ese dia ya tiene una correccion de horas. Anular una marcacion en un dia corregido no esta disponible.';
+  return null;
+}
+// Vuelve a registrar el dia con la lista de marcaciones dada (en orden). Debe
+// llamarse dentro de una transaccion. Lanza Error si algo no cuadra.
+function replayAttendanceDay(orgId, employeeId, date, marks, ctx) {
+  const prevAlerts = db.prepare(`SELECT a.id, a.alert_type, a.actual_time, a.metadata_json, m.status, m.category, m.note, m.attachment_name, m.attachment_type, m.attachment_data, m.managed_by, m.managed_at, m.auto_marked
+      FROM attendance_alerts a LEFT JOIN alert_management m ON m.alert_id = a.id
+      WHERE a.employee_id = ? AND a.shift_date = ? AND a.alert_type IN (${MARK_DERIVED_ALERTS.map(() => '?').join(',')})`).all(employeeId, date, ...MARK_DERIVED_ALERTS);
+  const carry = new Map();
+  for (const a of prevAlerts) { if (a.status) carry.set(alertCarryKey(a), a); }
+  for (const a of prevAlerts) { db.prepare('DELETE FROM alert_management WHERE alert_id = ?').run(a.id); db.prepare('DELETE FROM attendance_alerts WHERE id = ?').run(a.id); }
+  db.prepare('DELETE FROM attendance_marks WHERE employee_id = ? AND shift_date = ?').run(employeeId, date);
+  db.prepare('DELETE FROM attendance_days WHERE employee_id = ? AND shift_date = ?').run(employeeId, date);
+  const ordered = [...marks].sort((x, y) => String(x.actual_at).localeCompare(String(y.actual_at)));
+  const idMap = new Map();
+  for (const m of ordered) {
+    const r = performMark(orgId, employeeId, m.marked_by_user_id || null, m.method || 'manual', null, m.manual_reason, { at: new Date(m.actual_at), shiftDate: date, silent: true });
+    if (r.httpStatus !== 200) throw new Error(r.body && r.body.error ? r.body.error : 'No se pudo reprocesar el dia.');
+    idMap.set(m.id, r.body.markId);
+  }
+  // Conserva la gestion de las alertas que siguen existiendo.
+  if (carry.size) {
+    const now = db.prepare(`SELECT id, alert_type, actual_time, metadata_json FROM attendance_alerts
+        WHERE employee_id = ? AND shift_date = ? AND alert_type IN (${MARK_DERIVED_ALERTS.map(() => '?').join(',')})`).all(employeeId, date, ...MARK_DERIVED_ALERTS);
+    for (const a of now) {
+      const c = carry.get(alertCarryKey(a));
+      if (!c) continue;
+      db.prepare(`INSERT OR REPLACE INTO alert_management (alert_id, organization_id, status, category, note, attachment_name, attachment_type, attachment_data, managed_by, managed_at, auto_marked)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(a.id, orgId, c.status, c.category, c.note, c.attachment_name, c.attachment_type, c.attachment_data, c.managed_by, c.managed_at, c.auto_marked || 0);
+      carry.delete(alertCarryKey(a));
+    }
+  }
+  // Las fotos de evidencia siguen a su marcacion.
+  for (const [oldId, newId] of idMap) {
+    const nm = db.prepare('SELECT mark_type FROM attendance_marks WHERE id = ?').get(newId);
+    db.prepare('UPDATE mark_photos SET mark_id = ?, mark_type = ? WHERE mark_id = ?').run(newId, nm ? nm.mark_type : null, oldId);
+  }
+  return idMap;
+}
+function archiveMark(m, action, ctx, extra = {}) {
+  db.prepare(`INSERT INTO attendance_mark_archive (id, original_mark_id, organization_id, employee_id, shift_date, mark_type, scheduled_time, actual_at, method, marked_by_user_id, manual_reason, original_created_at, action, reason, target_employee_id, new_mark_id, archived_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(uid('marc'), m.id, m.organization_id, m.employee_id, m.shift_date, m.mark_type, m.scheduled_time, m.actual_at, m.method, m.marked_by_user_id, m.manual_reason, m.created_at,
+      action, ctx.reason, extra.targetEmployeeId || null, extra.newMarkId || null, ctx.userId);
+}
+
+// GET /api/attendance/day-marks?employeeId=&date=  -> marcaciones del dia (para elegir cual anular)
+function listDayMarks(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const employeeId = Number(query.employeeId);
+  const date = String(query.date || '');
+  const rows = db.prepare(`SELECT m.id, m.mark_type, m.actual_at, m.method, m.manual_reason,
+      (SELECT p.id FROM mark_photos p WHERE p.mark_id = m.id LIMIT 1) AS evidence_id
+      FROM attendance_marks m JOIN employees e ON e.id = m.employee_id
+      WHERE e.organization_id = ? AND m.employee_id = ? AND m.shift_date = ? ORDER BY m.actual_at ASC`).all(orgId, employeeId, date);
+  const voided = db.prepare(`SELECT a.mark_type, a.actual_at, a.reason, a.archived_at, a.target_employee_id, t.name AS target_name, u.email AS by_email
+      FROM attendance_mark_archive a LEFT JOIN employees t ON t.id = a.target_employee_id LEFT JOIN users u ON u.id = a.archived_by
+      WHERE a.organization_id = ? AND a.employee_id = ? AND a.shift_date = ? AND a.action = 'anulada' ORDER BY a.archived_at DESC`).all(orgId, employeeId, date);
+  sendJson(res, 200, {
+    marks: rows.map(r => ({ id: r.id, markType: r.mark_type, time: hhmmFromAbsMinutes(new Date(r.actual_at)), method: r.method, reason: r.manual_reason, evidenceId: r.evidence_id })),
+    voided: voided.map(v => ({ markType: v.mark_type, time: hhmmFromAbsMinutes(new Date(v.actual_at)), reason: v.reason, at: v.archived_at, by: v.by_email, targetName: v.target_name })),
+    blocked: blockedDayReason(orgId, employeeId, date),
+  });
+}
+
+// POST /api/attendance/marks/:id/void  { reason, reassignTo? }
+async function voidMark(req, res, params) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const reason = String(body.reason || '').trim().slice(0, 300);
+  if (reason.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo (minimo 5 caracteres).' });
+  const mark = db.prepare('SELECT * FROM attendance_marks WHERE id = ? AND organization_id = ?').get(String(params.id || ''), orgId);
+  if (!mark) return sendJson(res, 404, { error: 'Marcacion no encontrada.' });
+  const fromEmp = db.prepare('SELECT id, name FROM employees WHERE id = ? AND organization_id = ?').get(mark.employee_id, orgId);
+  const blockedFrom = blockedDayReason(orgId, mark.employee_id, mark.shift_date);
+  if (blockedFrom) return sendJson(res, 409, { error: blockedFrom });
+
+  let target = null, targetDate = null;
+  if (body.reassignTo != null && body.reassignTo !== '') {
+    target = db.prepare("SELECT id, name, status FROM employees WHERE id = ? AND organization_id = ?").get(Number(body.reassignTo), orgId);
+    if (!target) return sendJson(res, 404, { error: 'El colaborador al que quieres pasar la marcacion no existe.' });
+    if (Number(target.id) === Number(mark.employee_id)) return sendJson(res, 400, { error: 'Elige un colaborador distinto.' });
+    targetDate = resolveShiftDateForMark(orgId, target.id, new Date(mark.actual_at));
+    const tShift = getShiftForEmployeeDate(orgId, target.id, targetDate);
+    if (!tShift || tShift.isOffDay) return sendJson(res, 409, { error: `${target.name} no tiene turno asignado ese dia: asignale el turno primero y vuelve a intentarlo.` });
+    const blockedTo = blockedDayReason(orgId, target.id, targetDate);
+    if (blockedTo) return sendJson(res, 409, { error: `${target.name}: ${blockedTo}` });
+    const tMarks = db.prepare('SELECT COUNT(*) AS n FROM attendance_marks WHERE employee_id = ? AND shift_date = ?').get(target.id, targetDate).n;
+    if (tMarks >= 4) return sendJson(res, 409, { error: `${target.name} ya tiene las 4 marcaciones de ese dia.` });
+  }
+
+  const ctx = { reason, userId: req.user.id };
+  let newMarkId = null;
+  alertPushMuted = true;
+  db.exec('BEGIN');
+  try {
+    // 1) Dia de quien recibio la marcacion por error: se reprocesa sin ella.
+    const dayMarks = db.prepare('SELECT * FROM attendance_marks WHERE employee_id = ? AND shift_date = ? ORDER BY actual_at ASC').all(mark.employee_id, mark.shift_date);
+    for (const m of dayMarks) archiveMark(m, m.id === mark.id ? 'anulada' : 'reprocesada', ctx, m.id === mark.id && target ? { targetEmployeeId: target.id } : {});
+    replayAttendanceDay(orgId, mark.employee_id, mark.shift_date, dayMarks.filter(m => m.id !== mark.id), ctx);
+    // 2) Reasignar: se registra a la persona correcta con la MISMA hora.
+    if (target) {
+      const tMarks = db.prepare('SELECT * FROM attendance_marks WHERE employee_id = ? AND shift_date = ? ORDER BY actual_at ASC').all(target.id, targetDate);
+      for (const m of tMarks) archiveMark(m, 'reprocesada', ctx);
+      const moved = { id: '__moved__', actual_at: mark.actual_at, method: 'manual', marked_by_user_id: req.user.id, manual_reason: `Reasignada desde ${fromEmp ? fromEmp.name : 'otro colaborador'}: ${reason}` };
+      const idMap = replayAttendanceDay(orgId, target.id, targetDate, [...tMarks, moved], ctx);
+      newMarkId = idMap.get('__moved__') || null;
+      if (newMarkId) {
+        db.prepare("UPDATE attendance_mark_archive SET new_mark_id = ? WHERE original_mark_id = ? AND action = 'anulada'").run(newMarkId, mark.id);
+        const nm = db.prepare('SELECT mark_type FROM attendance_marks WHERE id = ?').get(newMarkId);
+        db.prepare('UPDATE mark_photos SET mark_id = ?, employee_id = ?, shift_date = ?, mark_type = ? WHERE mark_id = ?').run(newMarkId, target.id, targetDate, nm ? nm.mark_type : null, mark.id);
+      }
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* nada */ }
+    alertPushMuted = false;
+    return sendJson(res, 409, { error: e.message || 'No se pudo anular la marcacion.' });
+  }
+  alertPushMuted = false;
+  const LBL = { entrada: 'Entrada', inicio_almuerzo: 'Inicio de almuerzo', fin_almuerzo: 'Fin de almuerzo', salida: 'Salida' };
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.mark_voided', resourceType: 'employee', resourceId: String(mark.employee_id), ip: getClientIp(req),
+    metadata: { colaborador: fromEmp ? fromEmp.name : null, fecha: mark.shift_date, marcacion: LBL[mark.mark_type] || mark.mark_type, hora: hhmmFromAbsMinutes(new Date(mark.actual_at)), motivo: reason, reasignadaA: target ? target.name : null } });
+  live.publishAttendance(orgId, 'mark');
+  sendJson(res, 200, { ok: true, reassignedTo: target ? { id: target.id, name: target.name, date: targetDate } : null, newMarkId });
+}
+
 function listCorrections(req, res, query) {
   const orgId = resolveOrgId(req, query);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
@@ -2759,6 +2920,7 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(HOURS_ENGINE_
 }
 
 module.exports = {
+  listDayMarks, voidMark,
   kioskLiveVersion, kioskOfflineCache,
   listMarkEvidence, getMarkEvidencePhoto, getEvidenceSettings, saveEvidenceSettings, resetDeviceEnv, confirmEvidenceEnvOk,
   getIndicatorGoalsRoute, saveIndicatorGoals,
