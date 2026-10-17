@@ -369,13 +369,18 @@ function matchFaceLocally(descriptor) {
   const c = getOfflineCache();
   if (!c || !Array.isArray(c.employees)) return null;
   const limit = Number(c.threshold) || 0.5;
-  let best = null;
+  const margin = Number(c.margin) || 0.08;
+  let best = null, second = null;
   for (const e of c.employees) {
     if (!Array.isArray(e.descriptor) || e.descriptor.length !== descriptor.length) continue;
     const d = euclid(descriptor, e.descriptor);
-    if (!best || d < best.d) best = { e, d };
+    if (!best || d < best.d) { second = best; best = { e, d }; }
+    else if (!second || d < second.d) second = { e, d };
   }
-  return best && best.d <= limit ? best.e : null;
+  if (!best || best.d > limit) return null;
+  // Casi igual de parecido a dos personas (gorra, tapabocas…): no se adivina.
+  if (second && Number(second.e.id) !== Number(best.e.id) && second.d - best.d < margin) return null;
+  return best.e;
 }
 
 async function saveDeviceToken() {
@@ -646,6 +651,15 @@ async function submitFaceMark(descriptor, evidence) {
   } catch (e) {
     if (e.network) { await saveOfflineFace(descriptor, evidence); return; }
     statusEl.textContent = e.message;
+    // Rostro no reconocido (o parecido a dos personas): aviso visible y con voz.
+    if (/reconoc|seguro de qui/i.test(e.message || '')) {
+      const box = document.getElementById('resultBox');
+      box.className = 'mt-4 bg-slate-800 border-2 border-amber-500 rounded-xl p-4';
+      box.innerHTML = `<p class="text-amber-300 font-extrabold text-lg">No te reconocí</p><p class="text-sm text-slate-200">${escapeHtml(e.message)}</p>`;
+      box.classList.remove('hidden');
+      speakText('No te reconocí. Quítate la gorra y mira de frente a la cámara.');
+      statusEl.textContent = 'Presiona "Iniciar marcación" para intentar de nuevo.';
+    }
   }
 }
 // Sin internet, igual que con internet: si el rostro no se reconoce con la copia
@@ -657,7 +671,7 @@ function renderOfflineRetry(n) {
   const box = document.getElementById('resultBox');
   box.className = 'mt-4 bg-slate-800 border-2 border-amber-500 rounded-xl p-4';
   box.innerHTML = `<p class="text-amber-300 font-extrabold text-lg">No te reconocí</p>
-    <p class="text-sm text-slate-200">Acércate, mira de frente a la cámara y quédate quieto un momento. Luego presiona <strong>Iniciar marcación</strong> otra vez.</p>
+    <p class="text-sm text-slate-200">Quítate la gorra, gorro o tapabocas, acércate, mira de frente a la cámara y quédate quieto un momento. Luego presiona <strong>Iniciar marcación</strong> otra vez.</p>
     <p class="text-xs text-slate-400 mt-1">Intento ${n} de ${OFFLINE_MAX_TRIES} · Sin conexión: esta marcación aún no se guardó.</p>`;
   box.classList.remove('hidden');
   speakText('No te reconocí. Acércate y mira de frente a la cámara.');
@@ -824,7 +838,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-letrero1';
+const KIOSK_VERSION = '2026.10-seguro1';
 // Privacidad: el letrero con el resultado de la marcación (nombre, tipo,
 // llegada tarde, etc.) desaparece solo a los 18 segundos. Cada letrero nuevo
 // reinicia el tiempo.
