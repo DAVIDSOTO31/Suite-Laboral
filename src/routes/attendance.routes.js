@@ -693,6 +693,25 @@ function listAlerts(req, res, query) {
 // servidor, sobre los perfiles de la MISMA organizacion unicamente.
 // ---------------------------------------------------------------------------
 const FACE_MATCH_THRESHOLD = 0.5; // distancia euclidiana maxima para aceptar una coincidencia (mientras mas bajo, mas estricto)
+// Si el rostro se parece CASI IGUAL a dos personas distintas (ej. con gorra o
+// tapabocas), no se adivina: se pide intentar de nuevo. La segunda persona mas
+// parecida debe estar al menos esta distancia mas lejos que la primera.
+const FACE_MATCH_MARGIN = 0.08;
+const FACE_AMBIGUOUS_MSG = 'No estoy seguro de quién eres. Quítate la gorra, gorro o tapabocas, mira de frente a la cámara e intenta de nuevo.';
+// Mejor coincidencia entre los perfiles dados. ambiguous=true si la segunda
+// persona mas parecida esta demasiado cerca de la primera.
+function bestFaceMatch(descriptor, profiles) {
+  let best = null, second = null;
+  for (const p of profiles) {
+    let d; try { d = JSON.parse(p.descriptor_json); } catch { continue; }
+    const dist = euclideanDistance(descriptor, d);
+    if (!best || dist < best.dist) { second = best; best = { employeeId: p.employee_id, dist }; }
+    else if (!second || dist < second.dist) second = { employeeId: p.employee_id, dist };
+  }
+  if (!best || best.dist > FACE_MATCH_THRESHOLD) return { match: null, ambiguous: false };
+  const ambiguous = !!(second && second.employeeId !== best.employeeId && second.dist - best.dist < FACE_MATCH_MARGIN);
+  return { match: ambiguous ? null : best, ambiguous };
+}
 const FACE_CONSENT_TEXT = 'El colaborador autoriza expresamente el uso de su rostro (dato biometrico) para fines de control de asistencia laboral, conforme a la Ley 1581 de 2012 de proteccion de datos personales (Habeas Data). Tambien autoriza que, si la empresa lo activa, el kiosco tome una foto de evidencia en cada marcacion, que se conserva 30 dias y luego se elimina automaticamente.';
 
 function euclideanDistance(a, b) {
@@ -798,16 +817,10 @@ async function registerMarkByFace(req, res) {
     'SELECT employee_id, descriptor_json FROM employee_face_profiles WHERE organization_id = ? AND active = 1'
   ).all(orgId);
 
-  let best = null;
-  for (const p of profiles) {
-    let descriptor;
-    try { descriptor = JSON.parse(p.descriptor_json); } catch { continue; }
-    const dist = euclideanDistance(body.descriptor, descriptor);
-    if (!best || dist < best.dist) best = { employeeId: p.employee_id, dist };
-  }
-
-  if (!best || best.dist > FACE_MATCH_THRESHOLD) {
-    return sendJson(res, 404, { error: 'Rostro no reconocido. Intenta de nuevo o usa la selección manual.', state: 'no_reconocido' });
+  const m = bestFaceMatch(body.descriptor, profiles);
+  const best = m.match;
+  if (!best) {
+    return sendJson(res, 404, { error: m.ambiguous ? FACE_AMBIGUOUS_MSG : 'Rostro no reconocido. Intenta de nuevo o usa la selección manual.', state: 'no_reconocido' });
   }
 
   const result = performMark(orgId, best.employeeId, req.user.id, 'facial', getClientIp(req));
@@ -1020,7 +1033,7 @@ function kioskOfflineCache(req, res) {
     const d = faces.get(emp.id);
     return { id: emp.id, name: emp.name, descriptor: validDescriptor(d) ? d.map(v => Math.round(v * 1e5) / 1e5) : null, hasShift, nextMark, isSplit: !!(shift && shift.isSplit), shiftDate: shiftDateISO };
   });
-  sendJson(res, 200, { generatedAt: now.toISOString(), today: bogota.todayISOInBogota(now), threshold: FACE_MATCH_THRESHOLD, employees: out });
+  sendJson(res, 200, { generatedAt: now.toISOString(), today: bogota.todayISOInBogota(now), threshold: FACE_MATCH_THRESHOLD, margin: FACE_MATCH_MARGIN, employees: out });
 }
 
 // GET /api/kiosk/employees-today
@@ -1078,15 +1091,10 @@ async function kioskMarkByFace(req, res) {
     WHERE fp.organization_id = ? AND fp.active = 1
   `).all(device.id, device.organization_id);
 
-  let best = null;
-  for (const p of profiles) {
-    let descriptor;
-    try { descriptor = JSON.parse(p.descriptor_json); } catch { continue; }
-    const dist = euclideanDistance(body.descriptor, descriptor);
-    if (!best || dist < best.dist) best = { employeeId: p.employee_id, dist };
-  }
-  if (!best || best.dist > FACE_MATCH_THRESHOLD) {
-    return sendJson(res, 404, { error: 'Rostro no reconocido en este dispositivo.', state: 'no_reconocido' });
+  const m = bestFaceMatch(body.descriptor, profiles);
+  const best = m.match;
+  if (!best) {
+    return sendJson(res, 404, { error: m.ambiguous ? FACE_AMBIGUOUS_MSG : 'Rostro no reconocido en este dispositivo.', state: 'no_reconocido' });
   }
   const result = performMark(device.organization_id, best.employeeId, null, 'kiosk-facial', getClientIp(req));
   applyMarkEvidence(device, result, 'kiosk-facial', body.evidence, { employeeId: best.employeeId });
@@ -2728,13 +2736,8 @@ function matchFaceOnDevice(device, descriptor) {
     SELECT fp.employee_id, fp.descriptor_json FROM employee_face_profiles fp
     JOIN attendance_device_employees de ON de.employee_id = fp.employee_id AND de.device_id = ?
     WHERE fp.organization_id = ? AND fp.active = 1`).all(device.id, device.organization_id);
-  let best = null;
-  for (const p of profiles) {
-    let d; try { d = JSON.parse(p.descriptor_json); } catch { continue; }
-    const dist = euclideanDistance(descriptor, d);
-    if (!best || dist < best.dist) best = { employeeId: p.employee_id, dist };
-  }
-  return best && best.dist <= FACE_MATCH_THRESHOLD ? best.employeeId : null;
+  const m = bestFaceMatch(descriptor, profiles);
+  return m.match ? m.match.employeeId : null;
 }
 
 function bogotaLabel(ms) { return new Date(ms - 5 * 3600000).toISOString().slice(0, 16).replace('T', ' '); }
