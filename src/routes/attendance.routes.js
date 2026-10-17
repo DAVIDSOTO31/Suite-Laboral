@@ -2439,6 +2439,8 @@ function deviceHealth(d, nowMs = Date.now()) {
     status, lastSeenMin, lastSeenAt: new Date(Number(d.hb_at_ms) - 5 * 3600000).toISOString().slice(0, 16).replace('T', ' '),
     battery: d.hb_battery == null ? null : Math.round(d.hb_battery * 100), charging: d.hb_charging == null ? null : !!d.hb_charging,
     camera: d.hb_camera || 'desconocido', pending: d.hb_pending || 0, version: d.hb_version || null,
+    cacheMin: d.hb_cache_at_ms ? Math.max(0, Math.floor((nowMs - Number(d.hb_cache_at_ms)) / 60000)) : null,
+    cacheFaces: d.hb_cache_faces == null ? null : d.hb_cache_faces, storage: d.hb_storage || null,
     offlineSinceMin: d.offline_since_ms ? Math.floor((nowMs - Number(d.offline_since_ms)) / 60000) : null,
     warnings, offlineThresholdMin: settings.offlineMin,
   };
@@ -2457,6 +2459,9 @@ async function kioskHeartbeat(req, res) {
   const pending = Number.isInteger(Number(body.pending)) ? Math.max(0, Number(body.pending)) : 0;
   const version = String(body.version || '').slice(0, 30) || null;
   const ua = String(req.headers['user-agent'] || '').slice(0, 200);
+  const cacheAt = Number.isFinite(Number(body.cacheAt)) && Number(body.cacheAt) > 0 ? Math.round(Number(body.cacheAt)) : null;
+  const cacheFaces = Number.isInteger(Number(body.cacheFaces)) ? Math.max(0, Number(body.cacheFaces)) : null;
+  const storage = ['permanente', 'basico'].includes(body.storage) ? body.storage : null;
 
   // Reconexion despues de estar "sin conexion".
   if (device.offline_since_ms) {
@@ -2477,8 +2482,9 @@ async function kioskHeartbeat(req, res) {
   }
   db.prepare(`UPDATE attendance_devices SET hb_at_ms = ?, hb_battery = ?, hb_charging = ?, hb_camera = ?, hb_pending = ?, hb_version = ?, hb_ua = ?,
       hb_online_since_ms = CASE WHEN offline_since_ms IS NOT NULL OR hb_online_since_ms IS NULL THEN ? ELSE hb_online_since_ms END,
-      offline_since_ms = NULL, offline_notified = 0, battery_notified_date = ? WHERE id = ?`)
-    .run(nowMs, bat, charging, camera, pending, version, ua, nowMs, batteryNotified, device.id);
+      offline_since_ms = NULL, offline_notified = 0, battery_notified_date = ?,
+      hb_cache_at_ms = ?, hb_cache_faces = ?, hb_storage = ? WHERE id = ?`)
+    .run(nowMs, bat, charging, camera, pending, version, ua, nowMs, batteryNotified, cacheAt, cacheFaces, storage, device.id);
   const evCfg = evidenceLib.getSettings(device.organization_id);
   sendJson(res, 200, { ok: true, serverTime: new Date(nowMs).toISOString(), evidence: { photo: evCfg.photo, env: evCfg.env } });
 }
