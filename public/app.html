@@ -1522,6 +1522,7 @@
                     <!-- Inyectado dinámicamente -->
                 </div>
 
+                <div id="payrollOtFocusBar" class="hidden text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-300 rounded-lg px-3 py-2"></div>
                 <!-- Tabla consolidada por colaborador -->
                 <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto custom-scrollbar">
                     <table class="w-full text-left text-xs min-w-[560px]">
@@ -6051,6 +6052,19 @@
 
         // Repinta la tabla y los KPIs a partir de appState._payrollOtCache.rows (sin recalcular desde los turnos),
         // usada tanto en el render inicial como después de cada edición manual en las celdas.
+        // Tocar una tarjeta (recargo, extras diurnas o nocturnas) filtra la tabla a
+        // los colaboradores con ese concepto. Tocarla otra vez o "Ver todos" lo quita.
+        let payrollOtFocus = null;
+        const PAYROLL_FOCUS = {
+            hon: { label: 'Recargo nocturno', col: 2, cls: 'bg-purple-50/70', has: r => (r.hon || 0) > 0.0001, sort: (a, b) => (b.honPay || 0) - (a.honPay || 0) },
+            hed: { label: 'Extras diurnas', col: 3, cls: 'bg-amber-50/70', has: r => (r.hed || 0) > 0.0001 || (r.carryOut || 0) < 0, sort: (a, b) => (b.hedPay || 0) - (a.hedPay || 0) || (a.carryOut || 0) - (b.carryOut || 0) },
+            hen: { label: 'Extras nocturnas', col: 4, cls: 'bg-rose-50/70', has: r => (r.hen || 0) > 0.0001 || (r.henGross || 0) > 0.0001 || (r.offsetValue || 0) > 0, sort: (a, b) => (b.henPay || 0) - (a.henPay || 0) || (b.henGross || 0) - (a.henGross || 0) },
+        };
+        function setPayrollOtFocus(key) {
+            payrollOtFocus = (payrollOtFocus === key || !PAYROLL_FOCUS[key]) ? null : key;
+            renderPayrollOtTableAndKpis();
+        }
+
         function renderPayrollOtTableAndKpis() {
             const cache = appState._payrollOtCache;
             if (!cache) return;
@@ -6093,18 +6107,18 @@
             };
             const kpiContainer = document.getElementById('payrollOtKpiCards');
             if (kpiContainer) {
-                const card = (cls, labelCls, title, hours, pay, extra, hoursSuffix) => `
-                    <div class="${cls} p-4 rounded-xl border">
+                const card = (cls, labelCls, title, hours, pay, extra, hoursSuffix, focusKey) => `
+                    <div class="${cls} p-4 rounded-xl border ${focusKey ? `cursor-pointer hover:shadow-md transition ${payrollOtFocus === focusKey ? 'ring-2 ring-slate-800 shadow-md' : ''}` : ''}" ${focusKey ? `onclick="setPayrollOtFocus('${focusKey}')" title="${payrollOtFocus === focusKey ? 'Toca para ver a todos los colaboradores' : 'Toca para ver solo a los colaboradores con este concepto'}"` : ''}>
                         <span class="text-3xs ${labelCls} font-bold uppercase block">${title}</span>
                         <span class="text-xl font-black font-mono block">${money(pay)}</span>
                         <span class="block text-2xs font-semibold font-mono mt-0.5">${formatHMSigned(hours)} <span class="opacity-70">(${hours.toFixed(2)} h)</span>${hoursSuffix || ''}</span>
                         ${extra || ''}
                     </div>`;
                 kpiContainer.innerHTML = `
-                    ${card('bg-purple-50 border-purple-200 text-purple-950', 'text-purple-700', 'Recargo Nocturno Ordinario (+35%)' + (cache.closures && cache.closures.recargos ? ' · 🔒' : ''), sumHON, sumHONPay)}
-                    ${card('bg-amber-50 border-amber-200 text-amber-950', 'text-amber-700', 'Horas Extra Diurnas (+25%)' + (cache.closures && cache.closures.extras ? ' · 🔒' : ''), sumHED, sumHEDPay, hedCardDetail(), ' <span class="font-sans font-bold">a pagar</span>')}
+                    ${card('bg-purple-50 border-purple-200 text-purple-950', 'text-purple-700', 'Recargo Nocturno Ordinario (+35%)' + (cache.closures && cache.closures.recargos ? ' · 🔒' : ''), sumHON, sumHONPay, '', '', 'hon')}
+                    ${card('bg-amber-50 border-amber-200 text-amber-950', 'text-amber-700', 'Horas Extra Diurnas (+25%)' + (cache.closures && cache.closures.extras ? ' · 🔒' : ''), sumHED, sumHEDPay, hedCardDetail(), ' <span class="font-sans font-bold">a pagar</span>', 'hed')}
                     ${card('bg-rose-50 border-rose-200 text-rose-950', 'text-rose-700', 'Horas Extra Nocturnas (+75%)' + (cache.closures && cache.closures.extras ? ' · 🔒' : ''), sumHEN, sumHENPay,
-                        rows.some(r => r.offsetValue) ? `<span class="block text-3xs font-bold text-rose-700 mt-1">Incluye descuento por deuda diurna: -${money(rows.reduce((a, r) => a + (r.offsetValue || 0), 0))}</span>` : '')}
+                        rows.some(r => r.offsetValue) ? `<span class="block text-3xs font-bold text-rose-700 mt-1">Incluye descuento por deuda diurna: -${money(rows.reduce((a, r) => a + (r.offsetValue || 0), 0))}</span>` : '', '', 'hen')}
                     ${domOn ? card('bg-blue-50 border-blue-200 text-blue-950', 'text-blue-700', `Recargo Dominical / Festivo (+${Math.round(legalSundayPctForDate(cache.endDate || formatDateISO(new Date())) * 100)}%)`, sumDomHours, sumDomPay) : ''}
                     <div class="bg-slate-900 p-4 rounded-xl border border-slate-700">
                         <span class="text-3xs text-slate-300 font-bold uppercase block">Total a Liquidar</span>
@@ -6143,7 +6157,14 @@
                     // cada área, los colaboradores como aparecen en el cuadro.
                     const ord = rosterEmployeeOrder();
                     const at = (r) => (ord.has(Number(r.emp.id)) ? ord.get(Number(r.emp.id)) : 1e9);
-                    tbody.innerHTML = [...rows].sort((a, b) => at(a) - at(b) || a.emp.name.localeCompare(b.emp.name)).map(r => `
+                    const fx = payrollOtFocus ? PAYROLL_FOCUS[payrollOtFocus] : null;
+                    const shown = fx ? rows.filter(fx.has).sort((a, b) => fx.sort(a, b) || at(a) - at(b)) : [...rows].sort((a, b) => at(a) - at(b) || a.emp.name.localeCompare(b.emp.name));
+                    const fbar = document.getElementById('payrollOtFocusBar');
+                    if (fbar) {
+                        fbar.classList.toggle('hidden', !fx);
+                        fbar.innerHTML = fx ? `<i class="fa-solid fa-filter"></i> Mostrando: <strong>${fx.label}</strong> (${shown.length} colab.) <button type="button" onclick="setPayrollOtFocus(null)" class="ml-2 px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-white font-bold">Ver todos</button>` : '';
+                    }
+                    tbody.innerHTML = shown.length === 0 ? `<tr><td colspan="${domOn ? 7 : 6}" class="p-6 text-center text-slate-400 text-xs">Ningún colaborador tiene ${fx ? fx.label.toLowerCase() : 'novedades'} en este periodo.</td></tr>` : shown.map(r => `
                         <tr class="hover:bg-slate-50">
                             <td class="p-2.5 font-bold text-slate-800">${r.emp.name}
                                 ${pendingByEmp[r.emp.id] ? `<span class="block mt-0.5 text-3xs font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 w-fit" title="Días sin marcación cerrada: no incluidos en el valor">${pendingByEmp[r.emp.id]} día(s) pendiente(s)</span>` : ''}
@@ -6181,8 +6202,10 @@
                             </td>
                         </tr>
                     `).join('');
+                    if (fx && shown.length) tbody.querySelectorAll(`tr > td:nth-child(${fx.col})`).forEach(td => td.classList.add(...fx.cls.split(' ')));
                 }
             }
+            if (rows.length === 0) document.getElementById('payrollOtFocusBar')?.classList.add('hidden');
 
             if (tfoot) {
                 tfoot.innerHTML = `
