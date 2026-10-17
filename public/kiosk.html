@@ -824,7 +824,21 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-reintento1';
+const KIOSK_VERSION = '2026.10-letrero1';
+// Privacidad: el letrero con el resultado de la marcación (nombre, tipo,
+// llegada tarde, etc.) desaparece solo a los 18 segundos. Cada letrero nuevo
+// reinicia el tiempo.
+(function autoHideResultBox() {
+  const box = document.getElementById('resultBox');
+  if (!box || !window.MutationObserver) return;
+  let timer = null;
+  const arm = () => {
+    clearTimeout(timer);
+    if (box.classList.contains('hidden')) return;
+    timer = setTimeout(() => { box.classList.add('hidden'); box.innerHTML = ''; }, 18000);
+  };
+  new MutationObserver(arm).observe(box, { attributes: true, attributeFilter: ['class'], childList: true, subtree: true, characterData: true });
+})();
 let cameraState = 'desconocido';
 let batteryRef = null;
 async function detectCameraState() {
