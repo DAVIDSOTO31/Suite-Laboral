@@ -73,6 +73,8 @@
         <textarea id="manualReason" rows="2" maxlength="300" placeholder="Ej. La cámara no me reconoció" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm mb-1"></textarea>
         <p class="text-2xs text-slate-400 mb-3">Obligatorio. Queda registrado y el administrador recibe una alerta.</p>
         <button id="manualMarkBtn" onclick="doManualMark()" class="w-full py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 font-semibold text-sm">Marcar ahora</button>
+        <!-- Solo aquí (no en la pantalla de reconocimiento facial), para que nadie lo toque por error. -->
+        <button onclick="resetDevice()" class="w-full text-center text-2xs text-slate-500 hover:text-slate-300 mt-4">Cambiar dispositivo / token</button>
       </div>
 
       <div id="resultBox" class="mt-4 hidden"></div>
@@ -93,7 +95,6 @@
     </div>
 
     <div id="installBoxMark" class="hidden mt-3 bg-slate-900/80 border border-sky-800 rounded-xl p-3 text-xs text-slate-300"></div>
-    <button onclick="resetDevice()" class="w-full text-center text-2xs text-slate-500 hover:text-slate-300 mt-4">Cambiar dispositivo / token</button>
 
     <div class="flex-1"></div>
     <div class="text-center mb-4">
@@ -725,7 +726,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-voz1';
+const KIOSK_VERSION = '2026.10-token1';
 let cameraState = 'desconocido';
 let batteryRef = null;
 async function detectCameraState() {
