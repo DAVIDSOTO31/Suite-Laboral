@@ -648,9 +648,38 @@ async function submitFaceMark(descriptor, evidence) {
     statusEl.textContent = e.message;
   }
 }
+// Sin internet, igual que con internet: si el rostro no se reconoce con la copia
+// local, NO se guarda y se pide intentar de nuevo. Al 3er intento fallido
+// seguido se guarda sin identificar (para no dejar a nadie sin marcar).
+const OFFLINE_MAX_TRIES = 3;
+let offlineMissCount = 0, offlineMissAt = 0;
+function renderOfflineRetry(n) {
+  const box = document.getElementById('resultBox');
+  box.className = 'mt-4 bg-slate-800 border-2 border-amber-500 rounded-xl p-4';
+  box.innerHTML = `<p class="text-amber-300 font-extrabold text-lg">No te reconocí</p>
+    <p class="text-sm text-slate-200">Acércate, mira de frente a la cámara y quédate quieto un momento. Luego presiona <strong>Iniciar marcación</strong> otra vez.</p>
+    <p class="text-xs text-slate-400 mt-1">Intento ${n} de ${OFFLINE_MAX_TRIES} · Sin conexión: esta marcación aún no se guardó.</p>`;
+  box.classList.remove('hidden');
+  speakText('No te reconocí. Acércate y mira de frente a la cámara.');
+}
 async function saveOfflineFace(descriptor, evidence) {
   // Se reconoce con la copia local para confirmar nombre y tipo de marcación.
   const who = matchFaceLocally(descriptor);
+  if (!who) {
+    const c = getOfflineCache();
+    const hasFaces = !!(c && Array.isArray(c.employees) && c.employees.some(e => Array.isArray(e.descriptor)));
+    if (hasFaces) {
+      if (Date.now() - offlineMissAt > 2 * 60 * 1000) offlineMissCount = 0;
+      offlineMissCount++;
+      offlineMissAt = Date.now();
+      if (offlineMissCount < OFFLINE_MAX_TRIES) {
+        renderOfflineRetry(offlineMissCount);
+        document.getElementById('faceStatus').textContent = 'Presiona "Iniciar marcación" para intentar de nuevo.';
+        return;
+      }
+    }
+  }
+  offlineMissCount = 0;
   if (who && recentOfflineMark(who.id)) { renderAlreadyMarked(who.name); document.getElementById('faceStatus').textContent = 'Listo. Presiona "Iniciar marcación" para el siguiente colaborador.'; return; }
   const ev = evidenceForQueue(evidence);
   const saved = await enqueueOffline({ kind: 'face', descriptor, ...(who ? { localEmpId: who.id } : {}), ...(ev ? { evidence: ev } : {}) });
@@ -662,7 +691,7 @@ async function saveOfflineFace(descriptor, evidence) {
     if (mt) advanceCachedMark(who.id, mt);
   } else {
     renderOfflineResult(null);
-    speakText('Marcación guardada.');
+    speakText('Marcación guardada sin identificar. El administrador la revisará.');
   }
   document.getElementById('faceStatus').textContent = 'Listo. Presiona "Iniciar marcación" para el siguiente colaborador.';
 }
@@ -691,8 +720,8 @@ function renderOfflineResult(name, markType, isSplit, hasShift) {
     ${hasShift === false ? '<p class="text-xs text-amber-300 mt-1">No tiene turno asignado hoy: el administrador la revisará.</p>' : ''}
     <p class="text-xs text-amber-300 mt-2"><i class="fa-solid fa-wifi"></i> Sin conexión: quedó guardada en este equipo y se enviará sola al volver el internet, con esta misma hora.</p>`
   : `
-    <p class="text-amber-300 font-extrabold text-lg"><i class="fa-solid fa-wifi"></i> Sin conexión — marcación guardada</p>
-    <p class="text-sm text-amber-100">Hora: <strong>${time}</strong>. Sin internet no fue posible confirmar tu nombre en este equipo; se verificará al volver la conexión. Si no estás registrado con rostro, usa <strong>Selección manual</strong>.</p>`;
+    <p class="text-amber-300 font-extrabold text-lg"><i class="fa-solid fa-wifi"></i> Sin conexión — marcación guardada sin identificar</p>
+    <p class="text-sm text-amber-100">Hora: <strong>${time}</strong> · No fue posible reconocer tu rostro en este equipo; el administrador la revisará al volver la conexión. Si te vuelve a pasar, usa <strong>Selección manual</strong>.</p>`;
   box.classList.remove('hidden');
 }
 function speakOfflineConfirmation(name, markType, isSplit) {
@@ -795,7 +824,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-almacen2';
+const KIOSK_VERSION = '2026.10-reintento1';
 let cameraState = 'desconocido';
 let batteryRef = null;
 async function detectCameraState() {
