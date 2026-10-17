@@ -795,7 +795,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-almacen1';
+const KIOSK_VERSION = '2026.10-almacen2';
 let cameraState = 'desconocido';
 let batteryRef = null;
 async function detectCameraState() {
@@ -835,6 +835,9 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 async function sendHeartbeat() {
   if (!getToken()) return;
+  // Espera (máx. 3 s) a que el almacenamiento permanente esté listo, para no
+  // reportar "almacenamiento básico" solo porque la señal salió antes.
+  try { await Promise.race([storageReady, new Promise(r => setTimeout(r, 3000))]); } catch (e) { /* nada */ }
   const cc = getOfflineCache();
   const body = { camera: cameraState, pending: offlineQueue().length, version: KIOSK_VERSION + (isInstalledApp() ? ' · app' : ' · web'),
     cacheAt: cc && cc.savedAt ? cc.savedAt : null, cacheFaces: cc && Array.isArray(cc.employees) ? cc.employees.filter(e => Array.isArray(e.descriptor)).length : 0, storage: storageMode };
