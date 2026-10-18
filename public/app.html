@@ -1859,6 +1859,10 @@
                 <input type="checkbox" id="rosterPdfAll" onchange="rosterPdfToggleAll(this.checked)" class="w-4 h-4 accent-rose-600" checked> Todas las áreas
             </label>
             <div id="rosterPdfAreaList" class="space-y-1.5 pl-1 border-l-2 border-slate-100"></div>
+            <label id="rosterImgPerAreaBox" class="hidden flex items-start gap-2 text-xs text-slate-700 cursor-pointer bg-emerald-50 border border-emerald-200 rounded-lg p-2">
+                <input type="checkbox" id="rosterImgPerArea" class="w-4 h-4 mt-0.5 accent-emerald-600">
+                <span><strong>Una imagen por área</strong><span class="block text-3xs text-slate-500">Opcional: cada imagen queda más pequeña y se ve más nítida al acercarla en WhatsApp.</span></span>
+            </label>
             <div class="flex justify-end gap-2 pt-1">
                 <button onclick="closeModal('modalRosterPdf')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
                 <button id="rosterPdfGoBtn" onclick="confirmRosterPdf()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow flex items-center gap-1.5"><i class="fa-solid fa-file-pdf"></i> Descargar PDF</button>
@@ -9519,15 +9523,15 @@
             const go = document.getElementById('rosterPdfGoBtn');
             go.className = `px-4 py-2 ${img ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'} text-white rounded-lg text-xs font-bold shadow flex items-center gap-1.5`;
             go.innerHTML = img ? '<i class="fa-solid fa-image"></i> Descargar imagen' : '<i class="fa-solid fa-file-pdf"></i> Descargar PDF';
+            document.getElementById('rosterImgPerAreaBox').classList.toggle('hidden', !img);
+            document.getElementById('rosterImgPerArea').checked = false; // por defecto: una sola imagen
             const rows = [...document.querySelectorAll('#rosterTableBody tr[data-roster-dept-name]')];
             const list = document.getElementById('rosterPdfAreaList');
-            // Por defecto se marcan las áreas VISIBLES en el cuadro (las ocultas
-            // con la flecha quedan desmarcadas); se pueden marcar o desmarcar a mano.
-            const hiddenAreas = rosterHiddenAreas();
+            // Por defecto se marcan TODAS las áreas; se pueden desmarcar a mano.
             list.innerHTML = rows.map(r => {
                 const n = document.querySelectorAll(`#rosterTableBody tr[data-roster-emp][data-roster-dept="${CSS.escape(r.dataset.rosterDept)}"]`).length;
                 return `<label class="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                    <input type="checkbox" class="roster-pdf-area w-4 h-4 accent-rose-600" value="${escapeHtml(r.dataset.rosterDept)}" data-name="${escapeHtml(r.dataset.rosterDeptName)}" onchange="rosterPdfAreaChanged()" ${hiddenAreas.has(String(r.dataset.rosterDept)) ? '' : 'checked'}>
+                    <input type="checkbox" class="roster-pdf-area w-4 h-4 accent-rose-600" value="${escapeHtml(r.dataset.rosterDept)}" data-name="${escapeHtml(r.dataset.rosterDeptName)}" onchange="rosterPdfAreaChanged()" checked>
                     <span class="font-semibold">${escapeHtml(r.dataset.rosterDeptName)}</span><span class="text-slate-400">(${n})</span></label>`;
             }).join('') || '<p class="text-xs text-slate-400">No hay áreas en el cuadro.</p>';
             rosterPdfAreaChanged();
@@ -9548,11 +9552,21 @@
             if (!picked.length) { showAppToast('Elige al menos un área.'); return; }
             closeModal('modalRosterPdf');
             const all = picked.length === cbs.length;
-            downloadRosterPdf(all ? null : picked.map(cb => ({ id: cb.value, name: cb.dataset.name })), rosterExportMode);
+            const sel = picked.map(cb => ({ id: cb.value, name: cb.dataset.name }));
+            // Imagen: una por área (WhatsApp reduce las imágenes muy altas y se ven borrosas).
+            if (rosterExportMode === 'image' && document.getElementById('rosterImgPerArea').checked && sel.length > 1) {
+                (async () => {
+                    const withPeople = sel.filter(a => document.querySelectorAll(`#rosterTableBody tr[data-roster-emp][data-roster-dept="${CSS.escape(a.id)}"]`).length);
+                    for (const a of withPeople) await downloadRosterPdf([a], 'image', true);
+                    showAppToast(`${withPeople.length} imagen(es) descargada(s), una por área.`);
+                })();
+                return;
+            }
+            downloadRosterPdf(all ? null : sel, rosterExportMode);
         }
         // format: 'pdf' (por defecto) o 'image' (PNG, para enviar por WhatsApp
         // como imagen). Mismo contenido: fechas Desde/Hasta y áreas elegidas.
-        async function downloadRosterPdf(areas, format) {
+        async function downloadRosterPdf(areas, format, quiet) {
             const asImage = format === 'image';
             const btn = document.getElementById(asImage ? 'rosterImgBtn' : 'rosterPdfBtn');
             const table = document.getElementById('rosterTableBody')?.closest('table');
@@ -9572,6 +9586,9 @@
                 // que el PDF salga completo (sin barras de desplazamiento).
                 wrap = document.createElement('div');
                 wrap.style.cssText = 'position:fixed; left:-20000px; top:0; width:1500px; background:#ffffff; padding:24px;';
+                // Imagen para WhatsApp: textos de los turnos más grandes (WhatsApp
+                // reduce la imagen; así siguen legibles al acercar).
+                if (asImage) wrap.id = 'rosterImgWrap';
                 const header = document.createElement('div');
                 header.style.cssText = 'text-align:center; margin-bottom:16px;';
                 header.innerHTML = `
@@ -9632,9 +9649,16 @@
                 wrap.querySelectorAll('*').forEach(el => { el.style.fontVariantNumeric = 'normal'; });
                 wrap.querySelectorAll('button').forEach(el => el.remove()); // botones de pantalla (ej. renombrar área)
                 pdfFixStyle = document.createElement('style');
-                pdfFixStyle.textContent = 'img { display: inline-block !important; }';
+                pdfFixStyle.textContent = 'img { display: inline-block !important; }' + (asImage
+                    ? ' #rosterImgWrap td[data-rc-emp] .text-3xs { font-size: 15px !important; } #rosterImgWrap td[data-rc-emp] .text-4xs, #rosterImgWrap td[data-rc-emp] [class*="text-[9px]"] { font-size: 11px !important; } #rosterImgWrap td[data-rc-emp] .flex { flex-wrap: wrap; row-gap: 2px; }'
+                    + ' #rosterImgWrap tbody td:first-child span { font-size: 15px !important; } #rosterImgWrap tbody tr[data-roster-emp] td:last-child { font-size: 13px !important; }'
+                    : '');
                 document.head.appendChild(pdfFixStyle);
-                const canvas = await window.html2canvas(wrap, { scale: 2, backgroundColor: '#ffffff', logging: false });
+                // Imagen: tamaño pensado para WhatsApp HD (máx. 4096 px por el lado
+                // más largo): así WhatsApp HD no la vuelve a reducir. Las imágenes
+                // pequeñas salen con más resolución (hasta 3x).
+                const imgScale = asImage ? Math.max(1, Math.min(3, 4000 / Math.max(wrap.scrollWidth || 1, wrap.scrollHeight || 1, wrap.offsetWidth || 1, wrap.offsetHeight || 1))) : 2;
+                const canvas = await window.html2canvas(wrap, { scale: imgScale, backgroundColor: '#ffffff', logging: false });
                 const areaSuffixImg = Array.isArray(areas) && areas.length
                     ? '_' + areas.map(a => String(a.name).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '')).join('_').slice(0, 60) : '';
                 if (asImage) {
@@ -9646,7 +9670,7 @@
                     a.download = `Turnos_${formatDateISO(monday)}_al_${formatDateISO(rangeEnd)}${areaSuffixImg}.png`;
                     document.body.appendChild(a); a.click(); a.remove();
                     setTimeout(() => URL.revokeObjectURL(url), 30000);
-                    showAppToast('Imagen descargada. Puedes enviarla por WhatsApp como foto.');
+                    if (!quiet) showAppToast('Imagen descargada. Puedes enviarla por WhatsApp como foto.');
                     return;
                 }
 
