@@ -9654,7 +9654,11 @@
                     + ' #rosterImgWrap tbody td:first-child span { font-size: 15px !important; } #rosterImgWrap tbody tr[data-roster-emp] td:last-child { font-size: 13px !important; }'
                     : '');
                 document.head.appendChild(pdfFixStyle);
-                const canvas = await window.html2canvas(wrap, { scale: 2, backgroundColor: '#ffffff', logging: false });
+                // Imagen: tamaño pensado para WhatsApp HD (máx. 4096 px por el lado
+                // más largo): así WhatsApp HD no la vuelve a reducir. Las imágenes
+                // pequeñas salen con más resolución (hasta 3x).
+                const imgScale = asImage ? Math.max(1, Math.min(3, 4000 / Math.max(wrap.scrollWidth || 1, wrap.scrollHeight || 1, wrap.offsetWidth || 1, wrap.offsetHeight || 1))) : 2;
+                const canvas = await window.html2canvas(wrap, { scale: imgScale, backgroundColor: '#ffffff', logging: false });
                 const areaSuffixImg = Array.isArray(areas) && areas.length
                     ? '_' + areas.map(a => String(a.name).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '')).join('_').slice(0, 60) : '';
                 if (asImage) {
