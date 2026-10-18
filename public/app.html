@@ -1860,8 +1860,8 @@
             </label>
             <div id="rosterPdfAreaList" class="space-y-1.5 pl-1 border-l-2 border-slate-100"></div>
             <label id="rosterImgPerAreaBox" class="hidden flex items-start gap-2 text-xs text-slate-700 cursor-pointer bg-emerald-50 border border-emerald-200 rounded-lg p-2">
-                <input type="checkbox" id="rosterImgPerArea" class="w-4 h-4 mt-0.5 accent-emerald-600" checked>
-                <span><strong>Una imagen por área</strong><span class="block text-3xs text-slate-500">Recomendado para WhatsApp: cada imagen es más pequeña y se ve nítida al acercarla.</span></span>
+                <input type="checkbox" id="rosterImgPerArea" class="w-4 h-4 mt-0.5 accent-emerald-600">
+                <span><strong>Una imagen por área</strong><span class="block text-3xs text-slate-500">Opcional: cada imagen queda más pequeña y se ve más nítida al acercarla en WhatsApp.</span></span>
             </label>
             <div class="flex justify-end gap-2 pt-1">
                 <button onclick="closeModal('modalRosterPdf')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
@@ -9524,15 +9524,14 @@
             go.className = `px-4 py-2 ${img ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'} text-white rounded-lg text-xs font-bold shadow flex items-center gap-1.5`;
             go.innerHTML = img ? '<i class="fa-solid fa-image"></i> Descargar imagen' : '<i class="fa-solid fa-file-pdf"></i> Descargar PDF';
             document.getElementById('rosterImgPerAreaBox').classList.toggle('hidden', !img);
+            document.getElementById('rosterImgPerArea').checked = false; // por defecto: una sola imagen
             const rows = [...document.querySelectorAll('#rosterTableBody tr[data-roster-dept-name]')];
             const list = document.getElementById('rosterPdfAreaList');
-            // Por defecto se marcan las áreas VISIBLES en el cuadro (las ocultas
-            // con la flecha quedan desmarcadas); se pueden marcar o desmarcar a mano.
-            const hiddenAreas = rosterHiddenAreas();
+            // Por defecto se marcan TODAS las áreas; se pueden desmarcar a mano.
             list.innerHTML = rows.map(r => {
                 const n = document.querySelectorAll(`#rosterTableBody tr[data-roster-emp][data-roster-dept="${CSS.escape(r.dataset.rosterDept)}"]`).length;
                 return `<label class="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                    <input type="checkbox" class="roster-pdf-area w-4 h-4 accent-rose-600" value="${escapeHtml(r.dataset.rosterDept)}" data-name="${escapeHtml(r.dataset.rosterDeptName)}" onchange="rosterPdfAreaChanged()" ${hiddenAreas.has(String(r.dataset.rosterDept)) ? '' : 'checked'}>
+                    <input type="checkbox" class="roster-pdf-area w-4 h-4 accent-rose-600" value="${escapeHtml(r.dataset.rosterDept)}" data-name="${escapeHtml(r.dataset.rosterDeptName)}" onchange="rosterPdfAreaChanged()" checked>
                     <span class="font-semibold">${escapeHtml(r.dataset.rosterDeptName)}</span><span class="text-slate-400">(${n})</span></label>`;
             }).join('') || '<p class="text-xs text-slate-400">No hay áreas en el cuadro.</p>';
             rosterPdfAreaChanged();
