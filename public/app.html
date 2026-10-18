@@ -1279,6 +1279,12 @@
                                 <input type="date" id="attHistoryTo" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
                             </div>
                             <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Área</label>
+                                <select id="attHistoryArea" onchange="attendanceFillHistoryEmployees(); attendanceLoadHistory()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[170px]">
+                                    <option value="">Todas las áreas</option>
+                                </select>
+                            </div>
+                            <div>
                                 <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Colaborador</label>
                                 <select id="attHistoryEmployee" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[200px]">
                                     <option value="">Todos los colaboradores</option>
@@ -9805,13 +9811,24 @@
 
         // Llena el selector de colaboradores del historial (conserva la selección).
         function attendanceFillHistoryEmployees() {
+            // Área: las del cuadro de turnos (+ "Otras áreas" si hay colaboradores sin área).
+            const areaSel = document.getElementById('attHistoryArea');
+            if (areaSel) {
+                const curArea = areaSel.value;
+                const hasOther = appState.employees.some(e => empAreaKey(e) === '_otras');
+                areaSel.innerHTML = '<option value="">Todas las áreas</option>' +
+                    (appState.departments || []).map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}</option>`).join('') +
+                    (hasOther ? '<option value="_otras">Otras áreas / sin área</option>' : '');
+                areaSel.value = [...areaSel.options].some(o => o.value === curArea) ? curArea : '';
+            }
+            const area = areaSel ? areaSel.value : '';
             const sel = document.getElementById('attHistoryEmployee');
             if (!sel) return;
             const current = sel.value;
-            sel.innerHTML = '<option value="">Todos los colaboradores</option>' +
-                [...appState.employees].sort((a, b) => a.name.localeCompare(b.name))
-                    .map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
-            sel.value = current;
+            const emps = [...appState.employees].filter(e => !area || empAreaKey(e) === area).sort((a, b) => a.name.localeCompare(b.name));
+            sel.innerHTML = '<option value="">' + (area ? 'Todos los de esta área' : 'Todos los colaboradores') + '</option>' +
+                emps.map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
+            sel.value = emps.some(e => String(e.id) === String(current)) ? current : '';
         }
 
         function attRecargoCell(r) {
@@ -9901,6 +9918,8 @@
                 const qs = `from=${from}&to=${to}` + (empId ? `&employeeId=${encodeURIComponent(empId)}` : '');
                 let { rows } = await apiFetch(`/api/attendance/history?${qs}`);
                 if (document.getElementById('attHistoryOnlyNovelty')?.checked) rows = rows.filter(attDayHasNovelty);
+                const histArea = document.getElementById('attHistoryArea')?.value || '';
+                if (histArea) rows = rows.filter(r => { const e = appState.employees.find(x => Number(x.id) === Number(r.employee_id)); return e && empAreaKey(e) === histArea; });
                 body.innerHTML = rows.map(r => `
                     <tr class="border-t border-slate-100">
                         <td class="px-3 py-2 font-medium">${escapeHtml(r.employee_name)}${r.evidence_count ? evidenceBtn(r.employee_id, r.shift_date, r.employee_name, r.evidence_env_diff > 0) : ''}</td>
