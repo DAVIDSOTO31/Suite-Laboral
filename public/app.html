@@ -2821,19 +2821,29 @@
 
         // -----------------------------------------------------------------
         // COLORES POR FRANJA
-        // Mañana: entra de 05:00 a 11:59 · Tarde: de 12:00 a 20:59 ·
-        // Noche: de 21:00 a 04:59. El turno partido, el descanso y las novedades
+        // COLOR: Mañana: entra de 05:00 a 11:59 · Tarde: de 12:00 a 19:59 ·
+        // Noche (verde): de 20:00 a 04:59. Solo es el color: la regla de recargo
+        // "turnos de noche" sigue usando shiftBandKey (entrada desde las 21:00).
+        // El turno partido, el descanso y las novedades
         // (vacaciones, incapacidad, sin horario) conservan su propio color.
         // -----------------------------------------------------------------
         const SHIFT_BAND_THEMES = {
             manana: { label: 'Mañana', range: '05:00 a 11:59', bg: 'bg-sky-100 text-sky-900 border-sky-300', badgeBg: 'bg-sky-200 text-sky-900', icon: 'fa-sun', paletteKey: 'sky' },
-            tarde:  { label: 'Tarde', range: '12:00 a 20:59', bg: 'bg-fuchsia-200 text-fuchsia-950 border-fuchsia-400', badgeBg: 'bg-fuchsia-300 text-fuchsia-950', icon: 'fa-cloud-sun', paletteKey: 'fuchsia' },
-            noche:  { label: 'Noche', range: '21:00 a 04:59', bg: 'bg-lime-500 text-lime-950 border-lime-700', badgeBg: 'bg-lime-600 text-lime-50', icon: 'fa-moon', paletteKey: 'lime' },
+            tarde:  { label: 'Tarde', range: '12:00 a 19:59', bg: 'bg-fuchsia-200 text-fuchsia-950 border-fuchsia-400', badgeBg: 'bg-fuchsia-300 text-fuchsia-950', icon: 'fa-cloud-sun', paletteKey: 'fuchsia' },
+            noche:  { label: 'Noche', range: '20:00 a 04:59', bg: 'bg-lime-500 text-lime-950 border-lime-700', badgeBg: 'bg-lime-600 text-lime-50', icon: 'fa-moon', paletteKey: 'lime' },
         };
         function shiftBandKey(startTime) {
             const m = clockToMin(startTime);
             if (m === null) return 'manana';
             if (m >= 21 * 60 || m < 5 * 60) return 'noche';
+            if (m >= 12 * 60) return 'tarde';
+            return 'manana';
+        }
+        // Franja para el COLOR del turno (la noche empieza a las 20:00).
+        function shiftColorBandKey(startTime) {
+            const m = clockToMin(startTime);
+            if (m === null) return 'manana';
+            if (m >= 20 * 60 || m < 5 * 60) return 'noche';
             if (m >= 12 * 60) return 'tarde';
             return 'manana';
         }
@@ -2850,7 +2860,7 @@
         // Tema de color con el que se pinta un turno trabajado.
         function shiftDisplayTheme(sh) {
             if (sh && sh.isSplit) return SHIFT_COLOR_THEMES.vivid_yellow;
-            if (rosterColorMode() === 'franja') return SHIFT_BAND_THEMES[shiftBandKey(sh && sh.startTime)];
+            if (rosterColorMode() === 'franja') return SHIFT_BAND_THEMES[shiftColorBandKey(sh && sh.startTime)];
             return SHIFT_COLOR_THEMES[(sh && sh.color) || 'emerald'] || SHIFT_COLOR_THEMES.emerald;
         }
         // Minutos de extras que quedaron programadas en el turno (0 si no hay).
@@ -2882,7 +2892,7 @@
         // según su hora de entrada (el turno partido queda en amarillo vivo).
         function autoBandColorKey(startTime, isSplit) {
             if (isSplit) return 'vivid_yellow';
-            return SHIFT_BAND_THEMES[shiftBandKey(startTime)].paletteKey;
+            return SHIFT_BAND_THEMES[shiftColorBandKey(startTime)].paletteKey;
         }
         // Muestra el selector de colores solo en modo "Por turno".
         function syncColorPickers() {
