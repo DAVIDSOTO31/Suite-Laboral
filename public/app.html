@@ -9643,6 +9643,15 @@
                     if (totalSpan) totalSpan.textContent = counts.reduce((a, b) => a + b, 0);
                     header.insertAdjacentHTML('beforeend', `<div style="font-size:14px; font-weight:700; color:#475569; margin-top:6px;">Áreas: ${escapeHtml(areas.map(a => a.name).join(' · '))}</div>`);
                 }
+                // La columna de horas por colaborador es solo para control interno
+                // del administrador: no sale en el PDF ni en la imagen.
+                const nCols = rosterRangeDays().length + 2;
+                clone.querySelectorAll('tr').forEach(tr => {
+                    const wide = [...tr.children].find(c => (parseInt(c.getAttribute('colspan'), 10) || 1) >= nCols);
+                    if (wide) { wide.setAttribute('colspan', String(nCols - 1)); return; }
+                    const last = tr.lastElementChild;
+                    if (last && tr.children.length > 1) last.remove();
+                });
                 box.appendChild(clone);
                 wrap.appendChild(header);
                 wrap.appendChild(box);
@@ -9661,7 +9670,7 @@
                 pdfFixStyle = document.createElement('style');
                 pdfFixStyle.textContent = 'img { display: inline-block !important; }' + (asImage
                     ? ' #rosterImgWrap td[data-rc-emp] .text-3xs { font-size: 15px !important; } #rosterImgWrap td[data-rc-emp] .text-4xs, #rosterImgWrap td[data-rc-emp] [class*="text-[9px]"] { font-size: 11px !important; } #rosterImgWrap td[data-rc-emp] .flex { flex-wrap: wrap; row-gap: 2px; }'
-                    + ' #rosterImgWrap tbody td:first-child span { font-size: 15px !important; } #rosterImgWrap tbody tr[data-roster-emp] td:last-child { font-size: 13px !important; }'
+                    + ' #rosterImgWrap tbody td:first-child span { font-size: 15px !important; }'
                     : '');
                 document.head.appendChild(pdfFixStyle);
                 // Imagen: tamaño pensado para WhatsApp HD (máx. 4096 px por el lado
