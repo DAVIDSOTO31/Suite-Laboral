@@ -674,6 +674,9 @@
                             <button type="button" id="rosterPdfBtn" onclick="openRosterPdfOptions()" title="Descargar el cuadro de esta semana en PDF (todas las áreas o solo algunas)" class="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
                                 <i class="fa-solid fa-file-pdf"></i> Descargar PDF
                             </button>
+                            <button type="button" id="rosterImgBtn" onclick="openRosterPdfOptions('image')" title="Descargar el cuadro como imagen (para enviarla por WhatsApp)" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                                <i class="fa-solid fa-image"></i> Descargar imagen
+                            </button>
                         </div>
 
                         <div class="text-center md:text-right">
@@ -1847,7 +1850,7 @@
         <div class="bg-white rounded-xl max-w-sm w-full p-5 shadow-2xl space-y-4 border border-slate-200 max-h-[92vh] overflow-y-auto">
             <div class="flex justify-between items-start border-b pb-3">
                 <div>
-                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-file-pdf text-rose-600"></i> Descargar PDF</h3>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2" id="rosterPdfTitle"><i class="fa-solid fa-file-pdf text-rose-600"></i> Descargar PDF</h3>
                     <p class="text-xs text-slate-500 mt-0.5" id="rosterPdfWeekLabel">-</p>
                 </div>
                 <button onclick="closeModal('modalRosterPdf')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
@@ -9508,16 +9511,27 @@
             });
         }
         // ---- PDF: todas las áreas o solo algunas (mismo encabezado) ----
-        function openRosterPdfOptions() {
+        let rosterExportMode = 'pdf';
+        function openRosterPdfOptions(mode) {
+            rosterExportMode = mode === 'image' ? 'image' : 'pdf';
+            const img = rosterExportMode === 'image';
+            document.getElementById('rosterPdfTitle').innerHTML = img ? '<i class="fa-solid fa-image text-emerald-600"></i> Descargar imagen' : '<i class="fa-solid fa-file-pdf text-rose-600"></i> Descargar PDF';
+            const go = document.getElementById('rosterPdfGoBtn');
+            go.className = `px-4 py-2 ${img ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'} text-white rounded-lg text-xs font-bold shadow flex items-center gap-1.5`;
+            go.innerHTML = img ? '<i class="fa-solid fa-image"></i> Descargar imagen' : '<i class="fa-solid fa-file-pdf"></i> Descargar PDF';
             const rows = [...document.querySelectorAll('#rosterTableBody tr[data-roster-dept-name]')];
             const list = document.getElementById('rosterPdfAreaList');
+            // Por defecto se marcan las áreas VISIBLES en el cuadro (las ocultas
+            // con la flecha quedan desmarcadas); se pueden marcar o desmarcar a mano.
+            const hiddenAreas = rosterHiddenAreas();
             list.innerHTML = rows.map(r => {
                 const n = document.querySelectorAll(`#rosterTableBody tr[data-roster-emp][data-roster-dept="${CSS.escape(r.dataset.rosterDept)}"]`).length;
                 return `<label class="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                    <input type="checkbox" class="roster-pdf-area w-4 h-4 accent-rose-600" value="${escapeHtml(r.dataset.rosterDept)}" data-name="${escapeHtml(r.dataset.rosterDeptName)}" onchange="rosterPdfAreaChanged()" checked>
+                    <input type="checkbox" class="roster-pdf-area w-4 h-4 accent-rose-600" value="${escapeHtml(r.dataset.rosterDept)}" data-name="${escapeHtml(r.dataset.rosterDeptName)}" onchange="rosterPdfAreaChanged()" ${hiddenAreas.has(String(r.dataset.rosterDept)) ? '' : 'checked'}>
                     <span class="font-semibold">${escapeHtml(r.dataset.rosterDeptName)}</span><span class="text-slate-400">(${n})</span></label>`;
             }).join('') || '<p class="text-xs text-slate-400">No hay áreas en el cuadro.</p>';
-            document.getElementById('rosterPdfAll').checked = true;
+            rosterPdfAreaChanged();
+            if (![...list.querySelectorAll('.roster-pdf-area')].some(cb => cb.checked)) rosterPdfToggleAll(true), rosterPdfAreaChanged(); // todas ocultas: se marcan todas
             document.getElementById('rosterPdfWeekLabel').textContent = rosterWeekTitle(appState.rosterCurrentMonday, rosterRangeEnd());
             openModal('modalRosterPdf');
         }
@@ -9534,18 +9548,21 @@
             if (!picked.length) { showAppToast('Elige al menos un área.'); return; }
             closeModal('modalRosterPdf');
             const all = picked.length === cbs.length;
-            downloadRosterPdf(all ? null : picked.map(cb => ({ id: cb.value, name: cb.dataset.name })));
+            downloadRosterPdf(all ? null : picked.map(cb => ({ id: cb.value, name: cb.dataset.name })), rosterExportMode);
         }
-        async function downloadRosterPdf(areas) {
-            const btn = document.getElementById('rosterPdfBtn');
+        // format: 'pdf' (por defecto) o 'image' (PNG, para enviar por WhatsApp
+        // como imagen). Mismo contenido: fechas Desde/Hasta y áreas elegidas.
+        async function downloadRosterPdf(areas, format) {
+            const asImage = format === 'image';
+            const btn = document.getElementById(asImage ? 'rosterImgBtn' : 'rosterPdfBtn');
             const table = document.getElementById('rosterTableBody')?.closest('table');
             if (!table) return;
             if (btn) { btn.disabled = true; btn.classList.add('opacity-60'); }
-            showAppToast('Generando PDF del cuadro de turnos…');
+            showAppToast(asImage ? 'Generando imagen del cuadro de turnos…' : 'Generando PDF del cuadro de turnos…');
             let wrap = null, pdfFixStyle = null;
             try {
                 await loadScriptOnce('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js', () => !!window.html2canvas);
-                await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
+                if (!asImage) await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
 
                 const monday = appState.rosterCurrentMonday;
                 const rangeEnd = rosterRangeEnd();
@@ -9618,6 +9635,20 @@
                 pdfFixStyle.textContent = 'img { display: inline-block !important; }';
                 document.head.appendChild(pdfFixStyle);
                 const canvas = await window.html2canvas(wrap, { scale: 2, backgroundColor: '#ffffff', logging: false });
+                const areaSuffixImg = Array.isArray(areas) && areas.length
+                    ? '_' + areas.map(a => String(a.name).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '')).join('_').slice(0, 60) : '';
+                if (asImage) {
+                    // Imagen PNG (texto nítido); WhatsApp la envía como foto.
+                    const blob = await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('no se pudo crear la imagen')), 'image/png'));
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `Turnos_${formatDateISO(monday)}_al_${formatDateISO(rangeEnd)}${areaSuffixImg}.png`;
+                    document.body.appendChild(a); a.click(); a.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 30000);
+                    showAppToast('Imagen descargada. Puedes enviarla por WhatsApp como foto.');
+                    return;
+                }
 
                 // Una sola página del tamaño del cuadro: se ve completo y
                 // cómodo al abrirlo en el celular (WhatsApp).
@@ -9631,7 +9662,7 @@
                 pdf.save(`Turnos_${formatDateISO(monday)}_al_${formatDateISO(rangeEnd)}${areaSuffix}.pdf`);
                 showAppToast('PDF descargado.');
             } catch (e) {
-                showAppToast('No se pudo generar el PDF: ' + e.message);
+                showAppToast((asImage ? 'No se pudo generar la imagen: ' : 'No se pudo generar el PDF: ') + e.message);
             } finally {
                 if (wrap) wrap.remove();
                 if (pdfFixStyle) pdfFixStyle.remove();
