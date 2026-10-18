@@ -9521,13 +9521,17 @@
             go.innerHTML = img ? '<i class="fa-solid fa-image"></i> Descargar imagen' : '<i class="fa-solid fa-file-pdf"></i> Descargar PDF';
             const rows = [...document.querySelectorAll('#rosterTableBody tr[data-roster-dept-name]')];
             const list = document.getElementById('rosterPdfAreaList');
+            // Por defecto se marcan las áreas VISIBLES en el cuadro (las ocultas
+            // con la flecha quedan desmarcadas); se pueden marcar o desmarcar a mano.
+            const hiddenAreas = rosterHiddenAreas();
             list.innerHTML = rows.map(r => {
                 const n = document.querySelectorAll(`#rosterTableBody tr[data-roster-emp][data-roster-dept="${CSS.escape(r.dataset.rosterDept)}"]`).length;
                 return `<label class="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                    <input type="checkbox" class="roster-pdf-area w-4 h-4 accent-rose-600" value="${escapeHtml(r.dataset.rosterDept)}" data-name="${escapeHtml(r.dataset.rosterDeptName)}" onchange="rosterPdfAreaChanged()" checked>
+                    <input type="checkbox" class="roster-pdf-area w-4 h-4 accent-rose-600" value="${escapeHtml(r.dataset.rosterDept)}" data-name="${escapeHtml(r.dataset.rosterDeptName)}" onchange="rosterPdfAreaChanged()" ${hiddenAreas.has(String(r.dataset.rosterDept)) ? '' : 'checked'}>
                     <span class="font-semibold">${escapeHtml(r.dataset.rosterDeptName)}</span><span class="text-slate-400">(${n})</span></label>`;
             }).join('') || '<p class="text-xs text-slate-400">No hay áreas en el cuadro.</p>';
-            document.getElementById('rosterPdfAll').checked = true;
+            rosterPdfAreaChanged();
+            if (![...list.querySelectorAll('.roster-pdf-area')].some(cb => cb.checked)) rosterPdfToggleAll(true), rosterPdfAreaChanged(); // todas ocultas: se marcan todas
             document.getElementById('rosterPdfWeekLabel').textContent = rosterWeekTitle(appState.rosterCurrentMonday, rosterRangeEnd());
             openModal('modalRosterPdf');
         }
