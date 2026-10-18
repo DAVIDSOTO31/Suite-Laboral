@@ -172,8 +172,8 @@ function getOrgData(req, res, query) {
   sendJson(res, 200, {
     organizationId: orgId,
     orgSettings: settingsRow
-      ? { orgName: settingsRow.org_name, logo: settingsRow.logo_base64, minimumWage: settingsRow.minimum_wage, includeSundayHoliday: settingsRow.include_sunday_holiday === 1, dayZero: settingsRow.day_zero || null, dayZeroLocked: hasActiveClosures(orgId) }
-      : { orgName: 'Empresa', logo: null, minimumWage: 1750905, includeSundayHoliday: false, dayZero: null, dayZeroLocked: false },
+      ? { orgName: settingsRow.org_name, logo: settingsRow.logo_base64, minimumWage: settingsRow.minimum_wage, includeSundayHoliday: settingsRow.include_sunday_holiday === 1, nightBandAlways: settingsRow.night_band_always !== 0, nightBandSince: settingsRow.night_band_since || '', dayZero: settingsRow.day_zero || null, dayZeroLocked: hasActiveClosures(orgId) }
+      : { orgName: 'Empresa', logo: null, minimumWage: 1750905, includeSundayHoliday: false, nightBandAlways: true, nightBandSince: '', dayZero: null, dayZeroLocked: false },
     orgNit: (db.prepare('SELECT nit FROM organizations WHERE id = ?').get(orgId) || {}).nit || '',
     openingBalances: canSeePayroll ? listOpeningBalances(orgId) : [],
     departments,
@@ -225,6 +225,16 @@ async function updateSettings(req, res) {
   if (current && (current.logo_base64 || null) !== (logo || null)) cambios.push({ campo: 'Logo', antes: current.logo_base64 ? 'con logo' : 'sin logo', despues: logo ? 'logo nuevo' : 'sin logo' });
   if (current && Number(current.minimum_wage) !== Number(minimumWage)) cambios.push({ campo: 'Salario mínimo', antes: current.minimum_wage, despues: minimumWage });
   if ((current ? current.include_sunday_holiday === 1 : false) !== !!includeSundayHoliday) cambios.push({ campo: 'Recargos dominicales y festivos', antes: current && current.include_sunday_holiday === 1 ? 'activos' : 'inactivos', despues: includeSundayHoliday ? 'activos' : 'inactivos' });
+  if (body.nightBandAlways !== undefined) {
+    const nb = body.nightBandAlways ? 1 : 0;
+    const prevNb = current ? (current.night_band_always !== 0 ? 1 : 0) : 1;
+    if (nb !== prevNb) {
+      const todayBog = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+      // Al activarla de nuevo aplica desde hoy (no recalcula dias anteriores).
+      db.prepare('UPDATE org_settings SET night_band_always = ?, night_band_since = CASE WHEN ? = 1 THEN ? ELSE night_band_since END WHERE organization_id = ?').run(nb, nb, todayBog, orgId);
+      cambios.push({ campo: 'Turnos de noche siempre con recargo nocturno', antes: prevNb ? 'activo' : 'inactivo', despues: nb ? 'activo' : 'inactivo' });
+    }
+  }
   if (cambios.length) logAction({ organizationId: orgId, userId: req.user.id, action: 'settings.update', ip: getClientIp(req), metadata: { cambios } });
   sendJson(res, 200, { ok: true });
 }

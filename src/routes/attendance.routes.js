@@ -168,6 +168,23 @@ function hhmmFromAbsMinutes(now) {
 // exactos guardados en attendance_marks.actual_at. Lo usan el cierre del
 // turno (marca de salida) y el recalculo de dias ya cerrados.
 // ---------------------------------------------------------------------------
+// Recargo nocturno efectivo de un dia: el de la ficha del colaborador o, si la
+// organizacion lo tiene activo, SIEMPRE en los turnos de la franja Noche
+// (entrada de 21:00 a 04:59) desde la fecha en que se activo la regla.
+function isNightBandShift(shift) {
+  const m = shift ? rules.timeToMinutes(shift.startTime) : null;
+  return m != null && (m >= 21 * 60 || m < 5 * 60);
+}
+function nightBandRule(orgId) {
+  const r = db.prepare('SELECT night_band_always, night_band_since FROM org_settings WHERE organization_id = ?').get(orgId);
+  return { on: !r || r.night_band_always !== 0, since: (r && r.night_band_since) || '' };
+}
+function effectiveNightEnabled(orgId, employee, shift, dateISO) {
+  if (!employee || employee.night_surcharge !== 0) return 1;
+  const rule = nightBandRule(orgId);
+  return rule.on && dateISO >= rule.since && isNightBandShift(shift) ? 1 : 0;
+}
+
 function computeDayHours({ employeeId, shiftDateISO, scheduledStart, scheduledEnd, salidaAbsMin, scheduledBreakMinutes, nightEnabled }) {
   const marks = db.prepare(
     'SELECT mark_type, actual_at FROM attendance_marks WHERE employee_id = ? AND shift_date = ? ORDER BY actual_at ASC'
@@ -412,7 +429,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
     // Turno partido: horas ordinarias = primeras horas trabajadas (limite).
     let splitCat = null;
     if (shift.isSplit) {
-      splitCat = computeSplitDayHours(employeeId, shiftDateISO, shift, actualAbsMin, employee.night_surcharge === 0 ? 0 : 1);
+      splitCat = computeSplitDayHours(employeeId, shiftDateISO, shift, actualAbsMin, effectiveNightEnabled(orgId, employee, shift, shiftDateISO));
       // Solo hay descuento si salio antes de la hora programada Y no completo
       // las horas de su jornada ordinaria (la llegada tarde no se descuenta aqui).
       clsSalida.adeudadoMinutes = Math.min(clsSalida.adeudadoMinutes, Math.max(0, splitLimitMinutes(shift) - splitCat.worked));
@@ -429,7 +446,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
     // Categorizacion de horas (Regla 14) usando las marcas reales del dia,
     // con el instante exacto de cada marca (no el reloj HH:MM), para que una
     // entrada anticipada o un turno que cruza medianoche no se confundan.
-    const nightEnabled = employee.night_surcharge === 0 ? 0 : 1;
+    const nightEnabled = effectiveNightEnabled(orgId, employee, shift, shiftDateISO);
     const cat = splitCat || computeDayHours({
       employeeId, shiftDateISO,
       scheduledStart: shift.startTime, scheduledEnd: ordEndClock,
@@ -540,6 +557,13 @@ function listHistory(req, res, query) {
     } catch { /* fila invalida: se ignora */ }
   }
   for (const row of rows) row.is_split = splitKeys.has(`${row.employee_id}|${row.shift_date}`) ? 1 : 0;
+  // Regla "turnos de noche siempre con recargo": esos dias SI aplica aunque la ficha diga que no.
+  const nbr = nightBandRule(orgId);
+  if (nbr.on) {
+    for (const row of rows) {
+      if (row.employee_night_surcharge === 0 && row.shift_date >= nbr.since && isNightBandShift({ startTime: row.scheduled_entrada })) row.employee_night_surcharge = 1;
+    }
+  }
   // Fotos de evidencia de cada dia (para el boton de la camara).
   const evid = new Map(db.prepare(`SELECT employee_id, shift_date, COUNT(*) AS n, SUM(CASE WHEN env_status = 'diferente' THEN 1 ELSE 0 END) AS dif
       FROM mark_photos WHERE organization_id = ? AND shift_date BETWEEN ? AND ? GROUP BY employee_id, shift_date`).all(orgId, from, to)
@@ -1215,7 +1239,7 @@ async function registerCorrection(req, res) {
   if (abs.salida - abs.entrada > 24 * 60) return sendJson(res, 400, { error: 'Las horas no forman una jornada valida (mas de 24 horas).' });
 
   const breakMinutes = abs.fin_almuerzo - abs.inicio_almuerzo;
-  const nightEnabled = employee.night_surcharge === 0 ? 0 : 1;
+  const nightEnabled = effectiveNightEnabled(orgId, employee, shift, date);
   const cat = shift.isSplit
     ? rules.categorizeSplitWorkedMinutes({
         scheduledEntradaMin, stage1Start: abs.entrada, stage1End: abs.inicio_almuerzo,

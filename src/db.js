@@ -512,6 +512,15 @@ CREATE TABLE IF NOT EXISTS payroll_adjustments (
 // Liquidar recargos dominicales y festivos (por organizacion): desactivado por defecto.
 const orgSettingsColumns = db.prepare('PRAGMA table_info(org_settings)').all().map(c => c.name);
 if (!orgSettingsColumns.includes('include_sunday_holiday')) db.exec('ALTER TABLE org_settings ADD COLUMN include_sunday_holiday INTEGER NOT NULL DEFAULT 0');
+// Turnos de la franja NOCHE (entrada 21:00-04:59) siempre con recargo nocturno,
+// aunque el colaborador lo tenga desactivado en su ficha. Activo por defecto;
+// aplica desde la fecha en que se instala (no recalcula dias anteriores).
+if (!orgSettingsColumns.includes('night_band_always')) {
+  db.exec('ALTER TABLE org_settings ADD COLUMN night_band_always INTEGER NOT NULL DEFAULT 1');
+  db.exec('ALTER TABLE org_settings ADD COLUMN night_band_since TEXT NULL');
+  const todayBog = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+  db.prepare('UPDATE org_settings SET night_band_since = ?').run(todayBog);
+}
 // Contabilizar dias laborados (segun marcaciones): desactivado por defecto.
 if (!empColumns2.includes('count_worked_days')) db.exec('ALTER TABLE employees ADD COLUMN count_worked_days INTEGER NOT NULL DEFAULT 0');
 
