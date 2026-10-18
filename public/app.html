@@ -5798,6 +5798,7 @@
             // programado como estimado (asi no se pierde continuidad con periodos
             // anteriores a la existencia del modulo de Asistencia).
             let realByKey = {};
+            let absMgmtByKey = {}; // "No se presentó" ya gestionada (justificada/injustificada) = ausencia confirmada
             let attByKey = {}; // todas las marcaciones del periodo (cerradas o incompletas)
             // Los valores salen SOLO de las marcaciones de cada dia (las correcciones
             // se hacen por dia, en la marcacion). No hay ajustes sobre totales.
@@ -5820,11 +5821,12 @@
             }
             if (startDate && endDate) {
                 try {
-                    const [{ rows: realRows }, { rows: histRows }] = await Promise.all([
+                    const [{ rows: realRows, absences: absRows }, { rows: histRows }] = await Promise.all([
                         apiFetch(`/api/attendance/payroll-summary?from=${startDate}&to=${endDate}`),
                         apiFetch(`/api/attendance/history?from=${startDate}&to=${endDate}`),
                     ]);
                     realRows.forEach(r => { realByKey[`${r.employee_id}_${r.shift_date}`] = r; });
+                    (absRows || []).forEach(a => { absMgmtByKey[`${a.employee_id}_${a.shift_date}`] = a.mgmt; });
                     histRows.forEach(r => { attByKey[`${r.employee_id}_${r.shift_date}`] = r; });
                 } catch (e) { /* sin permiso de Asistencia: no hay marcaciones para liquidar */ }
             }
@@ -5834,7 +5836,7 @@
             const includeEstimates = false; // politica fija: los dias sin marcacion cerrada nunca se liquidan
             const todayISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
             const pendingDays = [];
-            let upcomingDays = 0;
+            let upcomingDays = 0, confirmedAbsences = 0;
 
             // Agrupa por colaborador (valores calculados exactamente desde los turnos, base antes de ajustes manuales)
             let byEmp = {};
@@ -5862,6 +5864,10 @@
                     // Turno sin marcacion real cerrada.
                     if (s.date >= todayISO) { upcomingDays++; return; } // hoy o futuro: aun no se liquida
                     const att = attByKey[`${emp.id}_${s.date}`];
+                    // Ausencia confirmada (la alerta "No se presentó" ya se gestionó):
+                    // no queda pendiente por revisar; ese día no genera recargos ni extras.
+                    const absM = absMgmtByKey[`${emp.id}_${s.date}`];
+                    if (!att && absM && absM !== 'pendiente') { confirmedAbsences++; return; }
                     const marks = att ? [
                         att.entrada_real ? `entrada ${att.entrada_real}` : null,
                         att.inicio_almuerzo_real ? `inicio almuerzo ${att.inicio_almuerzo_real}` : null,
@@ -5934,7 +5940,7 @@
 
             // Aplica ajustes manuales guardados (si el usuario ya editó alguna celda de este colaborador)
             appState._payrollOtCache = { rows: [], startDate, endDate };
-            appState._payrollOtPending = { days: pendingDays, upcoming: upcomingDays, includeEstimates };
+            appState._payrollOtPending = { days: pendingDays, upcoming: upcomingDays, includeEstimates, confirmedAbsences };
             appState._payrollOtOpenMissing = [];
             appState._payrollOtAdjHistory = adjHistory;
             const edits = adjByEmp;
@@ -7636,7 +7642,7 @@
             const days = [...pend.days].sort((a, b) => a.emp.name.localeCompare(b.emp.name) || a.date.localeCompare(b.date));
             if (!days.length) {
                 box.className = 'bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-800 font-semibold';
-                box.innerHTML = `<i class="fa-solid fa-circle-check"></i> Todos los turnos ya pasados del periodo tienen marcación cerrada.${pend.upcoming ? ` ${pend.upcoming} turno(s) de hoy o fechas futuras aún no se liquidan.` : ''}`;
+                box.innerHTML = `<i class="fa-solid fa-circle-check"></i> Todos los turnos ya pasados del periodo tienen marcación cerrada${pend.confirmedAbsences ? ` o son ausencias confirmadas (${pend.confirmedAbsences})` : ''}.${pend.upcoming ? ` ${pend.upcoming} turno(s) de hoy o fechas futuras aún no se liquidan.` : ''}`;
                 return;
             }
             const fmt = (iso) => iso.split('-').reverse().join('/');
@@ -7651,7 +7657,7 @@
                             : '<strong>No están incluidos</strong> en el valor a liquidar. ' + (estTotal > 0
                                 ? 'Si se hubieran cumplido tal como estaban programados, sumarían aprox. ' + money(estTotal) + ' en recargos y extras.'
                                 : 'Según lo programado, esos días no generarían recargos ni horas extras, pero conviene confirmar si el colaborador asistió.')}
-                            ${pend.upcoming ? ` · ${pend.upcoming} turno(s) de hoy o fechas futuras aún no se liquidan.` : ''}</p>
+                            ${pend.upcoming ? ` · ${pend.upcoming} turno(s) de hoy o fechas futuras aún no se liquidan.` : ''}${pend.confirmedAbsences ? ` · ${pend.confirmedAbsences} ausencia(s) confirmada(s) en el periodo (no se cuentan aquí).` : ''}</p>
                     </div>
                     <div class="flex gap-2">
                         <button onclick="document.getElementById('payrollOtPendingList').classList.toggle('hidden')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-amber-900 hover:bg-amber-100">Ver / ocultar detalle</button>

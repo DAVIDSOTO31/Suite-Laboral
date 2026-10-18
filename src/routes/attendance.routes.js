@@ -1164,7 +1164,12 @@ function listPayrollAttendance(req, res, query) {
     }
   }
   for (const r of rows) { delete r.scheduled_entrada; delete r.scheduled_salida; }
-  sendJson(res, 200, { rows });
+  // Ausencias ("No se presentó") con su gestión: las ya gestionadas
+  // (justificada / injustificada) dejan de ser "pendientes por revisar".
+  const absences = db.prepare(`SELECT a.employee_id, a.shift_date, COALESCE(m.status, 'pendiente') AS mgmt
+      FROM attendance_alerts a LEFT JOIN alert_management m ON m.alert_id = a.id
+      WHERE a.organization_id = ? AND a.alert_type = 'inasistencia' AND a.shift_date BETWEEN ? AND ?`).all(orgId, from, to);
+  sendJson(res, 200, { rows, absences });
 }
 
 // ---------------------------------------------------------------------------
@@ -1667,12 +1672,14 @@ function scanMissingMarks(orgId, force = false) {
     // "No se presentó" que ya no aplica: el día volvió a ser descanso (o
     // novedad) en el cuadro de turnos y la persona no tiene ninguna marcación
     // ese día (ej. un turno puesto por error sobre su descanso). Se elimina.
+    // Ultimos 30 dias (asi se puede corregir el cuadro dias despues).
     const absAlerts = db.prepare(`SELECT id, employee_id, shift_date FROM attendance_alerts
                                   WHERE organization_id = ? AND alert_type = 'inasistencia' AND shift_date BETWEEN ? AND ?`)
-      .all(orgId, bogota.addDaysISO(today, -3), today);
+      .all(orgId, bogota.addDaysISO(today, -30), today);
+    const absShifts = absAlerts.length ? shiftsByKey(orgId, [...new Set(absAlerts.map(a => a.shift_date))]) : new Map();
     const removed = [];
     for (const a of absAlerts) {
-      if (isWorkShift(shifts.get(`${a.employee_id}|${a.shift_date}`))) continue;
+      if (isWorkShift(absShifts.get(`${a.employee_id}|${a.shift_date}`))) continue;
       if (markTypes.all(a.employee_id, a.shift_date).length) continue;
       const d = dayRow.get(a.employee_id, a.shift_date);
       if (d && (d.entrada_real || d.salida_real)) continue;
