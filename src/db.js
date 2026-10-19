@@ -529,6 +529,8 @@ const userColumns = db.prepare('PRAGMA table_info(users)').all().map(c => c.name
 if (!userColumns.includes('employee_id')) db.exec('ALTER TABLE users ADD COLUMN employee_id INTEGER NULL');
 // Nombre para el saludo de bienvenida (opcional; editable por Super Admin y por el administrador de la organizacion).
 if (!userColumns.includes('display_name')) db.exec('ALTER TABLE users ADD COLUMN display_name TEXT NULL');
+// Ultima actividad en la suite (ms). Solo para el indicador "En linea" del Super Admin.
+if (!userColumns.includes('last_seen_at_ms')) db.exec('ALTER TABLE users ADD COLUMN last_seen_at_ms INTEGER NULL');
 
 // ---------------------------------------------------------------------------
 // BOOTSTRAP: super admin role + super admin user (first run only)

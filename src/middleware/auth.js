@@ -1,6 +1,7 @@
 'use strict';
 const { db } = require('../db');
 const { verifySession } = require('../lib/crypto');
+const presence = require('../lib/presence');
 const { parseCookies, sendJson } = require('../lib/http');
 
 // Loads the authenticated user fresh from the DB on every request (never trusts
@@ -67,6 +68,7 @@ function requireAuth(req, res) {
     return null;
   }
   req.user = user;
+  presence.touch(user);
   return user;
 }
 

@@ -79,4 +79,11 @@ function stats() {
   return { orgs: subscribers.size, connections: n };
 }
 
-module.exports = { subscribe, publish, publishAttendance, scopesForPath, getDataSeq, stats };
+// Pestanas abiertas ahora mismo en la organizacion (y cuantos usuarios distintos).
+function orgPresence(orgId) {
+  const set = subscribers.get(orgId);
+  if (!set || !set.size) return { connections: 0, users: 0 };
+  return { connections: set.size, users: new Set([...set].map(s => s.userId)).size };
+}
+
+module.exports = { orgPresence, subscribe, publish, publishAttendance, scopesForPath, getDataSeq, stats };
