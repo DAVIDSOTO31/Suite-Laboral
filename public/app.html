@@ -3304,13 +3304,14 @@
             // Carpetas de turnos predeterminados (filtro)
             const folders = presetFolders();
             const allPresets = workPresets();
-            const sel = appState.presetFolderFilter || 'all';
+            // Todas las carpetas empiezan cerradas; un clic abre una y otro clic la cierra.
+            const sel = appState.presetFolderFilter || '';
             const folderRow = document.createElement('div');
             folderRow.className = 'w-full flex flex-wrap items-center gap-1.5 pt-2 mt-1 border-t border-slate-100';
             const fchip = (id, label, count, editable) => {
                 const on = sel === id;
                 return `<span class="inline-flex items-center rounded-lg border text-2xs font-bold ${on ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}">
-                    <button type="button" onclick="selectPresetFolder('${id}')" class="px-2 py-1 flex items-center gap-1"><i class="fa-solid ${id === 'all' ? 'fa-layer-group' : (id === 'none' ? 'fa-inbox' : (on ? 'fa-folder-open' : 'fa-folder'))} ${on ? '' : 'text-amber-500'}"></i> ${escapeHtml(label)} <span class="opacity-70 font-normal">(${count})</span></button>
+                    <button type="button" onclick="selectPresetFolder('${id}')" title="${on ? 'Clic para cerrar' : 'Clic para abrir'}" class="px-2 py-1 flex items-center gap-1"><i class="fa-solid ${id === 'all' ? 'fa-layer-group' : (id === 'none' ? 'fa-inbox' : (on ? 'fa-folder-open' : 'fa-folder'))} ${on ? '' : 'text-amber-500'}"></i> ${escapeHtml(label)} <span class="opacity-70 font-normal">(${count})</span></button>
                     ${editable ? `<button type="button" onclick="renamePresetFolder('${id}')" title="Cambiar nombre" class="px-1 py-1 opacity-60 hover:opacity-100"><i class="fa-solid fa-pen text-3xs"></i></button><button type="button" onclick="deletePresetFolder('${id}')" title="Eliminar carpeta (los turnos quedan sin carpeta)" class="pr-1.5 py-1 opacity-60 hover:opacity-100 hover:text-rose-500"><i class="fa-solid fa-xmark text-3xs"></i></button>` : ''}
                 </span>`;
             };
@@ -3328,7 +3329,7 @@
                 container.appendChild(empty);
             }
 
-            allPresets.filter(p => sel === 'all' || (sel === 'none' ? (!p.folderId || !folders.some(f => f.id === p.folderId)) : p.folderId === sel)).forEach(preset => {
+            allPresets.filter(p => sel && (sel === 'all' || (sel === 'none' ? (!p.folderId || !folders.some(f => f.id === p.folderId)) : p.folderId === sel))).forEach(preset => {
                 const isSelected = appState.quickBrushMode === preset.id;
                 const theme = rosterColorMode() === 'franja' ? shiftDisplayTheme(preset) : (SHIFT_COLOR_THEMES[preset.color] || SHIFT_COLOR_THEMES.emerald);
                 const btn = document.createElement('div');
@@ -3351,7 +3352,7 @@
             });
         }
 
-        function selectPresetFolder(id) { appState.presetFolderFilter = id; renderQuickBrushBar(); }
+        function selectPresetFolder(id) { appState.presetFolderFilter = appState.presetFolderFilter === id ? '' : id; renderQuickBrushBar(); }
         function createPresetFolder() {
             const name = (window.prompt('Nombre de la nueva carpeta (ej. Cocina, Rotativos noche):') || '').trim();
             if (!name) return;
@@ -3374,7 +3375,7 @@
             if (!confirm(`¿Eliminar la carpeta "${f.name}"?${n ? ` Sus ${n} turno(s) NO se borran: quedan en "Sin carpeta".` : ''}`)) return;
             workPresets().forEach(p => { if (p.folderId === id) delete p.folderId; });
             appState.shiftPresets = appState.shiftPresets.filter(x => x.id !== id);
-            if (appState.presetFolderFilter === id) appState.presetFolderFilter = 'all';
+            if (appState.presetFolderFilter === id) appState.presetFolderFilter = '';
             saveShiftPresets(); renderQuickBrushBar();
         }
         function fillPresetFolderSelect(selected) {
