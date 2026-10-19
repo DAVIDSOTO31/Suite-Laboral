@@ -3352,6 +3352,14 @@
             });
         }
 
+        // Saldo de extras diurnas que se muestra en la liquidación: lo que se paga
+        // o, si quedó debiendo, el saldo en negativo (días + saldo anterior + saldo
+        // inicial). Solo para mostrar: el valor a pagar no cambia.
+        function payrollHedShown(r) {
+            if ((r.hed || 0) > 0.0001) return r.hed;
+            const net = (r.hedDays || 0) + (r.carryIn || 0) + (r.openHed || 0);
+            return net < -0.0001 ? net : 0;
+        }
         function selectPresetFolder(id) { appState.presetFolderFilter = appState.presetFolderFilter === id ? '' : id; renderQuickBrushBar(); }
         function createPresetFolder() {
             const name = (window.prompt('Nombre de la nueva carpeta (ej. Cocina, Rotativos noche):') || '').trim();
@@ -6245,8 +6253,8 @@
                                 ${r.openHon ? `<span class="block text-3xs font-semibold text-sky-700">Incluye saldo inicial: +${formatHM(r.openHon)}</span>` : ''}
                             </td>
                             <td class="p-2.5 text-center">
-                                <span class="inline-block min-w-[4.5rem] text-center font-mono rounded-lg p-1.5 bg-amber-50/60 border border-amber-200 text-amber-900 font-bold">${r.hed.toFixed(2)}</span>
-                                <span class="block text-2xs font-mono text-amber-700 mt-0.5">${formatHMSigned(r.hed)}</span>
+                                ${(() => { const hs = payrollHedShown(r); const neg = hs < -0.0001; return `<span class="inline-block min-w-[4.5rem] text-center font-mono rounded-lg p-1.5 font-bold ${neg ? 'bg-rose-50 border border-rose-300 text-rose-700' : 'bg-amber-50/60 border border-amber-200 text-amber-900'}" ${neg ? 'title="Saldo en contra: debe este tiempo (no se paga extra diurna)"' : ''}>${hs.toFixed(2)}</span>
+                                <span class="block text-2xs font-mono ${neg ? 'text-rose-700 font-bold' : 'text-amber-700'} mt-0.5">${formatHMSigned(hs)}</span>`; })()}
                                 <span class="block text-xs font-mono font-bold text-amber-900">${money(r.hedPay)}</span>
                                 ${(r.carryIn || r.carryOut || r.openHed) ? `<span class="block text-3xs text-slate-500 mt-0.5 leading-tight">Días: ${formatHMSigned(r.hedDays || 0)}${r.carryIn ? ` · Saldo anterior: <span class="text-rose-700 font-semibold">${formatHMSigned(r.carryIn)}</span>` : ''}${r.openHed ? ` · <span class="text-sky-700 font-semibold">Saldo inicial: ${r.openHed > 0 ? '+' : ''}${formatHMSigned(r.openHed)}</span>` : ''}</span>` : ''}
                                 ${r.carryOut ? `<span class="block text-3xs font-bold text-rose-700 leading-tight">Se traslada: ${formatHMSigned(r.carryOut)}</span>` : ''}
