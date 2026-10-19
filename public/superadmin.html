@@ -87,7 +87,7 @@
       <table class="w-full text-sm">
         <thead class="bg-slate-50 text-slate-600 text-xs uppercase font-bold"><tr>
           <th class="text-left px-4 py-2">Nombre</th><th class="text-left px-4 py-2">Slug</th>
-          <th class="text-left px-4 py-2">Usuarios</th><th class="text-left px-4 py-2">Estado</th>
+          <th class="text-left px-4 py-2">Usuarios</th><th class="text-left px-4 py-2">Estado</th><th class="text-left px-4 py-2">Conexión</th>
           <th class="text-left px-4 py-2">Creada</th><th class="text-right px-4 py-2">Acciones</th>
         </tr></thead>
         <tbody id="orgsTableBody"></tbody>
@@ -342,17 +342,46 @@ async function loadOrgs() {
       <td class="px-4 py-2 text-slate-500">${esc(o.slug)}</td>
       <td class="px-4 py-2">${o.userCount}</td>
       <td class="px-4 py-2">${badge(o.status)}</td>
+      <td class="px-4 py-2" data-presence="${esc(o.id)}">${presenceHtml(o.presence)}</td>
       <td class="px-4 py-2 text-slate-500">${(o.created_at || '').split(' ')[0]}</td>
       <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
         <button onclick="viewOrg('${o.id}')" class="text-xs px-2 py-1 rounded bg-sky-50 text-sky-700 hover:bg-sky-100">Ver</button>
         <button onclick="toggleOrg('${o.id}')" class="text-xs px-2 py-1 rounded bg-slate-100 hover:bg-slate-200">${o.status === 'active' ? 'Desactivar' : 'Activar'}</button>
         <button onclick="deleteOrg('${o.id}')" class="text-xs px-2 py-1 rounded bg-rose-50 text-rose-600 hover:bg-rose-100">Eliminar</button>
       </td>
-    </tr>`).join('') || `<tr><td colspan="6" class="px-4 py-6 text-center text-slate-400">Sin organizaciones aun.</td></tr>`;
+    </tr>`).join('') || `<tr><td colspan="7" class="px-4 py-6 text-center text-slate-400">Sin organizaciones aun.</td></tr>`;
 
   const sel = document.getElementById('userOrgSelect');
   sel.innerHTML = d.organizations.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('');
 }
+
+// Conexion de la organizacion: en linea ahora (suite abierta) o hace cuanto se uso.
+function agoText(ms) {
+  const min = Math.floor(Math.max(0, ms) / 60000);
+  if (min < 1) return 'hace menos de 1 min';
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  if (h < 24) return `hace ${h} h${m ? ` ${m} min` : ''}`;
+  const d = Math.floor(h / 24);
+  return `hace ${d} día${d === 1 ? '' : 's'}${h % 24 ? ` ${h % 24} h` : ''}`;
+}
+function presenceHtml(p) {
+  if (!p) return '<span class="text-xs text-slate-400">-</span>';
+  const main = p.online
+    ? `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold" title="Tiene la suite abierta en este momento"><span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>En línea · ${p.onlineUsers} usuario${p.onlineUsers === 1 ? '' : 's'}</span>`
+    : `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold"><span class="w-2 h-2 rounded-full bg-slate-400"></span>Fuera de línea${p.lastSeenMs ? ' · ' + agoText(p.nowMs - p.lastSeenMs) : ' · sin actividad registrada'}</span>`;
+  const k = p.kiosksTotal ? `<span class="block text-[11px] text-slate-500 mt-0.5" title="Los kioscos guardan las marcaciones sin internet: no impiden un deploy"><i class="fa-solid fa-tablet-screen-button mr-1"></i>Kioscos con señal: ${p.kiosksOnline} de ${p.kiosksTotal}</span>` : '';
+  return main + k;
+}
+// Refresco cada 30 s mientras la pestaña Organizaciones está visible (solo la columna Conexión).
+setInterval(async () => {
+  const tab = document.getElementById('tab-orgs');
+  if (!tab || tab.classList.contains('hidden') || document.visibilityState !== 'visible') return;
+  try {
+    const d = await api('/api/superadmin/presence');
+    document.querySelectorAll('#orgsTableBody td[data-presence]').forEach(td => { const p = d.presence[td.dataset.presence]; if (p) td.innerHTML = presenceHtml(p); });
+  } catch (e) { /* se reintenta en el siguiente ciclo */ }
+}, 30000);
 
 function badge(status) {
   return status === 'active'

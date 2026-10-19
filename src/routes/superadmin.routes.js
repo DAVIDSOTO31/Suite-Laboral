@@ -7,6 +7,17 @@ const { randomToken, sha256Hex, hashPassword } = require('../lib/crypto');
 const { sendMail } = require('../lib/mailer');
 const { describeAudit } = require('../lib/audit-describe');
 const { todayISOInBogota, addDaysISO } = require('../lib/bogota-time');
+const live = require('../lib/live');
+const presence = require('../lib/presence');
+
+// En linea / fuera de linea de cada organizacion (para saber cuando hacer un deploy).
+// En linea = tiene la suite abierta ahora mismo. Kioscos: con senal en los ultimos 3 min.
+function orgPresenceInfo(orgId) {
+  const now = Date.now();
+  const p = live.orgPresence(orgId);
+  const kiosks = db.prepare('SELECT COUNT(*) total, SUM(CASE WHEN hb_at_ms >= ? THEN 1 ELSE 0 END) online FROM attendance_devices WHERE organization_id = ? AND active = 1').get(now - 3 * 60 * 1000, orgId);
+  return { online: p.connections > 0, onlineUsers: p.users, lastSeenMs: presence.orgLastSeen(orgId), kiosksOnline: Number(kiosks.online) || 0, kiosksTotal: Number(kiosks.total) || 0, nowMs: now };
+}
 
 function slugify(name) {
   return name.toString().trim().toLowerCase()
@@ -35,9 +46,16 @@ function listOrganizations(req, res, query) {
   const orgs = db.prepare(sql).all(...params);
   const withCounts = orgs.map(o => {
     const uc = db.prepare('SELECT COUNT(*) c FROM users WHERE organization_id = ?').get(o.id).c;
-    return { ...o, settings: JSON.parse(o.settings_json || '{}'), userCount: uc };
+    return { ...o, settings: JSON.parse(o.settings_json || '{}'), userCount: uc, presence: orgPresenceInfo(o.id) };
   });
   sendJson(res, 200, { organizations: withCounts });
+}
+
+// GET /api/superadmin/presence -> { presence: { orgId: {...} } } (refresco liviano cada 30 s)
+function listPresence(req, res) {
+  const out = {};
+  for (const o of db.prepare('SELECT id FROM organizations').all()) out[o.id] = orgPresenceInfo(o.id);
+  sendJson(res, 200, { presence: out });
 }
 
 async function createOrganization(req, res) {
@@ -329,6 +347,7 @@ async function verifyBackupCopy(req, res) {
 }
 
 module.exports = {
+  listPresence,
   verifyBackupCopy,
   dashboard, listOrganizations, createOrganization, updateOrganization, toggleOrganizationStatus,
   deleteOrganization, getOrganizationDetail, listUsers, createUser, updateUser, toggleUserStatus,
