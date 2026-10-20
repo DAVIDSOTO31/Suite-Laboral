@@ -434,12 +434,15 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
       // las horas de su jornada ordinaria (la llegada tarde no se descuenta aqui).
       clsSalida.adeudadoMinutes = Math.min(clsSalida.adeudadoMinutes, Math.max(0, splitLimitMinutes(shift) - splitCat.worked));
     }
+    // Tolerancia: menos de 5 min antes -> alerta, pero sin descuento de extras.
+    const salidaDescuentoMin = rules.earlyLeaveDeductibleMinutes(clsSalida.adeudadoMinutes);
     patch.salida_real = actualClock;
-    patch.salida_anticipada_min = clsSalida.adeudadoMinutes;
+    patch.salida_anticipada_min = salidaDescuentoMin;
     patch.status = 'turno_finalizado';
     statusLabel = clsSalida.adeudadoMinutes > 0 ? 'salida_anticipada' : 'salida_puntual';
     if (clsSalida.adeudadoMinutes > 0) {
-      insertAlert(orgId, employeeId, shiftDateISO, 'salida_anticipada', ordEndClock, actualClock, clsSalida.adeudadoMinutes, { employeeName: employee.name });
+      insertAlert(orgId, employeeId, shiftDateISO, 'salida_anticipada', ordEndClock, actualClock, clsSalida.adeudadoMinutes,
+        salidaDescuentoMin ? { employeeName: employee.name } : { employeeName: employee.name, sinDescuento: true });
       alert = { type: 'salida_anticipada', diffMinutes: clsSalida.adeudadoMinutes };
     }
 
@@ -454,7 +457,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
       scheduledBreakMinutes: Number(shift.breakM) || 0,
       nightEnabled,
     });
-    const hedFinal = rules.applyEarlyLeaveDeduction(cat.hed, clsSalida.adeudadoMinutes);
+    const hedFinal = rules.applyEarlyLeaveDeduction(cat.hed, salidaDescuentoMin);
     patch.hod_min = cat.hod;
     patch.hon_min = cat.hon;
     patch.hed_min = hedFinal;
@@ -1260,6 +1263,7 @@ async function registerCorrection(req, res) {
   const exceso = rules.classifyAlmuerzo(Number(shift.breakM) || 0, breakMinutes).excessMinutes;
   let adeudado = rules.classifySalida(scheduledSalidaMin, abs.salida).adeudadoMinutes;
   if (shift.isSplit) adeudado = Math.min(adeudado, Math.max(0, splitLimitMinutes(shift) - cat.worked));
+  adeudado = rules.earlyLeaveDeductibleMinutes(adeudado); // tolerancia de 5 min
   const hedFinal = rules.applyEarlyLeaveDeduction(cat.hed, adeudado);
 
   if (!day) {
@@ -1583,6 +1587,30 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(AUTO_JUST_FEA
                 AND alert_id IN (SELECT id FROM attendance_alerts WHERE alert_type IN (${AUTO_JUST_TYPES.map(() => '?').join(',')}))`)
     .run(AUTO_JUST_NOTE, ...AUTO_JUST_TYPES);
   db.prepare("INSERT INTO app_migrations (name, applied_at) VALUES (?, datetime('now', '-5 hours'))").run(AUTO_JUST_FEATURE);
+}
+// Tolerancia de 5 min en la salida anticipada (una sola vez): los dias del
+// periodo que aun no se ha liquidado (despues del Dia 0 y fuera de periodos de
+// extras cerrados) con salida anticipada de 1 a 4 min devuelven ese descuento a
+// las extras. Las marcaciones y alertas no se tocan.
+const EARLY_TOL_FEATURE = 'salida_anticipada_tolerancia_5min_v1';
+if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(EARLY_TOL_FEATURE)) {
+  const rows = db.prepare(`
+    SELECT d.id, d.organization_id, d.salida_anticipada_min FROM attendance_days d
+    LEFT JOIN org_settings s ON s.organization_id = d.organization_id
+    WHERE d.status = 'turno_finalizado' AND d.salida_anticipada_min > 0 AND d.salida_anticipada_min < ?
+      AND (s.day_zero IS NULL OR s.day_zero = '' OR d.shift_date > s.day_zero)
+      AND NOT EXISTS (SELECT 1 FROM payroll_closures c WHERE c.organization_id = d.organization_id AND c.closure_type = 'extras'
+                      AND c.status = 'cerrado' AND c.period_start <= d.shift_date AND c.period_end >= d.shift_date)
+  `).all(rules.EARLY_LEAVE_TOLERANCE_MIN);
+  const upd = db.prepare("UPDATE attendance_days SET hed_min = COALESCE(hed_min, 0) + ?, salida_anticipada_min = 0, updated_at = datetime('now') WHERE id = ?");
+  const byOrg = new Map();
+  db.exec('BEGIN');
+  try {
+    for (const r of rows) { upd.run(r.salida_anticipada_min, r.id); byOrg.set(r.organization_id, (byOrg.get(r.organization_id) || 0) + 1); }
+    db.prepare("INSERT INTO app_migrations (name, applied_at) VALUES (?, datetime('now', '-5 hours'))").run(EARLY_TOL_FEATURE);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  for (const [orgId, n] of byOrg) logAction({ organizationId: orgId, userId: null, action: 'attendance.early_leave_tolerance_recalc', resourceType: 'attendance_day', resourceId: null, ip: null, metadata: { dias: n, toleranciaMin: rules.EARLY_LEAVE_TOLERANCE_MIN } });
 }
 function autoMarkStaleAlerts(orgId) {
   const unj = autoMarkStaleByStatus(orgId, AUTO_UNJUST_TYPES, 'injustificada', AUTO_UNJUST_NOTE, 'attendance.alerts_auto_unjustified');

@@ -10083,6 +10083,7 @@
             if (r.alert_type === 'inasistencia') return `<span class="text-slate-700">Sin ninguna marcación en el turno ${escapeHtml(m.turno || '')}</span>`;
             if (r.alert_type === 'etapa_extendida') return `<span class="text-slate-700">${escapeHtml(m.etapa || 'Etapa extendida')}: ${attMinutesLabel(r.diff_minutes)}</span><span class="block text-3xs text-slate-500">Puede convertir en extra la última parte del turno. Justifícala si estaba autorizada.</span>`;
             if (r.alert_type === 'entorno_diferente') return `<span class="text-slate-700">Marcó en un <strong>entorno diferente</strong> al de siempre${m.dispositivo ? ` (kiosco ${escapeHtml(m.dispositivo)})` : ''}${m.markType ? ' · ' + escapeHtml(ATTENDANCE_MARK_LABELS[m.markType] || m.markType) : ''}.</span><span class="block text-3xs text-slate-500">Revisa la foto: el fondo no se parece al lugar donde está el kiosco.</span>`;
+            if (r.alert_type === 'salida_anticipada' && m.sinDescuento) return `${attMinutesLabel(r.diff_minutes)}<span class="block text-3xs text-slate-500">Menos de 5 min: no se descuenta de las extras.</span>`;
             if (r.alert_type === 'turno_sin_cerrar') return `<span class="text-slate-700">Marcó entrada${m.entrada ? ' a las ' + escapeHtml(m.entrada) : ''} pero no la salida (turno ${escapeHtml(m.turno || '')})</span>`;
             return attMinutesLabel(r.diff_minutes);
         }
