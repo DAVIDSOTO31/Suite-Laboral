@@ -28,6 +28,15 @@ const PREVENTIVE_WINDOW_MIN = 5; // alerta preventiva: 5 minutos antes de la ent
 // como extra. Si llega a 30 minutos o mas, se reconoce TODO desde la hora en
 // que terminaba el turno.
 const OVERTIME_THRESHOLD_MIN = 30;
+// Tolerancia de la salida anticipada: si sale MENOS de 5 minutos antes de
+// terminar la jornada ordinaria se genera la alerta, pero no se descuenta de
+// las horas extras. Desde 5 minutos se descuenta TODO el tiempo (no solo lo
+// que pasa de 5).
+const EARLY_LEAVE_TOLERANCE_MIN = 5;
+function earlyLeaveDeductibleMinutes(adeudadoMinutes) {
+  const m = Math.max(0, Number(adeudadoMinutes) || 0);
+  return m >= EARLY_LEAVE_TOLERANCE_MIN ? m : 0;
+}
 
 const MARK_SEQUENCE = ['entrada', 'inicio_almuerzo', 'fin_almuerzo', 'salida'];
 
@@ -287,6 +296,8 @@ module.exports = {
   NIGHT_END_MIN,
   PREVENTIVE_WINDOW_MIN,
   OVERTIME_THRESHOLD_MIN,
+  EARLY_LEAVE_TOLERANCE_MIN,
+  earlyLeaveDeductibleMinutes,
   MARK_SEQUENCE,
   timeToMinutes,
   formatMinutes,
