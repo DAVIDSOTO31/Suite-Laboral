@@ -3,7 +3,7 @@
 // - No guarda nada en caché: la suite siempre carga la versión más reciente.
 // - Alcance "/app" (la pantalla principal app.html). El Kiosco usa su propio
 //   service worker con alcance "/kiosk", así que no se mezclan.
-const SUITE_SW_VERSION = '2026.10-avisos1';
+const SUITE_SW_VERSION = '2026.10-avisos2';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
@@ -21,6 +21,8 @@ self.addEventListener('push', (event) => {
     data: { url: data.url || '/app.html#alertas' },
     lang: 'es-CO',
   };
+  // Boton "Ver alerta" (Android). En iPhone no se muestran botones: tocar el aviso hace lo mismo.
+  if (Array.isArray(data.actions) && data.actions.length) options.actions = data.actions.slice(0, 1);
   event.waitUntil((async () => {
     await self.registration.showNotification(title, options);
     // Avisa a la suite abierta para que actualice la campana al instante.

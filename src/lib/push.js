@@ -188,6 +188,64 @@ function alertText(a) {
     default: return 'Nueva alerta de asistencia.';
   }
 }
+// ---- Formato del aviso al celular (titulo con color + detalle ordenado) ----
+const TYPE_DOT = {
+  llegada_tarde: '🔴', salida_anticipada: '🟠', exceso_almuerzo: '🟡', inasistencia: '⚫',
+  turno_sin_cerrar: '🟤', marcacion_manual: '🔵', entorno_diferente: '🟣', etapa_extendida: '⚪',
+};
+const MARK_LABEL = { entrada: 'Entrada', inicio_almuerzo: 'Inicio de almuerzo', fin_almuerzo: 'Fin de almuerzo', salida: 'Salida' };
+// "CLAUDIA LORENA VILLADA" -> "Claudia Lorena Villada"
+function niceName(n) {
+  const s = String(n || '').trim();
+  if (s !== s.toUpperCase()) return s || 'Colaborador'; // ya viene escrito con mayusculas y minusculas
+  return s.toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, sp, ch) => sp + ch.toUpperCase()).trim() || 'Colaborador';
+}
+// "14:57" -> "2:57 p. m."
+function clock12(hm) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(hm || ''));
+  if (!m) return hm || '';
+  const h = Number(m[1]) % 24;
+  return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'a. m.' : 'p. m.'}`;
+}
+function turno12(t) { return String(t || '').split(/\s*-\s*/).map(clock12).join(' – '); }
+function alertMeta(a) { try { return JSON.parse(a.metadata_json || '{}') || {}; } catch { return {}; } }
+// Lo que paso, en pocas palabras (va despues del nombre).
+function alertHeadline(a) {
+  const meta = alertMeta(a);
+  const min = `${Math.abs(Number(a.diff_minutes) || 0)} min`;
+  switch (a.alert_type) {
+    case 'llegada_tarde': return `llegó ${min} tarde`;
+    case 'salida_anticipada': return `salió ${min} antes`;
+    case 'exceso_almuerzo': return `se excedió ${min} en el almuerzo`;
+    case 'inasistencia': return 'no se presentó';
+    case 'turno_sin_cerrar': return 'no marcó la salida';
+    case 'marcacion_manual': return `marcación manual${meta.markType ? ` (${(MARK_LABEL[meta.markType] || meta.markType).toLowerCase()})` : ''}`;
+    case 'etapa_extendida': return `extendió una etapa ${min}`;
+    case 'entorno_diferente': return 'marcación sospechosa';
+    default: return 'nueva alerta';
+  }
+}
+// Detalle: horas de la marcacion y del turno.
+// "Juan Pérez llegó 12 min tarde" / "Juan Pérez · marcación manual"
+function nameAndHeadline(a) {
+  const h = alertHeadline(a);
+  return `${niceName(a.employee_name)}${/^marcaci/.test(h) ? ' · ' : ' '}${h}`;
+}
+function alertDetail(a) {
+  const meta = alertMeta(a);
+  const act = clock12(a.actual_time), sch = clock12(a.scheduled_time);
+  switch (a.alert_type) {
+    case 'llegada_tarde': return `Marcó entrada a las ${act}${sch ? ` · turno desde las ${sch}` : ''}`;
+    case 'salida_anticipada': return `Marcó salida a las ${act}${sch ? ` · turno hasta las ${sch}` : ''}`;
+    case 'exceso_almuerzo': return a.actual_time ? `Regresó del almuerzo a las ${act}` : 'Se excedió en el almuerzo';
+    case 'inasistencia': return meta.turno ? `Turno ${turno12(meta.turno)}, sin ninguna marcación` : 'Sin ninguna marcación en su turno';
+    case 'turno_sin_cerrar': return `${meta.entrada ? `Entró a las ${clock12(meta.entrada)}` : 'Marcó entrada'}${meta.turno ? ` · turno ${turno12(meta.turno)}` : ''}`;
+    case 'marcacion_manual': return `${a.actual_time ? `A las ${act}` : 'Marcación manual'}${meta.origen ? ` · ${meta.origen}` : ''}${meta.motivo ? `\nMotivo: ${meta.motivo}` : ''}`;
+    case 'etapa_extendida': return meta.etapa || 'Etapa del turno partido extendida';
+    case 'entorno_diferente': return `Marcó${a.actual_time ? ` a las ${act}` : ''} en un entorno diferente${meta.dispositivo ? ` (${meta.dispositivo})` : ''}. Revisa la foto.`;
+    default: return alertText(a);
+  }
+}
 function alertRowFull(alertId) {
   return db.prepare(`SELECT a.*, e.name AS employee_name, COALESCE(e.department, 'Sin área') AS department
     FROM attendance_alerts a JOIN employees e ON e.id = a.employee_id WHERE a.id = ?`).get(alertId);
@@ -218,30 +276,33 @@ async function flushQueue(orgId, now = new Date()) {
   if (rows.length === 1) {
     const a = rows[0];
     await sendToOrgAdmins(orgId, {
-      title: `${TYPE_LABEL[a.alert_type] || 'Alerta'} · ${a.employee_name}`,
-      body: `${alertText(a)} ${a.department}.`,
+      title: `${TYPE_DOT[a.alert_type] || '🔔'} ${nameAndHeadline(a)}`,
+      body: `${alertDetail(a)}\nÁrea: ${a.department}`,
       tag: `alerta-${a.id}`,
       url: `/app.html#alerta=${encodeURIComponent(a.id)}`,
+      actions: [{ action: 'ver', title: 'Ver alerta' }],
     });
   } else if (new Set(rows.map(a => a.employee_id)).size === 1) {
     // Varias alertas de la MISMA persona (ej. llegada tarde + marcacion manual).
     const a0 = rows[0];
     await sendToOrgAdmins(orgId, {
-      title: `${[...new Set(rows.map(a => TYPE_LABEL[a.alert_type] || 'Alerta'))].join(' + ')} · ${a0.employee_name}`,
-      body: `${rows.map(alertText).join(' ')} ${a0.department}.`,
+      title: `${[...new Set(rows.map(a => TYPE_DOT[a.alert_type] || '🔔'))].join('')} ${niceName(a0.employee_name)}: ${rows.length} alertas`,
+      body: `${rows.map(a => `${TYPE_DOT[a.alert_type] || '🔔'} ${alertHeadline(a).replace(/^./, c => c.toUpperCase())} · ${alertDetail(a).split('\n')[0]}`).join('\n')}\nÁrea: ${a0.department}`,
       tag: `alerta-${a0.id}`,
       url: `/app.html#alerta=${encodeURIComponent(a0.id)}`,
+      actions: [{ action: 'ver', title: 'Ver alerta' }],
     });
   } else {
-    const count = {};
-    rows.forEach(a => { count[a.alert_type] = (count[a.alert_type] || 0) + 1; });
-    const detail = Object.entries(count).map(([t, n]) => `${n} ${TYPE_LABEL[t] ? TYPE_LABEL[t].toLowerCase() : t}`).join(' · ');
-    const names = [...new Set(rows.map(a => a.employee_name))];
+    // Una linea por alerta (maximo 6; el resto se resume).
+    const MAX_LINES = 6;
+    const lines = rows.slice(0, MAX_LINES).map(a => `${TYPE_DOT[a.alert_type] || '🔔'} ${niceName(a.employee_name)} · ${alertHeadline(a)} (${a.department})`);
+    if (rows.length > MAX_LINES) lines.push(`… y ${rows.length - MAX_LINES} más`);
     await sendToOrgAdmins(orgId, {
-      title: `${rows.length} nuevas alertas de asistencia`,
-      body: `${detail}. ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` y ${names.length - 3} más` : ''}.`,
+      title: `${rows.length} alertas de asistencia`,
+      body: lines.join('\n'),
       tag: `alertas-${Date.now()}`,
       url: '/app.html#alertas',
+      actions: [{ action: 'ver', title: 'Ver alertas' }],
     });
   }
 }
