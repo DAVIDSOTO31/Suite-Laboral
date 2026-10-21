@@ -209,10 +209,32 @@ function clock12(hm) {
 }
 function turno12(t) { return String(t || '').split(/\s*-\s*/).map(clock12).join(' – '); }
 function alertMeta(a) { try { return JSON.parse(a.metadata_json || '{}') || {}; } catch { return {}; } }
+// 25 -> "25 minutos", 1 -> "1 minuto", 70 -> "1 h 10 min"
+function durText(n) {
+  const v = Math.abs(Math.round(Number(n) || 0));
+  if (v < 60) return `${v} minuto${v === 1 ? '' : 's'}`;
+  return `${Math.floor(v / 60)} h${v % 60 ? ` ${v % 60} min` : ''}`;
+}
+// La accion concreta, lista para leer sola: "Se excedió 25 minutos".
+function alertAction(a) {
+  const meta = alertMeta(a);
+  const d = durText(a.diff_minutes);
+  switch (a.alert_type) {
+    case 'llegada_tarde': return `Llegó ${d} tarde`;
+    case 'salida_anticipada': return `Salió ${d} antes`;
+    case 'exceso_almuerzo': return `Se excedió ${d}`;
+    case 'inasistencia': return meta.turno ? `No marcó en su turno de ${turno12(meta.turno)}` : 'No marcó en su turno';
+    case 'turno_sin_cerrar': return `No marcó la salida${meta.turno ? ` del turno de ${turno12(meta.turno)}` : ''}`;
+    case 'marcacion_manual': return `${meta.markType ? (MARK_LABEL[meta.markType] || meta.markType) : 'Marcación'} marcada a mano${a.actual_time ? ` a las ${clock12(a.actual_time)}` : ''}${meta.motivo ? ` · Motivo: ${meta.motivo}` : ''}`;
+    case 'etapa_extendida': return `${meta.etapa || 'Etapa del turno partido'}: ${d} de más`;
+    case 'entorno_diferente': return 'Marcó en un lugar distinto al de siempre. Revisa la foto';
+    default: return alertText(a);
+  }
+}
 // Lo que paso, en pocas palabras (va despues del nombre).
 function alertHeadline(a) {
   const meta = alertMeta(a);
-  const min = `${Math.abs(Number(a.diff_minutes) || 0)} min`;
+  const min = durText(a.diff_minutes);
   switch (a.alert_type) {
     case 'llegada_tarde': return `llegó ${min} tarde`;
     case 'salida_anticipada': return `salió ${min} antes`;
@@ -223,27 +245,6 @@ function alertHeadline(a) {
     case 'etapa_extendida': return `extendió una etapa ${min}`;
     case 'entorno_diferente': return 'marcación sospechosa';
     default: return 'nueva alerta';
-  }
-}
-// Detalle: horas de la marcacion y del turno.
-// "Juan Pérez llegó 12 min tarde" / "Juan Pérez · marcación manual"
-function nameAndHeadline(a) {
-  const h = alertHeadline(a);
-  return `${niceName(a.employee_name)}${/^marcaci/.test(h) ? ' · ' : ' '}${h}`;
-}
-function alertDetail(a) {
-  const meta = alertMeta(a);
-  const act = clock12(a.actual_time), sch = clock12(a.scheduled_time);
-  switch (a.alert_type) {
-    case 'llegada_tarde': return `Marcó entrada a las ${act}${sch ? ` · turno desde las ${sch}` : ''}`;
-    case 'salida_anticipada': return `Marcó salida a las ${act}${sch ? ` · turno hasta las ${sch}` : ''}`;
-    case 'exceso_almuerzo': return a.actual_time ? `Regresó del almuerzo a las ${act}` : 'Se excedió en el almuerzo';
-    case 'inasistencia': return meta.turno ? `Turno ${turno12(meta.turno)}, sin ninguna marcación` : 'Sin ninguna marcación en su turno';
-    case 'turno_sin_cerrar': return `${meta.entrada ? `Entró a las ${clock12(meta.entrada)}` : 'Marcó entrada'}${meta.turno ? ` · turno ${turno12(meta.turno)}` : ''}`;
-    case 'marcacion_manual': return `${a.actual_time ? `A las ${act}` : 'Marcación manual'}${meta.origen ? ` · ${meta.origen}` : ''}${meta.motivo ? `\nMotivo: ${meta.motivo}` : ''}`;
-    case 'etapa_extendida': return meta.etapa || 'Etapa del turno partido extendida';
-    case 'entorno_diferente': return `Marcó${a.actual_time ? ` a las ${act}` : ''} en un entorno diferente${meta.dispositivo ? ` (${meta.dispositivo})` : ''}. Revisa la foto.`;
-    default: return alertText(a);
   }
 }
 function alertRowFull(alertId) {
@@ -276,8 +277,9 @@ async function flushQueue(orgId, now = new Date()) {
   if (rows.length === 1) {
     const a = rows[0];
     await sendToOrgAdmins(orgId, {
-      title: `${TYPE_DOT[a.alert_type] || '🔔'} ${nameAndHeadline(a)}`,
-      body: `${alertDetail(a)}\nÁrea: ${a.department}`,
+      // Linea 1: nombre · luego el tipo, la accion concreta y el area.
+      title: `${TYPE_DOT[a.alert_type] || '🔔'} ${niceName(a.employee_name)}`,
+      body: `${TYPE_LABEL[a.alert_type] || 'Alerta'}\n${alertAction(a)}\nÁrea: ${a.department}`,
       tag: `alerta-${a.id}`,
       url: `/app.html#alerta=${encodeURIComponent(a.id)}`,
       actions: [{ action: 'ver', title: 'Ver alerta' }],
@@ -286,8 +288,8 @@ async function flushQueue(orgId, now = new Date()) {
     // Varias alertas de la MISMA persona (ej. llegada tarde + marcacion manual).
     const a0 = rows[0];
     await sendToOrgAdmins(orgId, {
-      title: `${[...new Set(rows.map(a => TYPE_DOT[a.alert_type] || '🔔'))].join('')} ${niceName(a0.employee_name)}: ${rows.length} alertas`,
-      body: `${rows.map(a => `${TYPE_DOT[a.alert_type] || '🔔'} ${alertHeadline(a).replace(/^./, c => c.toUpperCase())} · ${alertDetail(a).split('\n')[0]}`).join('\n')}\nÁrea: ${a0.department}`,
+      title: `${[...new Set(rows.map(a => TYPE_DOT[a.alert_type] || '🔔'))].join('')} ${niceName(a0.employee_name)}`,
+      body: `${rows.map(a => `${TYPE_LABEL[a.alert_type] || 'Alerta'}: ${alertAction(a).replace(/^./, c => c.toLowerCase())}`).join('\n')}\nÁrea: ${a0.department}`,
       tag: `alerta-${a0.id}`,
       url: `/app.html#alerta=${encodeURIComponent(a0.id)}`,
       actions: [{ action: 'ver', title: 'Ver alerta' }],
