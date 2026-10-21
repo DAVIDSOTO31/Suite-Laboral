@@ -179,7 +179,7 @@ function alertText(a) {
   switch (a.alert_type) {
     case 'llegada_tarde': return `Llegó ${min(a.diff_minutes)} tarde${at}.`;
     case 'exceso_almuerzo': return `Se excedió ${min(a.diff_minutes)} en el almuerzo${a.actual_time ? ` (regresó a las ${a.actual_time})` : ''}.`;
-    case 'salida_anticipada': return `Salió ${min(a.diff_minutes)} antes de terminar la jornada${at}.${meta.sinDescuento ? ' Menos de 5 min: no se descuenta de las extras.' : ''}`;
+    case 'salida_anticipada': return `Salió ${min(a.diff_minutes)} antes de terminar la jornada${at}.`;
     case 'inasistencia': return `No marcó entrada en su turno${meta.turno ? ` de ${meta.turno}` : ''}.`;
     case 'turno_sin_cerrar': return `Marcó entrada pero no la salida${meta.turno ? ` del turno ${meta.turno}` : ''}.`;
     case 'marcacion_manual': return `Marcación manual${at}${meta.origen ? ` · ${meta.origen}` : ''}${meta.motivo ? ` · Motivo: ${meta.motivo}` : ''}.`;
