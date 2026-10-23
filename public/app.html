@@ -3385,14 +3385,14 @@
         }
         async function discPdf(id) {
             const c = discData.cases.find(x => x.id === id); if (!c) return;
-            await buildDiscPdf({ title: c.docTitle, body: c.docBody, name: c.name, docDate: c.docDate }, false);
+            await buildDiscPdf({ title: c.docTitle, body: c.docBody, name: c.name, employeeId: c.employeeId, docDate: c.docDate }, false);
         }
         // Vista previa: el PDF con el texto que está en pantalla, sin guardar nada.
         async function discPreviewPdf(id) {
             const c = discData.cases.find(x => x.id === id); if (!c) return;
             const title = document.getElementById('discDocTitle').value.trim(), body = document.getElementById('discDocBody').value;
             if (!title || !body.trim()) { showAppToast('El documento está vacío.'); return; }
-            await buildDiscPdf({ title, body, name: c.name, docDate: bogotaTodayISO() }, true);
+            await buildDiscPdf({ title, body, name: c.name, employeeId: c.employeeId, docDate: bogotaTodayISO() }, true);
         }
         async function buildDiscPdf(c, preview) {
             try { await loadScriptOnce('/vendor/jspdf-2.5.1.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF)); } catch (e) { showAppToast(e.message); return; }
@@ -3409,23 +3409,45 @@
             if (discData && discData.config && discData.config.nit) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(71, 85, 105); doc.text('NIT ' + discData.config.nit, tx, y + 13); }
             doc.setTextColor(0, 0, 0); doc.setDrawColor(203, 213, 225); doc.line(M, y + 24, M + W, y + 24);
             y += 34;
-            doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
-            doc.splitTextToSize(c.title, W).forEach(l => { doc.text(l, M, y); y += 6; });
-            y += 3; doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5);
-            const pars = String(c.body).split('\n');
-            // La firma (desde "Atentamente") no se parte entre dos hojas.
+            // Todo en UNA hoja: se prueba con letra de 10,5 y se reduce (hasta 8) si no cabe.
+            const pars = String(c.body).replace(/\s+$/, '').split('\n');
             let closeIdx = -1; pars.forEach((p, i) => { if (/^\s*atentamente/i.test(p)) closeIdx = i; });
-            pars.forEach((par, i) => {
-                if (i === closeIdx) {
-                    const need = pars.slice(i).reduce((a, p) => a + (p.trim() ? doc.splitTextToSize(p, W).length : 1), 0) * 5.2 + 26;
-                    if (y + need > H - 12) { doc.addPage(); y = 22; }
-                }
-                const lines = par.trim() ? doc.splitTextToSize(par, W) : [''];
-                lines.forEach(l => { if (y > H - 20) { doc.addPage(); y = 22; } doc.text(l, M, y); y += 5.2; });
+            const mainPars = closeIdx >= 0 ? pars.slice(0, closeIdx + 1) : pars;
+            const signer = closeIdx >= 0 ? pars.slice(closeIdx + 1).map(x => x.trim()).filter(Boolean) : [];
+            const emp = appState.employees.find(e => Number(e.id) === Number(c.employeeId));
+            const empDoc = emp ? docLabel(emp) : '';
+            const colW = (W - 12) / 2;
+            const measure = (fs) => {
+                const lh = fs * 0.47;
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(fs + 1.5);
+                let h = doc.splitTextToSize(c.title, W).length * (fs + 1.5) * 0.5 + 3;
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(fs);
+                mainPars.forEach(par => { h += par.trim() ? doc.splitTextToSize(par, W).length * lh : lh * 0.6; });
+                h += 16 + Math.max(signer.length, 3) * lh + 2;
+                return h;
+            };
+            const avail = H - 10 - y;
+            let fs = 10.5;
+            for (const f of [10.5, 10, 9.5, 9, 8.5, 8]) { fs = f; if (measure(f) <= avail) break; }
+            const lh = fs * 0.47;
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(fs + 1.5);
+            doc.splitTextToSize(c.title, W).forEach(l => { doc.text(l, M, y); y += (fs + 1.5) * 0.5; });
+            y += 3; doc.setFont('helvetica', 'normal'); doc.setFontSize(fs);
+            mainPars.forEach(par => {
+                if (!par.trim()) { y += lh * 0.6; return; }
+                doc.splitTextToSize(par, W).forEach(l => { if (y > H - 12) { doc.addPage(); y = 20; } doc.text(l, M, y); y += lh; });
             });
-            y += 14; if (y > H - 30) { doc.addPage(); y = 30; }
-            doc.setDrawColor(100); doc.line(M, y, M + 70, y);
-            doc.setFontSize(9); doc.text('Recibido por el colaborador: ' + c.name, M, y + 5); doc.text('Fecha: ____________________', M, y + 10);
+            // Firmas lado a lado: la empresa a la izquierda y el colaborador a la derecha.
+            y += 14;
+            if (y + Math.max(signer.length, 3) * lh + 4 > H - 8) { doc.addPage(); y = 30; }
+            const xR = M + colW + 12;
+            doc.setDrawColor(90); doc.line(M, y, M + colW, y); doc.line(xR, y, xR + colW, y);
+            let yl = y + lh, yr = y + lh;
+            signer.forEach((t, i) => { doc.setFont('helvetica', i === 0 ? 'bold' : 'normal'); doc.splitTextToSize(t, colW).forEach(l => { doc.text(l, M, yl); yl += lh; }); });
+            doc.setFont('helvetica', 'bold'); doc.splitTextToSize(String(c.name || ''), colW).forEach(l => { doc.text(l, xR, yr); yr += lh; });
+            doc.setFont('helvetica', 'normal');
+            if (empDoc) { doc.text(empDoc, xR, yr); yr += lh; }
+            doc.text('Recibido · Fecha: ____________', xR, yr);
             if (preview) {
                 // Marca de agua tenue en cada hoja: no se confunde con el documento definitivo.
                 for (let pg = 1; pg <= doc.getNumberOfPages(); pg++) {
