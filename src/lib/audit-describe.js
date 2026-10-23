@@ -135,6 +135,7 @@ function describeAudit(row, ctx = {}) {
       `La suite eliminó ${m.cantidad || 0} alerta(s) de "no se presentó" porque ese día quedó como descanso (o novedad) en el cuadro de turnos y la persona no tenía marcaciones.`, (m.detalle || []).slice(0, 10), 'Sistema (automático)');
     case 'discipline.generate': return out('Colaboradores', 'Llamado de atención generado', `Generó la comunicación de novedades (${val(m.tipo)}) de ${val(m.colaborador)}.`);
     case 'discipline.discard': return out('Colaboradores', 'Llamado de atención descartado', `Descartó el llamado propuesto (${val(m.tipo)}) de ${val(m.colaborador)}.`, [m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));
+    case 'discipline.annul': return out('Colaboradores', 'Llamado de atención anulado', `Anuló la comunicación (${val(m.tipo)}) ya enviada a ${val(m.colaborador)}.`, [m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));
     case 'discipline.send': return out('Colaboradores', 'Llamado de atención enviado', `Creó el enlace de la comunicación (${val(m.tipo)}) de ${val(m.colaborador)} para enviarlo por WhatsApp (vence el ${dayName(m.vence)}).`);
     case 'discipline.received': return out('Colaboradores', 'Llamado de atención recibido', `El colaborador abrió la comunicación (${val(m.tipo)}) y confirmó que la recibió.`, [], 'Colaborador (enlace)');
     case 'discipline.descargos': return out('Colaboradores', 'Descargos recibidos', `El colaborador envió sus descargos a la comunicación (${val(m.tipo)}).`, [], 'Colaborador (enlace)');

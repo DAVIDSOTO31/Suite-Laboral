@@ -45,6 +45,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_discipline_token ON discipline_cases(token
 `);
 const stCols = db.prepare('PRAGMA table_info(org_settings)').all().map(c => c.name);
 if (!stCols.includes('discipline_config')) db.exec('ALTER TABLE org_settings ADD COLUMN discipline_config TEXT NULL');
+// Anulacion de un llamado ya enviado (queda "descartado" + estos datos).
+const dcCols = db.prepare('PRAGMA table_info(discipline_cases)').all().map(c => c.name);
+for (const col of ['annulled_at', 'annulled_by', 'annul_reason']) if (!dcCols.includes(col)) db.exec(`ALTER TABLE discipline_cases ADD COLUMN ${col} TEXT NULL`);
 
 const TYPES = ['llegada_tarde', 'exceso_almuerzo', 'inasistencia', 'turno_sin_cerrar'];
 const TYPE_LABEL = { llegada_tarde: 'Llegadas tarde', exceso_almuerzo: 'Exceso en el tiempo de almuerzo', inasistencia: 'Inasistencia sin justificar', turno_sin_cerrar: 'Turnos sin marcar la salida' };
@@ -253,6 +256,7 @@ function caseOut(c, emp) {
     docTitle: c.doc_title || '', docBody: c.doc_body || '', docDate: c.doc_date || '', descargosUntil: c.descargos_until || '',
     linkExpires: c.token_expires || '', sentAt: c.sent_at || '', receivedAt: c.received_at || '',
     descargos: c.descargos_text || '', descargosAt: c.descargos_at || '',
+    annulledAt: c.annulled_at || '', annulReason: c.annul_reason || '',
   };
 }
 
@@ -297,11 +301,21 @@ async function decideCase(req, res, params) {
   if (!c) return sendJson(res, 404, { error: 'Llamado no encontrado.' });
   const emp = db.prepare('SELECT name FROM employees WHERE id = ?').get(c.employee_id) || {};
   if (body.action === 'descartar') {
-    if (c.status !== 'propuesto') return sendJson(res, 409, { error: 'Solo se puede descartar un llamado por revisar.' });
+    // Por revisar, o generado pero aun sin enviar (nadie lo ha visto).
+    if (!['propuesto', 'generado'].includes(c.status)) return sendJson(res, 409, { error: c.status === 'descartado' ? 'Este llamado ya está descartado.' : 'Este llamado ya se envió: usa "Anular".' });
     const reason = String(body.reason || '').trim().slice(0, 300);
     if (reason.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo (mínimo 5 caracteres).' });
-    db.prepare("UPDATE discipline_cases SET status = 'descartado', decided_by = ?, decided_at = datetime('now', '-5 hours'), discard_reason = ? WHERE id = ?").run(req.user.id, reason, c.id);
+    db.prepare("UPDATE discipline_cases SET status = 'descartado', decided_by = ?, decided_at = datetime('now', '-5 hours'), discard_reason = ?, token_hash = NULL WHERE id = ?").run(req.user.id, reason, c.id);
     logAction({ organizationId: orgId, userId: req.user.id, action: 'discipline.discard', resourceType: 'employee', resourceId: String(c.employee_id), ip: getClientIp(req), metadata: { colaborador: emp.name, tipo: TYPE_LABEL[c.rule_type], motivo: reason } });
+    return sendJson(res, 200, { ok: true });
+  }
+  if (body.action === 'anular') {
+    // Ya enviado o recibido: queda anulado (el enlace muestra que fue anulado).
+    if (!['enviado', 'recibido'].includes(c.status)) return sendJson(res, 409, { error: 'Solo se anula un llamado ya enviado.' });
+    const reason = String(body.reason || '').trim().slice(0, 300);
+    if (reason.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo de la anulación (mínimo 5 caracteres).' });
+    db.prepare("UPDATE discipline_cases SET status = 'descartado', annulled_at = datetime('now', '-5 hours'), annulled_by = ?, annul_reason = ? WHERE id = ?").run(req.user.id, reason, c.id);
+    logAction({ organizationId: orgId, userId: req.user.id, action: 'discipline.annul', resourceType: 'employee', resourceId: String(c.employee_id), ip: getClientIp(req), metadata: { colaborador: emp.name, tipo: TYPE_LABEL[c.rule_type], motivo: reason } });
     return sendJson(res, 200, { ok: true });
   }
   if (body.action === 'generar') {
@@ -367,12 +381,14 @@ function publicView(req, res, params) {
   if (!c) return sendJson(res, 404, { error: 'Este enlace no es válido o ya venció. Comunícate con Recursos Humanos.' });
   const st = db.prepare('SELECT org_name, logo_base64 FROM org_settings WHERE organization_id = ?').get(c.organization_id) || {};
   const emp = db.prepare('SELECT name FROM employees WHERE id = ?').get(c.employee_id) || {};
+  if (c.annulled_at) return sendJson(res, 200, { org: st.org_name || '', nit: orgNit(c.organization_id), logo: st.logo_base64 || null, annulled: true, annulledAt: c.annulled_at });
   sendJson(res, 200, { org: st.org_name || '', nit: orgNit(c.organization_id), logo: st.logo_base64 || null, name: emp.name || '', title: c.doc_title, body: c.doc_body, docDate: c.doc_date,
     descargosUntil: c.descargos_until, receivedAt: c.received_at, descargos: c.descargos_text || '', descargosAt: c.descargos_at || '' });
 }
 async function publicAck(req, res, params) {
   const c = caseByToken(params.token);
   if (!c) return sendJson(res, 404, { error: 'Este enlace no es válido o ya venció.' });
+  if (c.annulled_at || c.status === 'descartado') return sendJson(res, 409, { error: 'Esta comunicación fue anulada por la empresa.' });
   let body; try { body = await readBody(req, 64 * 1024); } catch { body = {}; }
   const ip = getClientIp(req);
   if (!c.received_at) {
