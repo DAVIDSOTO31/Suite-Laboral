@@ -2413,8 +2413,7 @@
                 <label class="block"><span class="font-semibold text-slate-700">Ausentismo máximo (%)</span><input type="number" step="0.1" min="0" max="100" id="goal_ausentismoMax" class="mt-1 w-full p-2 border rounded-lg"></label>
                 <label class="block"><span class="font-semibold text-slate-700">Puntualidad mínima (%)</span><input type="number" step="0.1" min="0" max="100" id="goal_puntualidadMin" class="mt-1 w-full p-2 border rounded-lg"></label>
                 <label class="block"><span class="font-semibold text-slate-700">Tiempo perdido máx. (min promedio por turno asistido)</span><input type="number" step="0.5" min="0" id="goal_perdidoMaxPorTurno" class="mt-1 w-full p-2 border rounded-lg"></label>
-                <label class="block"><span class="font-semibold text-slate-700">Valor de horas extra máx. por mes ($)</span><input type="number" step="1000" min="0" id="goal_extrasValorMaxMes" placeholder="Ej. 3000000" class="mt-1 w-full p-2 border rounded-lg"></label>
-                <label class="block"><span class="font-semibold text-slate-700">Costo de extras y recargos máx. por mes ($)</span><input type="number" step="1000" min="0" id="goal_costoMaxMes" placeholder="Ej. 4000000" class="mt-1 w-full p-2 border rounded-lg"></label>
+                <label class="block"><span class="font-semibold text-slate-700">Extras y recargos: costo máx. por mes ($)</span><input type="number" step="1000" min="0" id="goal_costoMaxMes" placeholder="Ej. 4000000" class="mt-1 w-full p-2 border rounded-lg"></label>
                 <label class="block"><span class="font-semibold text-slate-700">Turnos sin cerrar máx. (% de turnos asistidos)</span><input type="number" step="0.1" min="0" max="100" id="goal_sinCerrarMaxPct" class="mt-1 w-full p-2 border rounded-lg"></label>
                 <label class="block"><span class="font-semibold text-slate-700">Correcciones en el historial máx. (% de turnos asistidos)</span><input type="number" step="0.1" min="0" max="100" id="goal_correccionesMaxPct" class="mt-1 w-full p-2 border rounded-lg"></label>
             </div>
@@ -10788,7 +10787,7 @@
         const fmtHorasDec = (m) => `${((Number(m) || 0) / 60).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/^[−‐-]/, '-')} h`; // minutos -> horas con decimales
         const moneyS = (v) => { const n = Math.round(Number(v) || 0); return (n < 0 ? '−' : '') + pdfMoney(Math.abs(n)); }; // pesos con signo
         // ---- Metas (semáforo) ----
-        const IND_GOAL_KEYS = ['ausentismoMax', 'puntualidadMin', 'perdidoMaxPorTurno', 'extrasValorMaxMes', 'costoMaxMes', 'sinCerrarMaxPct', 'correccionesMaxPct'];
+        const IND_GOAL_KEYS = ['ausentismoMax', 'puntualidadMin', 'perdidoMaxPorTurno', 'costoMaxMes', 'sinCerrarMaxPct', 'correccionesMaxPct'];
         const IND_GOAL_DEFAULTS = { ausentismoMax: 3, puntualidadMin: 95, perdidoMaxPorTurno: 5, extrasValorMaxMes: null, costoMaxMes: null, sinCerrarMaxPct: 2, correccionesMaxPct: 5 };
         // Evalúa una tarjeta contra su meta: { st: 'ok'|'warn'|'bad'|null, meta: texto }.
         function indGoalEval(key, t, d) {
@@ -10862,7 +10861,7 @@
         // Tarjeta de Indicadores abierta (detalle desplegado debajo de las tarjetas).
         let indSelectedCard = null;
         const IND_CARD_TITLES = { ausentismo: 'Tasa de ausentismo', puntualidad: 'Índice de puntualidad', perdido: 'Tiempo perdido', extras: 'Horas extra (netas)',
-            costo: 'Costo de extras y recargos', sinCerrar: 'Turnos sin cerrar', correcciones: 'Correcciones en el historial' };
+            costo: 'Extras y recargos', sinCerrar: 'Turnos sin cerrar', correcciones: 'Correcciones en el historial' };
         // El botón "Exportar Excel" descarga SOLO el indicador abierto; sin ninguno abierto, todos.
         function updateIndExportButton() {
             const lbl = document.getElementById('indExportXlsLabel'), btn = document.getElementById('indExportXlsBtn');
@@ -10922,7 +10921,7 @@
             const t = d.total, p = d.previous;
             document.getElementById('indPeriodNote').innerHTML = `Periodo: <strong>${pdfDate(d.from)} – ${pdfDate(d.to)}</strong>${d.area ? ` · Área: <strong>${escapeHtml(d.area)}</strong>` : ''} · Comparado con: ${pdfDate(d.prevFrom)} – ${pdfDate(d.prevTo)}${d.dayZero ? ` · No incluye días hasta el Día 0 (${pdfDate(d.dayZero)})` : ''}`;
             // Cada tarjeta es un botón: al hacer clic se despliega su detalle.
-            const cardKeys = ['ausentismo', 'puntualidad', 'perdido', 'extras', 'costo', 'sinCerrar', 'correcciones'];
+            const cardKeys = ['ausentismo', 'puntualidad', 'perdido', 'costo', 'sinCerrar', 'correcciones'];
             let cardIdx = 0;
             const card = (title, icon, value, sub, delta) => {
                 const key = cardKeys[cardIdx++];
@@ -10949,17 +10948,15 @@
                 card('Tiempo perdido', 'fa-hourglass-half', minsFmt(t.minutosPerdidos),
                     `≈ <strong>${pdfMoney(t.costoPerdido)}</strong> · retrasos ${minsFmt(t.minutosRetraso)} + exceso de almuerzo ${minsFmt(t.minutosAlmuerzo || 0)} (tiempo no recuperable)`,
                     indDelta(t.minutosPerdidos, p.minutosPerdidos, 'down', minsFmt, ' min')),
-                card('Horas extra (netas)', 'fa-business-time', `<span class="${(t.extraTotalMin || 0) < 0 ? 'text-rose-700' : ''}">${fmtHorasDec(t.extraTotalMin)}</span>`,
-                    `≈ <strong>${pdfMoney(t.valorExtras || 0)}</strong> pagados · generadas ${fmtHorasDec(t.extraGeneradaMin || 0)} − salidas anticipadas ${fmtHorasDec(t.descuentoSalidaMin || 0)} · Diurnas ${fmtHorasDec(t.extraDiurnaMin)} · Nocturnas ${fmtHorasDec(t.extraNocturnaMin)}`,
-                    indDelta(t.extraTotalMin, p.extraTotalMin, 'down', fmtHorasDec, ' h')),
-                card('Costo de extras y recargos', 'fa-sack-dollar', `<span class="${(t.costoTotal || 0) < 0 ? 'text-rose-700' : ''}">${moneyS(t.costoTotal)}</span>`,
-                    `<span class="grid grid-cols-1 gap-0.5 mt-0.5">
-                        <span class="flex justify-between gap-2"><span>Recargo nocturno <span class="text-slate-400">(${fmtHorasDec(t.recargoNocturnoMin)})</span></span><strong class="text-slate-700">${moneyS(t.costoRecargo)}</strong></span>
-                        <span class="flex justify-between gap-2"><span>Extras diurnas netas <span class="text-slate-400">(${fmtHorasDec(t.extraDiurnaMin)})</span></span><strong class="${(t.costoExtraDiurna || 0) < 0 ? 'text-rose-700' : 'text-slate-700'}">${moneyS(t.costoExtraDiurna)}</strong></span>
-                        <span class="flex justify-between gap-2"><span>Extras nocturnas <span class="text-slate-400">(${fmtHorasDec(t.extraNocturnaMin)})</span></span><strong class="text-slate-700">${moneyS(t.costoExtraNocturna)}</strong></span>
-                        ${t.costoSalida ? `<span class="text-3xs text-rose-700">Ya descontadas salidas anticipadas: −${pdfMoney(t.costoSalida)} (${fmtHorasDec(t.descuentoSalidaMin)})</span>` : ''}
+                // Extras y recargos: una sola tarjeta (costo total + desglose en $ y horas + horas extra netas).
+                card('Extras y recargos', 'fa-sack-dollar', `<span class="${(t.costoTotal || 0) < 0 ? 'text-rose-700' : ''}">${moneyS(t.costoTotal)}</span>`,
+                    `<span class="grid grid-cols-1 gap-0.5 mt-1 text-slate-600">
+                        <span class="flex justify-between gap-2"><span>Recargo nocturno <span class="text-slate-400">${fmtHorasDec(t.recargoNocturnoMin)}</span></span><strong class="text-slate-700">${moneyS(t.costoRecargo)}</strong></span>
+                        <span class="flex justify-between gap-2"><span>Extras diurnas netas <span class="text-slate-400">${fmtHorasDec(t.extraDiurnaMin)}</span></span><strong class="${(t.costoExtraDiurna || 0) < 0 ? 'text-rose-700' : 'text-slate-700'}">${moneyS(t.costoExtraDiurna)}</strong></span>
+                        <span class="flex justify-between gap-2"><span>Extras nocturnas <span class="text-slate-400">${fmtHorasDec(t.extraNocturnaMin)}</span></span><strong class="text-slate-700">${moneyS(t.costoExtraNocturna)}</strong></span>
+                        <span class="flex justify-between gap-2 border-t border-slate-200 pt-1 mt-0.5"><span><strong class="text-slate-700">Horas extra netas</strong> <span class="text-slate-400">(generadas ${fmtHorasDec(t.extraGeneradaMin || 0)} − salidas ${fmtHorasDec(t.descuentoSalidaMin || 0)})</span></span><strong class="whitespace-nowrap ${(t.extraTotalMin || 0) < 0 ? 'text-rose-700' : 'text-slate-700'}">${fmtHorasDec(t.extraTotalMin)}</strong></span>
                     </span>`,
-                    indDelta(t.costoTotal || 0, p.costoTotal, 'down', moneyS, '$')),
+                    `${indDelta(t.costoTotal || 0, p.costoTotal, 'down', moneyS, '$')}${p.extraTotalMin != null ? ` <span class="text-slate-400">· horas extra: ${fmtHorasDec(p.extraTotalMin)} → ${fmtHorasDec(t.extraTotalMin)}</span>` : ''}`),
                 card('Turnos sin cerrar', 'fa-door-open', String(t.sinCerrar),
                     'Marcaron entrada pero no la salida',
                     indDelta(t.sinCerrar, p.sinCerrar, 'down', (v) => String(v), '')),
@@ -11028,15 +11025,16 @@
                     head: ['Colaborador', 'Área', 'Días', 'Retrasos', 'Exceso de almuerzo', 'Total', 'Costo aprox.'], rows: (det.perdido || []).map(r => [who(r), escapeHtml(r.area), r.dias, fmtMins(r.retraso), fmtMins(r.almuerzo), `<strong>${fmtMins(r.total)}</strong>`, pdfMoney(r.costo)]) },
                 extras: { title: 'Horas extra por colaborador', hint: 'Netas = extras generadas menos el tiempo descontado por salidas anticipadas (lo que realmente paga la empresa). Solo días con turno cerrado.',
                     head: ['Colaborador', 'Área', 'Generadas', 'Salidas anticipadas', 'Diurnas netas', 'Nocturnas', 'Netas', 'Valor aprox.'], rows: (det.extras || []).map(r => [who(r), escapeHtml(r.area), fmtHorasDec(r.generada), r.salida ? `<span class="text-rose-700">− ${fmtHorasDec(r.salida)}</span>` : '-', `<span class="${r.diurna < 0 ? 'text-rose-700' : ''}">${fmtHorasDec(r.diurna)}</span>`, fmtHorasDec(r.nocturna), `<strong class="${r.neto < 0 ? 'text-rose-700' : ''}">${fmtHorasDec(r.neto)}</strong>`, pdfMoney(r.valor || 0)]) },
-                costo: { title: 'Costo de extras y recargos por colaborador', hint: 'Con marcaciones reales, solo días con turno cerrado. Recargo nocturno al 35 %, extra diurna al 125 % y extra nocturna al 175 % del valor hora (salario ÷ divisor mensual). A las extras diurnas ya se les restaron las salidas anticipadas: si el saldo queda negativo se muestra en rojo y resta del total.',
-                    head: ['Colaborador', 'Área', 'Días', 'Recargo nocturno', 'Extras diurnas netas', 'Salidas anticipadas (ya restadas)', 'Extras nocturnas', 'Total'],
+                costo: { title: 'Extras y recargos por colaborador', hint: 'Con marcaciones reales, solo días con turno cerrado. Recargo nocturno al 35 %, extra diurna al 125 % y extra nocturna al 175 % del valor hora (salario ÷ divisor mensual). A las extras diurnas ya se les restaron las salidas anticipadas: si el saldo queda negativo se muestra en rojo y resta del total.',
+                    head: ['Colaborador', 'Área', 'Días', 'Recargo nocturno', 'Extras diurnas netas', 'Salidas anticipadas (ya restadas)', 'Extras nocturnas', 'Horas extra netas', 'Total'],
                     rows: (det.costo || []).map(r => [who(r), escapeHtml(r.area), r.dias,
                         `${moneyS(r.costoRecargo)}<span class="block text-3xs text-slate-400">${fmtHorasDec(r.recargoMin)}</span>`,
                         `<span class="${r.costoDiurna < 0 ? 'text-rose-700 font-semibold' : ''}">${moneyS(r.costoDiurna)}</span><span class="block text-3xs text-slate-400">${fmtHorasDec(r.diurnaMin)}</span>`,
                         r.salidaMin ? `<span class="text-rose-700">−${pdfMoney(r.costoSalida)}</span><span class="block text-3xs text-slate-400">${fmtHorasDec(r.salidaMin)}</span>` : '-',
                         `${moneyS(r.costoNocturna)}<span class="block text-3xs text-slate-400">${fmtHorasDec(r.nocturnaMin)}</span>`,
+                        `<span class="${(r.diurnaMin + r.nocturnaMin) < 0 ? 'text-rose-700' : ''}">${fmtHorasDec(r.diurnaMin + r.nocturnaMin)}</span>`,
                         `<strong class="${r.total < 0 ? 'text-rose-700' : ''}">${moneyS(r.total)}</strong>`]),
-                    foot: (() => { const t = d.total || {}; return ['TOTAL', '', '', moneyS(t.costoRecargo), moneyS(t.costoExtraDiurna), t.costoSalida ? '−' + pdfMoney(t.costoSalida) : '-', moneyS(t.costoExtraNocturna), `<strong class="${(t.costoTotal || 0) < 0 ? 'text-rose-700' : ''}">${moneyS(t.costoTotal)}</strong>`]; })() },
+                    foot: (() => { const t = d.total || {}; return ['TOTAL', '', '', moneyS(t.costoRecargo), moneyS(t.costoExtraDiurna), t.costoSalida ? '−' + pdfMoney(t.costoSalida) : '-', moneyS(t.costoExtraNocturna), fmtHorasDec(t.extraTotalMin), `<strong class="${(t.costoTotal || 0) < 0 ? 'text-rose-700' : ''}">${moneyS(t.costoTotal)}</strong>`]; })() },
                 sinCerrar: { title: 'Turnos sin cerrar', hint: 'Marcaron entrada pero no la salida.',
                     head: ['Colaborador', 'Área', 'Fecha', 'Estado'], rows: (det.sinCerrar || []).map(r => [who(r), escapeHtml(r.area), pdfDate(r.date), est(r.estado)]) },
                 correcciones: { title: 'Correcciones en el historial', hint: 'Días en que un administrador corrigió las horas de las marcaciones. Se ve qué marcación cambió, de qué hora a qué hora, el motivo y quién lo hizo.',
@@ -11074,9 +11072,9 @@
                 puntualidad: ['Llegadas tarde', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Hora programada', 'Hora de llegada', 'Minutos de retraso'], (det.tardes || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, r.programada, r.real || '', r.min])],
                 perdido: ['Tiempo perdido', ['Colaborador', 'Documento', 'Área', 'Días', 'Min. retraso', 'Min. exceso almuerzo', 'Min. total', 'Horas total', 'Costo aprox. ($)'], (det.perdido || []).map(r => [r.name, doc(r.employeeId), r.area, r.dias, r.retraso, r.almuerzo, r.total, h(r.total), r.costo])],
                 extras: ['Horas extra', ['Colaborador', 'Documento', 'Área', 'Horas generadas', 'Horas desc. salida anticipada', 'Horas diurnas netas', 'Horas nocturnas', 'Horas netas', 'Valor aprox. ($)'], (det.extras || []).map(r => [r.name, doc(r.employeeId), r.area, h(r.generada), h(r.salida), h(r.diurna), h(r.nocturna), h(r.neto), r.valor || 0])],
-                costo: ['Costo extras y recargos', ['Colaborador', 'Documento', 'Área', 'Días', 'Horas recargo nocturno', 'Costo recargo nocturno ($)', 'Horas extra diurnas netas', 'Costo extras diurnas netas ($)', 'Horas salida anticipada (ya restadas)', 'Valor salida anticipada ($)', 'Horas extra nocturnas', 'Costo extras nocturnas ($)', 'Costo total ($)'],
-                    (det.costo || []).map(r => [r.name, doc(r.employeeId), r.area, r.dias, h2(r.recargoMin), r.costoRecargo, h2(r.diurnaMin), r.costoDiurna, h2(r.salidaMin), r.costoSalida, h2(r.nocturnaMin), r.costoNocturna, r.total])
-                        .concat([['TOTAL', '', '', '', h2(d.total.recargoNocturnoMin), d.total.costoRecargo, h2(d.total.extraDiurnaMin), d.total.costoExtraDiurna, h2(d.total.descuentoSalidaMin), d.total.costoSalida, h2(d.total.extraNocturnaMin), d.total.costoExtraNocturna, d.total.costoTotal]])],
+                costo: ['Extras y recargos', ['Colaborador', 'Documento', 'Área', 'Días', 'Horas recargo nocturno', 'Costo recargo nocturno ($)', 'Horas extra diurnas netas', 'Costo extras diurnas netas ($)', 'Horas salida anticipada (ya restadas)', 'Valor salida anticipada ($)', 'Horas extra nocturnas', 'Costo extras nocturnas ($)', 'Horas extra netas', 'Costo total ($)'],
+                    (det.costo || []).map(r => [r.name, doc(r.employeeId), r.area, r.dias, h2(r.recargoMin), r.costoRecargo, h2(r.diurnaMin), r.costoDiurna, h2(r.salidaMin), r.costoSalida, h2(r.nocturnaMin), r.costoNocturna, h2(r.diurnaMin + r.nocturnaMin), r.total])
+                        .concat([['TOTAL', '', '', '', h2(d.total.recargoNocturnoMin), d.total.costoRecargo, h2(d.total.extraDiurnaMin), d.total.costoExtraDiurna, h2(d.total.descuentoSalidaMin), d.total.costoSalida, h2(d.total.extraNocturnaMin), d.total.costoExtraNocturna, h2(d.total.extraTotalMin), d.total.costoTotal]])],
                 sinCerrar: ['Turnos sin cerrar', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Estado'], (det.sinCerrar || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, EST[r.estado] || r.estado])],
                 correcciones: ['Correcciones en el historial', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Marcaciones corregidas', 'Motivo', 'Corrigió'], (det.correcciones || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, corrMarksText(r.marcas, false), r.motivo || '', r.por || ''])],
             }[indSelectedCard];
