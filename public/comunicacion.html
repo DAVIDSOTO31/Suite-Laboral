@@ -57,6 +57,14 @@
   function fail(msg) { $('loading').classList.add('hidden'); $('error').classList.remove('hidden'); $('errorMsg').textContent = msg; }
   function render(d) {
     $('loading').classList.add('hidden');
+    if (d.annulled) {
+      $('org').textContent = d.org || ''; $('nit').textContent = d.nit ? 'NIT ' + d.nit : '';
+      if (d.logo) { $('logo').src = d.logo; $('logo').classList.remove('hidden'); }
+      $('doc').classList.remove('hidden'); $('docTitle').textContent = 'Comunicación anulada';
+      $('docBody').textContent = 'Esta comunicación fue anulada por la empresa el ' + fmt(d.annulledAt) + '. No tienes que hacer nada más.';
+      $('actions').classList.add('hidden');
+      return;
+    }
     $('doc').classList.remove('hidden');
     $('actions').classList.remove('hidden');
     $('org').textContent = d.org || '';
