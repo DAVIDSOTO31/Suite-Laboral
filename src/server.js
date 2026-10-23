@@ -122,6 +122,8 @@ route('POST', '/api/payroll/opening-balance/:employeeId/delete', [requirePermiss
 // Cuadro de turnos: publicar, historial de cambios y patrones de rotacion.
 route('POST', '/api/shifts/publish', [requirePermission('shifts.edit')], (req, res) => org.publishShifts(req, res));
 route('GET', '/api/rest-days', [requirePermission('shifts.view')], (req, res, params, query) => leave.listRestDays(req, res, query));
+route('GET', '/api/vacations', [requirePermission('shifts.view')], (req, res, params, query) => leave.listVacations(req, res, query));
+route('POST', '/api/vacations/moves', [requirePermission('shifts.edit')], (req, res) => leave.addVacationMove(req, res));
 route('POST', '/api/rest-days/moves', [requirePermission('shifts.edit')], (req, res) => leave.addRestDayMove(req, res));
 route('GET', '/api/shifts/changes', [requirePermission('shifts.view')], (req, res, params, query) => org.listShiftChanges(req, res, query));
 route('PUT', '/api/org/rotation-patterns', [requirePermission('shifts.edit')], (req, res) => org.replaceRotationPatterns(req, res));
