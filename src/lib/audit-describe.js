@@ -133,6 +133,9 @@ function describeAudit(row, ctx = {}) {
       [m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));
     case 'attendance.absence_alert_removed': return out('Asistencia', '"No se presentó" eliminada',
       `La suite eliminó ${m.cantidad || 0} alerta(s) de "no se presentó" porque ese día quedó como descanso (o novedad) en el cuadro de turnos y la persona no tenía marcaciones.`, (m.detalle || []).slice(0, 10), 'Sistema (automático)');
+    case 'rest_days.move': return out('Colaboradores', m.tipo === 'inicial' ? 'Saldo inicial de descansos' : 'Ajuste de descansos acumulados',
+      `${m.tipo === 'inicial' ? 'Registró el saldo inicial' : 'Ajustó los descansos acumulados'} de ${val(m.colaborador)}: ${m.cantidad > 0 ? '+' : ''}${m.cantidad} descanso(s).`,
+      [m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));
     case 'attendance.early_leave_tolerance_recalc': return out('Asistencia', 'Tolerancia de salida anticipada aplicada',
       `La suite recalculó ${m.dias || 0} día(s) del periodo aún sin liquidar con salida anticipada de menos de ${m.toleranciaMin || 5} minutos: ese tiempo ya no se descuenta de las horas extras (las alertas se conservan).`, [], 'Sistema (automático)');
     case 'attendance.false_late_fixed': return out('Asistencia', 'Llegadas tarde corregidas',
