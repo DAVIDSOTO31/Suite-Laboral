@@ -9544,6 +9544,7 @@
         // activan, las envía al celular aunque la suite esté cerrada.
         // =================================================================
         const NOTIF_TYPE_UI = {
+            llamado: { icon: 'fa-file-signature', cls: 'bg-amber-100 text-amber-800' },
             llegada_tarde: { icon: 'fa-clock', cls: 'bg-rose-100 text-rose-700' },
             exceso_almuerzo: { icon: 'fa-utensils', cls: 'bg-orange-100 text-orange-700' },
             salida_anticipada: { icon: 'fa-person-walking-arrow-right', cls: 'bg-amber-100 text-amber-800' },
@@ -9654,14 +9655,15 @@
             const list = document.getElementById('notifList');
             const items = notifData.items || [];
             const n = notifData.unread || 0;
-            document.getElementById('notifSubtitle').textContent = n ? `${n} nueva${n === 1 ? '' : 's'} · Alertas de Asistencia` : 'Alertas de Asistencia · todo al día';
+            const sub = items.some(i => i.type === 'llamado') ? 'Alertas y llamados de atención' : 'Alertas de Asistencia';
+            document.getElementById('notifSubtitle').textContent = n ? `${n} nueva${n === 1 ? '' : 's'} · ${sub}` : `${sub} · todo al día`;
             document.getElementById('notifMarkAllBtn').classList.toggle('invisible', n === 0);
             if (!items.length) {
                 list.innerHTML = `<div class="px-6 py-10 text-center"><div class="mx-auto w-12 h-12 rounded-2xl bg-sky-50 text-sky-500 flex items-center justify-center text-xl mb-2"><i class="fa-regular fa-bell"></i></div>
                     <p class="text-sm font-semibold text-slate-700">Sin alertas recientes</p><p class="text-xs text-slate-500">Aquí aparecerán las llegadas tarde, ausencias y demás novedades.</p></div>`;
                 return;
             }
-            const EST = { justificada: ['Justificada', 'text-emerald-700'], injustificada: ['Injustificada', 'text-rose-700'], pendiente: ['Pendiente', 'text-slate-500'] };
+            const EST = { justificada: ['Justificada', 'text-emerald-700'], injustificada: ['Injustificada', 'text-rose-700'], pendiente: ['Pendiente', 'text-slate-500'], llamado: ['Por revisar · Colaboradores → Llamados de atención', 'text-amber-700'] };
             list.innerHTML = items.map(it => {
                 const ui = NOTIF_TYPE_UI[it.type] || { icon: 'fa-bell', cls: 'bg-slate-100 text-slate-600' };
                 const est = EST[it.mgmt] || EST.pendiente;
@@ -9769,6 +9771,7 @@
         function openNotif(id) {
             const it = (notifData.items || []).find(x => x.id === id);
             closeNotifPanel();
+            if (it && it.type === 'llamado') { switchView('employees'); discTab = 'rev'; openDiscModal(); return; }
             if (!it) { openAllNotifAlerts(); return; }
             switchView('attendance');
             document.getElementById('attAlertsFrom').value = it.date;
@@ -9794,7 +9797,9 @@
         }
         // Al tocar un aviso del celular la suite abre con #alerta=<id> o #alertas.
         async function handleNotifHash(hash) {
-            if (!hash || !CAN('attendance.view_alerts')) return;
+            if (!hash) return;
+            if (hash === '#llamados' && CAN('employees.view')) { history.replaceState(null, '', location.pathname + location.search); switchView('employees'); discTab = 'rev'; openDiscModal(); return; }
+            if (!CAN('attendance.view_alerts')) return;
             if (!hash.startsWith('#alerta=') && hash !== '#alertas') return;
             history.replaceState(null, '', location.pathname + location.search);
             if (hash === '#alertas') { if (!(notifData.items || []).length) await loadNotifications(); openAllNotifAlerts(); return; }

@@ -170,7 +170,7 @@ function scanOrg(orgId) {
     try { JSON.parse(r.alert_ids).forEach(id => used.add(id)); } catch { /* nada */ }
   }
   const dz = (db.prepare('SELECT day_zero FROM org_settings WHERE organization_id = ?').get(orgId) || {}).day_zero || '';
-  let created = 0;
+  const created = [];
   for (const t of TYPES) {
     const rule = cfg.rules[t];
     if (!rule.on) continue;
@@ -189,10 +189,11 @@ function scanOrg(orgId) {
     }
     for (const [empId, list] of byEmp) {
       if (list.length < rule.count) continue;
+      const id = uid('disc');
       db.prepare('INSERT INTO discipline_cases (id, organization_id, employee_id, rule_type, alert_ids, window_from, window_to) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(uid('disc'), orgId, empId, t, JSON.stringify(list.map(a => a.id)), list[0].shift_date, list[list.length - 1].shift_date);
+        .run(id, orgId, empId, t, JSON.stringify(list.map(a => a.id)), list[0].shift_date, list[list.length - 1].shift_date);
       list.forEach(a => used.add(a.id));
-      created++;
+      created.push({ id, employeeId: empId, type: t, count: list.length });
     }
   }
   return created;
@@ -239,7 +240,7 @@ function caseOut(c, emp) {
 function listCases(req, res, query) {
   const orgId = resolveOrgId(req, query);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
-  try { scanOrg(orgId); } catch (e) { console.error('[llamados]', e.message); }
+  try { notifyNew(orgId, scanOrg(orgId)); } catch (e) { console.error('[llamados]', e.message); }
   const emps = new Map(db.prepare('SELECT id, name, department, role, phone_country, phone_number FROM employees WHERE organization_id = ?').all(orgId).map(e => [e.id, e]));
   const rows = db.prepare(`SELECT c.*, u.email AS decided_by_email FROM discipline_cases c LEFT JOIN users u ON u.id = c.decided_by
     WHERE c.organization_id = ? ORDER BY c.created_at DESC`).all(orgId);
@@ -368,4 +369,50 @@ async function publicAck(req, res, params) {
   sendJson(res, 200, { ok: true });
 }
 
-module.exports = { listCases, draftCase, decideCase, createLink, saveConfig, publicView, publicAck, scanOrg, TYPE_LABEL };
+// ---- Aviso de llamados nuevos por revisar (campana + celular) ----
+// La campana los muestra siempre (ver notifications.routes). Al celular se
+// avisa al crearse, fuera del horario de silencio.
+function notifyNew(orgId, created) {
+  if (!created || !created.length) return;
+  let push;
+  try { push = require('../lib/push'); } catch { return; }
+  if (push.isQuietTime()) return;
+  const emp = (id) => db.prepare("SELECT name, COALESCE(department, 'Sin área') AS department FROM employees WHERE id = ?").get(id) || { name: 'Colaborador', department: '' };
+  const nice = (n) => { const s = String(n || '').trim(); return s === s.toUpperCase() ? s.toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, sp, ch) => sp + ch.toUpperCase()) : s; };
+  let payload;
+  if (created.length === 1) {
+    const c = created[0], e = emp(c.employeeId);
+    payload = { title: `⚖️ ${nice(e.name)}`, body: `Llamado de atención por revisar\n${TYPE_LABEL[c.type]}: ${c.count} novedad(es) injustificada(s)\nÁrea: ${e.department}`, tag: `llamado-${c.id}` };
+  } else {
+    const lines = created.slice(0, 6).map(c => { const e = emp(c.employeeId); return `⚖️ ${nice(e.name)} · ${TYPE_LABEL[c.type].toLowerCase()} (${e.department})`; });
+    if (created.length > 6) lines.push(`… y ${created.length - 6} más`);
+    payload = { title: `${created.length} llamados de atención por revisar`, body: lines.join('\n'), tag: `llamados-${Date.now()}` };
+  }
+  payload.url = '/app.html#llamados';
+  payload.actions = [{ action: 'ver', title: 'Revisar' }];
+  push.sendToOrgAdmins(orgId, payload).catch(e => console.error('[llamados]', e.message));
+}
+// Revision periodica de todas las organizaciones activas (cada 10 min).
+function scanAll() {
+  for (const o of db.prepare("SELECT id FROM organizations WHERE status = 'active'").all()) {
+    try { notifyNew(o.id, scanOrg(o.id)); } catch (e) { console.error('[llamados]', e.message); }
+  }
+}
+const scanTimer = setInterval(scanAll, 10 * 60 * 1000);
+if (scanTimer.unref) scanTimer.unref();
+const firstScan = setTimeout(scanAll, 60 * 1000);
+if (firstScan.unref) firstScan.unref();
+
+// Llamados por revisar para la campana (los de los ultimos dias).
+function bellItems(orgId, sinceSql) {
+  return db.prepare(`SELECT c.id, c.employee_id, c.rule_type, c.alert_ids, c.created_at, e.name AS employee_name, COALESCE(e.department, 'Sin área') AS department
+    FROM discipline_cases c JOIN employees e ON e.id = c.employee_id
+    WHERE c.organization_id = ? AND c.status = 'propuesto' AND c.created_at >= ? ORDER BY c.created_at DESC`).all(orgId, sinceSql)
+    .map(r => {
+      let n = 0; try { n = JSON.parse(r.alert_ids).length; } catch { n = 0; }
+      return { id: r.id, type: 'llamado', label: 'Llamado por revisar', employeeId: r.employee_id, employeeName: r.employee_name, department: r.department,
+        date: String(r.created_at).slice(0, 10), createdAt: r.created_at, mgmt: 'llamado', text: `${TYPE_LABEL[r.rule_type]}: ${n} novedad(es) injustificada(s). Revisa y decide si se genera el llamado.` };
+    });
+}
+
+module.exports = { bellItems, listCases, draftCase, decideCase, createLink, saveConfig, publicView, publicAck, scanOrg, TYPE_LABEL };
