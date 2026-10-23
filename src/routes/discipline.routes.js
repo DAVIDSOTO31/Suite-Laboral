@@ -47,7 +47,10 @@ const stCols = db.prepare('PRAGMA table_info(org_settings)').all().map(c => c.na
 if (!stCols.includes('discipline_config')) db.exec('ALTER TABLE org_settings ADD COLUMN discipline_config TEXT NULL');
 // Anulacion de un llamado ya enviado (queda "descartado" + estos datos).
 const dcCols = db.prepare('PRAGMA table_info(discipline_cases)').all().map(c => c.name);
-for (const col of ['annulled_at', 'annulled_by', 'annul_reason']) if (!dcCols.includes(col)) db.exec(`ALTER TABLE discipline_cases ADD COLUMN ${col} TEXT NULL`);
+for (const col of ['annulled_at', 'annulled_by', 'annul_reason',
+  // Firma electronica del colaborador (en el enlace): imagen de la firma, cedula
+  // escrita, fecha/hora del servidor, IP, navegador y huella del documento.
+  'signed_at', 'signature_png', 'signed_doc_number', 'signed_ip', 'signed_ua', 'doc_hash']) if (!dcCols.includes(col)) db.exec(`ALTER TABLE discipline_cases ADD COLUMN ${col} TEXT NULL`);
 
 const TYPES = ['llegada_tarde', 'exceso_almuerzo', 'inasistencia', 'turno_sin_cerrar'];
 const TYPE_LABEL = { llegada_tarde: 'Llegadas tarde', exceso_almuerzo: 'Exceso en el tiempo de almuerzo', inasistencia: 'Inasistencia sin justificar', turno_sin_cerrar: 'Turnos sin marcar la salida' };
@@ -140,7 +143,7 @@ function getConfig(orgId) {
     const tp = (c.templates || {})[t];
     templates[t] = tp && tp.body ? { title: String(tp.title || DEFAULT_TEMPLATES[t].title), body: String(tp.body), custom: true } : { ...DEFAULT_TEMPLATES[t], custom: false };
   }
-  return { rules, templates, signer: c.signer || '', signerRole: c.signerRole || '', city: c.city || '' };
+  return { rules, templates, signer: c.signer || '', signerRole: c.signerRole || '', city: c.city || '', signerSignature: c.signerSignature || '' };
 }
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -245,6 +248,10 @@ function docVars(orgId, c, emp) {
     nit: orgNit(orgId) || '(sin NIT registrado)',
   };
 }
+// Huella del documento (no cambia si el texto no cambia) y codigo corto de verificacion.
+function docHash(c) { return sha256Hex(`${c.doc_title || ''}\n${c.doc_body || ''}\n${c.doc_date || ''}\n${c.id}`); }
+function verifyCode(hash) { return hash ? String(hash).slice(0, 12).toUpperCase().replace(/(.{4})(?=.)/g, '$1-') : ''; }
+const SIG_RE = /^data:image\/png;base64,[A-Za-z0-9+/=]+$/;
 function caseOut(c, emp) {
   return {
     id: c.id, employeeId: c.employee_id, name: emp ? emp.name : '', area: emp ? (emp.department || '') : '', role: emp ? (emp.role || '') : '',
@@ -257,6 +264,7 @@ function caseOut(c, emp) {
     linkExpires: c.token_expires || '', sentAt: c.sent_at || '', receivedAt: c.received_at || '',
     descargos: c.descargos_text || '', descargosAt: c.descargos_at || '',
     annulledAt: c.annulled_at || '', annulReason: c.annul_reason || '',
+    signedAt: c.signed_at || '', signedDoc: c.signed_doc_number || '', signedIp: c.signed_ip || '', verifyCode: verifyCode(c.doc_hash),
   };
 }
 
@@ -275,7 +283,7 @@ function listCases(req, res, query) {
       if (c.status === 'propuesto') { o.novedades = caseAlerts(c).map(noveltyLine); }
       return o;
     }),
-    config: { rules: cfg.rules, templates: cfg.templates, signer: cfg.signer, signerRole: cfg.signerRole, adminName: orgAdminName(orgId), city: cfg.city, nit: orgNit(orgId), defaults: { rules: DEFAULT_RULES, templates: DEFAULT_TEMPLATES } },
+    config: { rules: cfg.rules, templates: cfg.templates, signer: cfg.signer, signerRole: cfg.signerRole, signerSignature: cfg.signerSignature, adminName: orgAdminName(orgId), city: cfg.city, nit: orgNit(orgId), defaults: { rules: DEFAULT_RULES, templates: DEFAULT_TEMPLATES } },
     typeLabels: TYPE_LABEL, descargosDays: DESCARGOS_DAYS, linkDays: LINK_DAYS,
   });
 }
@@ -348,6 +356,14 @@ async function createLink(req, res, params) {
   sendJson(res, 200, { ok: true, token, expires });
 }
 
+// GET /api/discipline/:id/signature -> imagen de la firma del colaborador (para el PDF)
+function caseSignature(req, res, params) {
+  const orgId = resolveOrgId(req, {});
+  const c = db.prepare('SELECT signature_png FROM discipline_cases WHERE id = ? AND organization_id = ?').get(String(params.id), orgId);
+  if (!c || !c.signature_png) return sendJson(res, 404, { error: 'Sin firma.' });
+  sendJson(res, 200, { signature: c.signature_png });
+}
+
 // PUT /api/discipline/config { rules, templates, signer, city }
 async function saveConfig(req, res) {
   let body;
@@ -355,6 +371,12 @@ async function saveConfig(req, res) {
   const orgId = resolveOrgId(req, body);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   const out = { rules: {}, templates: {}, signer: String(body.signer || '').trim().slice(0, 120), signerRole: String(body.signerRole || '').trim().slice(0, 120), city: String(body.city || '').trim().slice(0, 60) };
+  // Firma de quien firma por la empresa (imagen PNG, opcional).
+  const sig = String(body.signerSignature || '');
+  if (sig) {
+    if (!SIG_RE.test(sig) || sig.length > 400000) return sendJson(res, 400, { error: 'La imagen de la firma no es válida o es muy pesada (máximo 300 KB, formato PNG).' });
+    out.signerSignature = sig;
+  }
   for (const t of TYPES) {
     const r = (body.rules || {})[t] || {};
     const count = Math.round(Number(r.count)), days = Math.round(Number(r.days));
@@ -383,7 +405,30 @@ function publicView(req, res, params) {
   const emp = db.prepare('SELECT name FROM employees WHERE id = ?').get(c.employee_id) || {};
   if (c.annulled_at) return sendJson(res, 200, { org: st.org_name || '', nit: orgNit(c.organization_id), logo: st.logo_base64 || null, annulled: true, annulledAt: c.annulled_at });
   sendJson(res, 200, { org: st.org_name || '', nit: orgNit(c.organization_id), logo: st.logo_base64 || null, name: emp.name || '', title: c.doc_title, body: c.doc_body, docDate: c.doc_date,
-    descargosUntil: c.descargos_until, receivedAt: c.received_at, descargos: c.descargos_text || '', descargosAt: c.descargos_at || '' });
+    descargosUntil: c.descargos_until, receivedAt: c.received_at, descargos: c.descargos_text || '', descargosAt: c.descargos_at || '',
+    signedAt: c.signed_at || '', signature: c.signature_png || '', signedDoc: c.signed_doc_number || '', verifyCode: verifyCode(c.doc_hash) });
+}
+// POST /api/public/comunicacion/:token/sign { signature: dataURL PNG, documento }
+async function publicSign(req, res, params) {
+  const c = caseByToken(params.token);
+  if (!c) return sendJson(res, 404, { error: 'Este enlace no es válido o ya venció.' });
+  if (c.annulled_at || c.status === 'descartado') return sendJson(res, 409, { error: 'Esta comunicación fue anulada por la empresa.' });
+  if (c.signed_at) return sendJson(res, 409, { error: 'Este documento ya está firmado.' });
+  let body; try { body = await readBody(req, 512 * 1024); } catch { return sendJson(res, 400, { error: 'No se pudo leer la firma. Intenta de nuevo.' }); }
+  const sig = String(body.signature || '');
+  if (!SIG_RE.test(sig) || sig.length < 1500 || sig.length > 400000) return sendJson(res, 400, { error: 'Dibuja tu firma en el recuadro.' });
+  const docTyped = String(body.documento || '').replace(/\D/g, '');
+  if (docTyped.length < 5) return sendJson(res, 400, { error: 'Escribe tu número de cédula.' });
+  const emp = db.prepare('SELECT name, document_number FROM employees WHERE id = ?').get(c.employee_id) || {};
+  const docFile = String(emp.document_number || '').replace(/\D/g, '');
+  if (docFile && docFile !== docTyped) return sendJson(res, 400, { error: 'La cédula no coincide. Revísala.' });
+  const ip = getClientIp(req);
+  const ua = String(req.headers['user-agent'] || '').slice(0, 300);
+  db.prepare(`UPDATE discipline_cases SET signed_at = datetime('now', '-5 hours'), signature_png = ?, signed_doc_number = ?, signed_ip = ?, signed_ua = ?, doc_hash = ?,
+      received_at = COALESCE(received_at, datetime('now', '-5 hours')), received_ip = COALESCE(received_ip, ?), status = 'recibido' WHERE id = ?`)
+    .run(sig, docTyped, ip, ua, docHash(c), ip, c.id);
+  logAction({ organizationId: c.organization_id, userId: null, action: 'discipline.signed', resourceType: 'employee', resourceId: String(c.employee_id), ip, metadata: { tipo: TYPE_LABEL[c.rule_type], colaborador: emp.name } });
+  sendJson(res, 200, { ok: true });
 }
 async function publicAck(req, res, params) {
   const c = caseByToken(params.token);
@@ -450,4 +495,4 @@ function bellItems(orgId, sinceSql) {
     });
 }
 
-module.exports = { bellItems, listCases, draftCase, decideCase, createLink, saveConfig, publicView, publicAck, scanOrg, TYPE_LABEL };
+module.exports = { publicSign, caseSignature, bellItems, listCases, draftCase, decideCase, createLink, saveConfig, publicView, publicAck, scanOrg, TYPE_LABEL };

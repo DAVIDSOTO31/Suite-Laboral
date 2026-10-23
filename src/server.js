@@ -129,6 +129,8 @@ route('POST', '/api/discipline/:id/decide', [requirePermission('employees.edit')
 route('POST', '/api/discipline/:id/link', [requirePermission('employees.edit')], (req, res, params) => discipline.createLink(req, res, params));
 // Enlace publico del colaborador (sin sesion; protegido por el token del enlace).
 route('GET', '/api/public/comunicacion/:token', [], (req, res, params) => discipline.publicView(req, res, params), { auth: false });
+route('POST', '/api/public/comunicacion/:token/sign', [], (req, res, params) => discipline.publicSign(req, res, params), { auth: false });
+route('GET', '/api/discipline/:id/signature', [requirePermission('employees.view')], (req, res, params) => discipline.caseSignature(req, res, params));
 route('POST', '/api/public/comunicacion/:token/ack', [], (req, res, params) => discipline.publicAck(req, res, params), { auth: false });
 route('GET', '/api/rest-days', [requirePermission('shifts.view')], (req, res, params, query) => leave.listRestDays(req, res, query));
 route('GET', '/api/vacations', [requirePermission('shifts.view')], (req, res, params, query) => leave.listVacations(req, res, query));

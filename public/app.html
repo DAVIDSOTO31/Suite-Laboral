@@ -3276,12 +3276,12 @@
                 box.innerHTML = list.length ? `<table class="w-full"><thead class="text-3xs uppercase text-slate-500 font-bold bg-slate-50"><tr>
                     <th class="text-left px-2 py-2">Colaborador</th><th class="text-left px-2 py-2">Falta</th><th class="text-left px-2 py-2">Estado</th><th class="text-left px-2 py-2">Fechas</th><th class="px-2 py-2"></th></tr></thead>
                     <tbody class="divide-y divide-slate-100">${list.map(c => {
-                        const st = c.annulledAt ? ['Anulado', 'bg-rose-100 text-rose-800'] : (DISC_ST[c.status] || [c.status, 'bg-slate-100']);
+                        const st = c.annulledAt ? ['Anulado', 'bg-rose-100 text-rose-800'] : c.signedAt ? ['Firmado', 'bg-emerald-600 text-white'] : (DISC_ST[c.status] || [c.status, 'bg-slate-100']);
                         return `<tr>
                             <td class="px-2 py-2 font-semibold text-slate-800">${escapeHtml(c.name)}<span class="block text-3xs font-normal text-slate-500">${escapeHtml(c.area || '')}</span></td>
                             <td class="px-2 py-2">${escapeHtml(c.typeLabel)} <span class="text-slate-400">(${c.count})</span></td>
                             <td class="px-2 py-2"><span class="px-2 py-0.5 rounded-full text-3xs font-bold ${st[1]}">${st[0]}</span>${c.descargos ? ' <span class="px-2 py-0.5 rounded-full text-3xs font-bold bg-indigo-100 text-indigo-800">Con descargos</span>' : ''}</td>
-                            <td class="px-2 py-2 text-3xs text-slate-500 leading-tight">${c.annulledAt ? `Enviado ${fmt(c.sentAt)}<br>Anulado ${fmt(c.annulledAt)}<br>Motivo: ${escapeHtml(c.annulReason)}` : c.status === 'descartado' ? `Descartado ${fmt(c.decidedAt)}<br>Motivo: ${escapeHtml(c.discardReason)}` : `Generado ${fmt(c.docDate)}${c.sentAt ? `<br>Enviado ${fmt(c.sentAt)}` : ''}${c.receivedAt ? `<br>Recibido ${fmt(c.receivedAt)} ${String(c.receivedAt).slice(11, 16)}` : ''}${c.descargosAt ? `<br>Descargos ${fmt(c.descargosAt)}` : ''}`}</td>
+                            <td class="px-2 py-2 text-3xs text-slate-500 leading-tight">${c.annulledAt ? `Enviado ${fmt(c.sentAt)}<br>Anulado ${fmt(c.annulledAt)}<br>Motivo: ${escapeHtml(c.annulReason)}` : c.status === 'descartado' ? `Descartado ${fmt(c.decidedAt)}<br>Motivo: ${escapeHtml(c.discardReason)}` : `Generado ${fmt(c.docDate)}${c.sentAt ? `<br>Enviado ${fmt(c.sentAt)}` : ''}${c.receivedAt ? `<br>Recibido ${fmt(c.receivedAt)} ${String(c.receivedAt).slice(11, 16)}` : ''}${c.signedAt ? `<br><strong class="text-emerald-700">Firmado ${fmt(c.signedAt)} ${String(c.signedAt).slice(11, 16)}</strong>` : ''}${c.descargosAt ? `<br>Descargos ${fmt(c.descargosAt)}` : ''}`}</td>
                             <td class="px-2 py-2 text-right whitespace-nowrap">${c.annulledAt ? `<button type="button" onclick="discView('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Ver</button>` : c.status === 'descartado' ? '' : `
                                 <button type="button" onclick="discView('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Ver</button>
                                 <button type="button" onclick="discPdf('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">PDF</button>
@@ -3303,6 +3303,17 @@
                     <label class="block"><span class="font-semibold text-slate-700">Cargo de quien firma <span class="font-normal text-slate-400">(opcional)</span></span><input id="discSignerRole" value="${escapeHtml(cfg.signerRole || '')}" maxlength="120" placeholder="Ej. Administrador(a)" class="mt-1 w-full p-2 border rounded-lg"></label>
                     <label class="block"><span class="font-semibold text-slate-700">Ciudad (para la fecha del documento)</span><input id="discCity" value="${escapeHtml(cfg.city)}" maxlength="60" placeholder="Ej. Medellín" class="mt-1 w-full p-2 border rounded-lg"></label>
                 </div>
+                <div class="border border-slate-200 rounded-lg p-3 mb-3">
+                    <p class="font-semibold text-slate-700">Firma de quien firma por la empresa <span class="font-normal text-slate-400">(sale estampada en el PDF; así no hay que imprimir)</span></p>
+                    <div class="flex flex-wrap items-start gap-3 mt-2">
+                        <canvas id="discSigPad" width="360" height="120" class="bg-white border-2 border-dashed border-slate-300 rounded-lg" style="touch-action:none; width:360px; height:120px; max-width:100%"></canvas>
+                        <div class="space-y-1.5">
+                            <button type="button" onclick="discSigClear()" class="block px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 font-semibold">Borrar</button>
+                            <label class="block px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 font-semibold cursor-pointer">Subir imagen<input type="file" accept="image/png,image/jpeg" class="hidden" onchange="discSigUpload(this)"></label>
+                            <p class="text-3xs text-slate-500 max-w-[220px]">Dibújala con el mouse o el dedo, o sube una foto de la firma sobre papel blanco.</p>
+                        </div>
+                    </div>
+                </div>
                 <p class="text-3xs text-slate-500 mb-4">La firma de los llamados es siempre esta, sin importar qué usuario los genere${cfg.adminName ? ` (por defecto, el administrador de la empresa: <strong>${escapeHtml(cfg.adminName)}</strong>)` : ''}. Debajo va el nombre de la empresa y su NIT${cfg.nit ? ` (<strong>${escapeHtml(cfg.nit)}</strong>)` : ': <strong class="text-rose-700">la organización no tiene NIT registrado</strong> (se registra en Super Admin → Organizaciones)'}. El logo va arriba a la izquierda en el PDF y en el enlace.</p>
                 ${Object.keys(T).map(k => { const r = cfg.rules[k], tp = cfg.templates[k]; return `
                 <div class="border border-slate-200 rounded-lg p-3 mb-3">
@@ -3323,6 +3334,7 @@
                 <p class="text-3xs text-slate-500 mb-2">Puedes pegar el modelo que ya usa la empresa. Datos que la suite llena sola: <code>{{empresa}}</code> <code>{{ciudad_fecha}}</code> <code>{{nombre}}</code> <code>{{documento}}</code> <code>{{cargo}}</code> <code>{{area}}</code> <code>{{novedades}}</code> (lista con fechas y horas) <code>{{cantidad}}</code> <code>{{fecha_descargos}}</code> <code>{{firmante}}</code> (nombre y cargo) <code>{{nit}}</code>. Valida el texto con tu asesor legal.</p>
                 <p id="discCfgMsg" class="hidden text-rose-600 font-semibold mb-2"></p>
                 <button type="button" onclick="discSaveCfg()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold">Guardar reglas y plantillas</button>`;
+            discSigInit();
         }
         function discEditorHtml(c) {
             return `<div class="border-2 border-slate-800 rounded-lg p-3 mb-2">
@@ -3385,14 +3397,18 @@
         }
         async function discPdf(id) {
             const c = discData.cases.find(x => x.id === id); if (!c) return;
-            await buildDiscPdf({ title: c.docTitle, body: c.docBody, name: c.name, employeeId: c.employeeId, docDate: c.docDate }, false);
+            let signature = '';
+            if (c.signedAt) { try { signature = (await apiFetch(`/api/discipline/${id}/signature`)).signature; } catch (e) { /* sin imagen */ } }
+            await buildDiscPdf({ title: c.docTitle, body: c.docBody, name: c.name, employeeId: c.employeeId, docDate: c.docDate,
+                signature, signedAt: c.signedAt, signedDoc: c.signedDoc, signedIp: c.signedIp, verifyCode: c.verifyCode,
+                adminSignature: discData.config.signerSignature || '' }, false);
         }
         // Vista previa: el PDF con el texto que está en pantalla, sin guardar nada.
         async function discPreviewPdf(id) {
             const c = discData.cases.find(x => x.id === id); if (!c) return;
             const title = document.getElementById('discDocTitle').value.trim(), body = document.getElementById('discDocBody').value;
             if (!title || !body.trim()) { showAppToast('El documento está vacío.'); return; }
-            await buildDiscPdf({ title, body, name: c.name, employeeId: c.employeeId, docDate: bogotaTodayISO() }, true);
+            await buildDiscPdf({ title, body, name: c.name, employeeId: c.employeeId, docDate: bogotaTodayISO(), adminSignature: discData.config.signerSignature || '' }, true);
         }
         async function buildDiscPdf(c, preview) {
             try { await loadScriptOnce('/vendor/jspdf-2.5.1.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF)); } catch (e) { showAppToast(e.message); return; }
@@ -3423,7 +3439,7 @@
                 let h = doc.splitTextToSize(c.title, W).length * (fs + 1.5) * 0.5 + 3;
                 doc.setFont('helvetica', 'normal'); doc.setFontSize(fs);
                 mainPars.forEach(par => { h += par.trim() ? doc.splitTextToSize(par, W).length * lh : lh * 0.6; });
-                h += 16 + Math.max(signer.length, 3) * lh + 2;
+                h += 20 + Math.max(signer.length, 3) * lh + 2 + (c.signedAt ? 8 : 0);
                 return h;
             };
             const avail = H - 10 - y;
@@ -3438,16 +3454,31 @@
                 doc.splitTextToSize(par, W).forEach(l => { if (y > H - 12) { doc.addPage(); y = 20; } doc.text(l, M, y); y += lh; });
             });
             // Firmas lado a lado: la empresa a la izquierda y el colaborador a la derecha.
-            y += 14;
-            if (y + Math.max(signer.length, 3) * lh + 4 > H - 8) { doc.addPage(); y = 30; }
+            // Encima de cada línea va la firma dibujada, si existe.
+            y += 18;
+            if (y + Math.max(signer.length, 3) * lh + 4 > H - 8) { doc.addPage(); y = 34; }
             const xR = M + colW + 12;
+            const stamp = (dataUrl, x) => {
+                if (!dataUrl) return;
+                try { const p = doc.getImageProperties(dataUrl); const hh = 15, ww = Math.min(colW * 0.8, hh * p.width / p.height); doc.addImage(dataUrl, 'PNG', x + 2, y - hh - 0.5, ww, hh); } catch (e) { /* imagen no valida */ }
+            };
+            stamp(c.adminSignature, M); stamp(c.signature, xR);
             doc.setDrawColor(90); doc.line(M, y, M + colW, y); doc.line(xR, y, xR + colW, y);
             let yl = y + lh, yr = y + lh;
             signer.forEach((t, i) => { doc.setFont('helvetica', i === 0 ? 'bold' : 'normal'); doc.splitTextToSize(t, colW).forEach(l => { doc.text(l, M, yl); yl += lh; }); });
             doc.setFont('helvetica', 'bold'); doc.splitTextToSize(String(c.name || ''), colW).forEach(l => { doc.text(l, xR, yr); yr += lh; });
             doc.setFont('helvetica', 'normal');
             if (empDoc) { doc.text(empDoc, xR, yr); yr += lh; }
-            doc.text('Recibido · Fecha: ____________', xR, yr);
+            const hora12 = (ts) => { const h = Number(String(ts).slice(11, 13)), mi = String(ts).slice(14, 16); return `${(h % 12) || 12}:${mi} ${h < 12 ? 'a. m.' : 'p. m.'}`; };
+            if (c.signedAt) {
+                doc.text(`Firmado el ${String(c.signedAt).slice(0, 10).split('-').reverse().join('/')} a las ${hora12(c.signedAt)}`, xR, yr);
+                // Franja de verificación al pie de la hoja.
+                const fy = H - 9;
+                doc.setDrawColor(203, 213, 225); doc.line(M, fy - 4, M + W, fy - 4);
+                doc.setFontSize(7); doc.setTextColor(100, 116, 139);
+                doc.splitTextToSize(`Firmado electrónicamente por ${c.name}${c.signedDoc ? ', C.C. ' + c.signedDoc : ''}, el ${String(c.signedAt).slice(0, 10).split('-').reverse().join('/')} a las ${hora12(c.signedAt)} (hora Colombia)${c.signedIp ? ' desde la IP ' + c.signedIp : ''}, mediante enlace único enviado a su celular · Código de verificación: ${c.verifyCode} · Ley 527 de 1999 y Decreto 2364 de 2012.`, W).forEach((l, i) => doc.text(l, M, fy + i * 3));
+                doc.setTextColor(0, 0, 0);
+            } else doc.text('Recibido · Fecha: ____________', xR, yr);
             if (preview) {
                 // Marca de agua tenue en cada hoja: no se confunde con el documento definitivo.
                 for (let pg = 1; pg <= doc.getNumberOfPages(); pg++) {
@@ -3470,11 +3501,46 @@
                 const link = `${location.origin}/comunicacion.html#t=${r.token}`;
                 const first = String(c.name).split(' ')[0];
                 const org = appState.orgName || 'la empresa';
-                const msg = `Hola ${first}, ${org} te envía una comunicación sobre: ${c.typeLabel.toLowerCase()}.\n\nÁbrela aquí: ${link}\n\nAl abrirla, por favor pulsa "Recibido". Allí también puedes escribir tus descargos. El enlace vence el ${String(r.expires).split('-').reverse().join('/')}.`;
+                const msg = `Hola ${first}, ${org} te envía una comunicación sobre: ${c.typeLabel.toLowerCase()}.\n\nÁbrela aquí: ${link}\n\nAl abrirla, pulsa "Recibido" y luego firma el documento con el dedo (no tienes que imprimir nada). Allí también puedes escribir tus descargos. El enlace vence el ${String(r.expires).split('-').reverse().join('/')}.`;
                 const url = `https://wa.me/${c.phone}?text=${encodeURIComponent(msg)}`;
                 if (w) w.location.href = url; else location.href = url;
                 await loadDiscData(); if (document.getElementById('modalDisc').classList.contains('flex')) setDiscTab('hist');
             } catch (e) { if (w) w.close(); showAppToast(e.message); }
+        }
+        // ---- Firma de quien firma por la empresa (dibujada o imagen) ----
+        let discSigDirty = false, discSigEmpty = true;
+        function discSigInit() {
+            const pad = document.getElementById('discSigPad'); if (!pad) return;
+            const ctx = pad.getContext('2d'); let drawing = false, last = null;
+            discSigDirty = false; discSigEmpty = true;
+            const sig = discData && discData.config.signerSignature;
+            if (sig) { const im = new Image(); im.onload = () => { const k = Math.min(pad.width / im.width, pad.height / im.height); ctx.drawImage(im, (pad.width - im.width * k) / 2, (pad.height - im.height * k) / 2, im.width * k, im.height * k); }; im.src = sig; discSigEmpty = false; }
+            const pt = (e) => { const r = pad.getBoundingClientRect(); return { x: (e.clientX - r.left) * pad.width / r.width, y: (e.clientY - r.top) * pad.height / r.height }; };
+            ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0f172a';
+            pad.onpointerdown = (e) => { e.preventDefault(); drawing = true; last = pt(e); pad.setPointerCapture(e.pointerId); };
+            pad.onpointermove = (e) => { if (!drawing) return; const p = pt(e); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); last = p; discSigDirty = true; discSigEmpty = false; };
+            pad.onpointerup = pad.onpointercancel = pad.onpointerleave = () => { drawing = false; };
+        }
+        function discSigClear() { const pad = document.getElementById('discSigPad'); pad.getContext('2d').clearRect(0, 0, pad.width, pad.height); discSigDirty = true; discSigEmpty = true; }
+        function discSigUpload(input) {
+            const f = input.files && input.files[0]; if (!f) return;
+            const rd = new FileReader();
+            rd.onload = () => { const im = new Image(); im.onload = () => {
+                const pad = document.getElementById('discSigPad'), ctx = pad.getContext('2d');
+                ctx.clearRect(0, 0, pad.width, pad.height);
+                const k = Math.min(pad.width / im.width, pad.height / im.height);
+                ctx.drawImage(im, (pad.width - im.width * k) / 2, (pad.height - im.height * k) / 2, im.width * k, im.height * k);
+                // Fondo blanco de la foto -> transparente (para que se vea como firma).
+                const d = ctx.getImageData(0, 0, pad.width, pad.height);
+                for (let i = 0; i < d.data.length; i += 4) { if (d.data[i] > 200 && d.data[i + 1] > 200 && d.data[i + 2] > 200) d.data[i + 3] = 0; }
+                ctx.putImageData(d, 0, 0);
+                discSigDirty = true; discSigEmpty = false;
+            }; im.src = rd.result; };
+            rd.readAsDataURL(f); input.value = '';
+        }
+        function discSigValue() {
+            if (!discSigDirty) return (discData && discData.config.signerSignature) || '';
+            return discSigEmpty ? '' : document.getElementById('discSigPad').toDataURL('image/png');
         }
         function discRestoreTpl(k) {
             const t = discData.config.defaults.templates[k];
@@ -3488,7 +3554,7 @@
             });
             const m = document.getElementById('discCfgMsg');
             try {
-                await apiFetch('/api/discipline/config', { method: 'PUT', body: JSON.stringify({ rules, templates, signer: document.getElementById('discSigner').value, signerRole: document.getElementById('discSignerRole').value, city: document.getElementById('discCity').value }) });
+                await apiFetch('/api/discipline/config', { method: 'PUT', body: JSON.stringify({ rules, templates, signer: document.getElementById('discSigner').value, signerRole: document.getElementById('discSignerRole').value, city: document.getElementById('discCity').value, signerSignature: discSigValue() }) });
                 showAppToast('Reglas y plantillas guardadas.'); await loadDiscData(); setDiscTab('cfg');
             } catch (e) { m.textContent = e.message; m.classList.remove('hidden'); }
         }

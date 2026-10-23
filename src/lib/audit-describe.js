@@ -138,6 +138,7 @@ function describeAudit(row, ctx = {}) {
     case 'discipline.annul': return out('Colaboradores', 'Llamado de atención anulado', `Anuló la comunicación (${val(m.tipo)}) ya enviada a ${val(m.colaborador)}.`, [m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));
     case 'discipline.send': return out('Colaboradores', 'Llamado de atención enviado', `Creó el enlace de la comunicación (${val(m.tipo)}) de ${val(m.colaborador)} para enviarlo por WhatsApp (vence el ${dayName(m.vence)}).`);
     case 'discipline.received': return out('Colaboradores', 'Llamado de atención recibido', `El colaborador abrió la comunicación (${val(m.tipo)}) y confirmó que la recibió.`, [], 'Colaborador (enlace)');
+    case 'discipline.signed': return out('Colaboradores', 'Llamado de atención firmado', `${val(m.colaborador)} firmó electrónicamente la comunicación (${val(m.tipo)}).`, [], 'Colaborador (enlace)');
     case 'discipline.descargos': return out('Colaboradores', 'Descargos recibidos', `El colaborador envió sus descargos a la comunicación (${val(m.tipo)}).`, [], 'Colaborador (enlace)');
     case 'discipline.config': return out('Configuración', 'Reglas de llamados de atención', 'Cambió las reglas o las plantillas de los llamados de atención.');
     case 'vacations.move': {
