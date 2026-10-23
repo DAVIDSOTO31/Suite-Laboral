@@ -14,6 +14,7 @@ const org = require('./routes/org.routes');
 const attendance = require('./routes/attendance.routes');
 const notifications = require('./routes/notifications.routes');
 const leave = require('./routes/leave.routes');
+const discipline = require('./routes/discipline.routes');
 const live = require('./lib/live');
 const presence = require('./lib/presence');
 
@@ -121,6 +122,14 @@ route('PUT', '/api/payroll/opening-balance', [requirePermission('employees.edit_
 route('POST', '/api/payroll/opening-balance/:employeeId/delete', [requirePermission('employees.edit_payroll')], (req, res, params) => org.deleteOpeningBalance(req, res, params));
 // Cuadro de turnos: publicar, historial de cambios y patrones de rotacion.
 route('POST', '/api/shifts/publish', [requirePermission('shifts.edit')], (req, res) => org.publishShifts(req, res));
+route('GET', '/api/discipline', [requirePermission('employees.view')], (req, res, params, query) => discipline.listCases(req, res, query));
+route('PUT', '/api/discipline/config', [requirePermission('employees.edit')], (req, res) => discipline.saveConfig(req, res));
+route('GET', '/api/discipline/:id/draft', [requirePermission('employees.edit')], (req, res, params) => discipline.draftCase(req, res, params));
+route('POST', '/api/discipline/:id/decide', [requirePermission('employees.edit')], (req, res, params) => discipline.decideCase(req, res, params));
+route('POST', '/api/discipline/:id/link', [requirePermission('employees.edit')], (req, res, params) => discipline.createLink(req, res, params));
+// Enlace publico del colaborador (sin sesion; protegido por el token del enlace).
+route('GET', '/api/public/comunicacion/:token', [], (req, res, params) => discipline.publicView(req, res, params), { auth: false });
+route('POST', '/api/public/comunicacion/:token/ack', [], (req, res, params) => discipline.publicAck(req, res, params), { auth: false });
 route('GET', '/api/rest-days', [requirePermission('shifts.view')], (req, res, params, query) => leave.listRestDays(req, res, query));
 route('GET', '/api/vacations', [requirePermission('shifts.view')], (req, res, params, query) => leave.listVacations(req, res, query));
 route('POST', '/api/vacations/moves', [requirePermission('shifts.edit')], (req, res) => leave.addVacationMove(req, res));

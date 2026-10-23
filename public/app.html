@@ -784,6 +784,10 @@
                         <p class="text-xs text-slate-500">Administre el personal registrado, contratos y áreas asignadas.</p>
                     </div>
                     <div class="flex gap-2 w-full sm:w-auto">
+                        <button onclick="openDiscModal()" data-perm="employees.view" class="relative bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
+                            <i class="fa-solid fa-file-signature text-rose-600"></i> Llamados de atención
+                            <span id="discBadge" class="hidden absolute -top-2 -right-2 min-w-[1.25rem] h-5 px-1 rounded-full bg-rose-600 text-white text-3xs font-bold flex items-center justify-center"></span>
+                        </button>
                         <button onclick="openLeaveModal()" data-perm="shifts.view" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
                             <i class="fa-solid fa-mug-hot text-teal-600"></i> Descansos y vacaciones
                         </button>
@@ -1910,6 +1914,25 @@
                     <tbody id="leaveTableBody" class="divide-y divide-slate-100"></tbody>
                 </table>
             </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Llamados de atención (comunicación de novedades y citación a descargos) -->
+    <div id="modalDisc" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[92vh] flex flex-col">
+            <div class="flex items-start justify-between gap-3 p-4 border-b">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-file-signature text-rose-600"></i> Llamados de atención</h3>
+                    <div class="flex flex-wrap gap-1 mt-2">
+                        <button type="button" id="discTab_rev" onclick="setDiscTab('rev')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Por revisar</button>
+                        <button type="button" id="discTab_hist" onclick="setDiscTab('hist')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Historial</button>
+                        <button type="button" id="discTab_cfg" onclick="setDiscTab('cfg')" data-perm="employees.edit" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Reglas y plantillas</button>
+                    </div>
+                    <p class="text-2xs text-slate-500 mt-1.5">La suite propone un llamado cuando alguien acumula novedades <strong>injustificadas</strong> según las reglas. Nada se envía solo: tú revisas, generas (puedes editar el texto) y envías por WhatsApp. Es una comunicación de novedades con citación a descargos, no una sanción.</p>
+                </div>
+                <button onclick="closeModal('modalDisc')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div id="discBody" class="overflow-auto flex-1 p-4 text-xs"></div>
         </div>
     </div>
 
@@ -3197,6 +3220,209 @@
             if (x && x.isSplit && x.splitOut && x.splitIn) return `${x.startTime}-${x.splitOut} / ${x.splitIn}-${x.endTime}`;
             return `${x.startTime} - ${x.endTime}`;
         }
+        // ---- Llamados de atención ----
+        let discData = null, discTab = 'rev', discEditing = null;
+        const DISC_ST = { propuesto: ['Por revisar', 'bg-amber-100 text-amber-800'], descartado: ['Descartado', 'bg-slate-100 text-slate-600'], generado: ['Generado (sin enviar)', 'bg-sky-100 text-sky-800'], enviado: ['Enviado', 'bg-violet-100 text-violet-800'], recibido: ['Recibido', 'bg-emerald-100 text-emerald-800'] };
+        async function loadDiscData() {
+            if (!CAN('employees.view')) return null;
+            try { discData = await apiFetch('/api/discipline'); } catch (e) { discData = null; }
+            const n = discData ? discData.cases.filter(c => c.status === 'propuesto').length : 0;
+            const b = document.getElementById('discBadge');
+            if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
+            return discData;
+        }
+        async function openDiscModal() {
+            openModal('modalDisc');
+            document.getElementById('discBody').innerHTML = '<p class="text-center text-slate-400 py-6">Cargando…</p>';
+            await loadDiscData();
+            setDiscTab(discTab);
+        }
+        function setDiscTab(t) {
+            if (t === 'cfg' && !CAN('employees.edit')) t = 'rev';
+            discTab = t; discEditing = null;
+            ['rev', 'hist', 'cfg'].forEach(k => {
+                const b = document.getElementById('discTab_' + k);
+                if (b) b.className = `px-3 py-1.5 rounded-lg text-xs font-bold border ${k === t ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`;
+            });
+            const rev = document.getElementById('discTab_rev');
+            const n = discData ? discData.cases.filter(c => c.status === 'propuesto').length : 0;
+            if (rev) rev.textContent = n ? `Por revisar (${n})` : 'Por revisar';
+            renderDisc();
+        }
+        function renderDisc() {
+            const box = document.getElementById('discBody');
+            if (!discData) { box.innerHTML = '<p class="text-center text-rose-600 py-6">No se pudo cargar la información.</p>'; return; }
+            const canEdit = CAN('employees.edit');
+            const fmt = (d) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : '';
+            if (discTab === 'rev') {
+                const list = discData.cases.filter(c => c.status === 'propuesto' || (c.status === 'generado' && discEditing === c.id));
+                box.innerHTML = list.length ? list.map(c => discEditing === c.id ? discEditorHtml(c) : `
+                    <div class="border border-amber-200 bg-amber-50/40 rounded-lg p-3 mb-2">
+                        <div class="flex flex-wrap items-start justify-between gap-2">
+                            <div><p class="font-bold text-slate-800 text-sm">${escapeHtml(c.name)} <span class="font-normal text-slate-500">· ${escapeHtml(c.area || 'Sin área')}</span></p>
+                                <p class="text-rose-700 font-semibold">${escapeHtml(c.typeLabel)}: ${c.count} novedad(es) injustificada(s) · ${fmt(c.from)} al ${fmt(c.to)}</p></div>
+                            ${canEdit ? `<div class="flex gap-1.5">
+                                <button type="button" onclick="discStartEdit('${c.id}')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold">Revisar y generar</button>
+                                <button type="button" onclick="discDiscard('${c.id}')" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold">Descartar</button>
+                            </div>` : ''}
+                        </div>
+                        <ul class="mt-1.5 text-slate-600 space-y-0.5">${(c.novedades || []).map(n => `<li>${escapeHtml(n.replace(/^- /, ''))}</li>`).join('')}</ul>
+                    </div>`).join('')
+                    : '<p class="text-center text-slate-400 py-8">No hay llamados por revisar. La suite los propone sola cuando alguien cumple una regla.</p>';
+                return;
+            }
+            if (discTab === 'hist') {
+                const list = discData.cases.filter(c => c.status !== 'propuesto');
+                box.innerHTML = list.length ? `<table class="w-full"><thead class="text-3xs uppercase text-slate-500 font-bold bg-slate-50"><tr>
+                    <th class="text-left px-2 py-2">Colaborador</th><th class="text-left px-2 py-2">Falta</th><th class="text-left px-2 py-2">Estado</th><th class="text-left px-2 py-2">Fechas</th><th class="px-2 py-2"></th></tr></thead>
+                    <tbody class="divide-y divide-slate-100">${list.map(c => {
+                        const st = DISC_ST[c.status] || [c.status, 'bg-slate-100'];
+                        return `<tr>
+                            <td class="px-2 py-2 font-semibold text-slate-800">${escapeHtml(c.name)}<span class="block text-3xs font-normal text-slate-500">${escapeHtml(c.area || '')}</span></td>
+                            <td class="px-2 py-2">${escapeHtml(c.typeLabel)} <span class="text-slate-400">(${c.count})</span></td>
+                            <td class="px-2 py-2"><span class="px-2 py-0.5 rounded-full text-3xs font-bold ${st[1]}">${st[0]}</span>${c.descargos ? ' <span class="px-2 py-0.5 rounded-full text-3xs font-bold bg-indigo-100 text-indigo-800">Con descargos</span>' : ''}</td>
+                            <td class="px-2 py-2 text-3xs text-slate-500 leading-tight">${c.status === 'descartado' ? `Descartado ${fmt(c.decidedAt)}<br>Motivo: ${escapeHtml(c.discardReason)}` : `Generado ${fmt(c.docDate)}${c.sentAt ? `<br>Enviado ${fmt(c.sentAt)}` : ''}${c.receivedAt ? `<br>Recibido ${fmt(c.receivedAt)} ${String(c.receivedAt).slice(11, 16)}` : ''}${c.descargosAt ? `<br>Descargos ${fmt(c.descargosAt)}` : ''}`}</td>
+                            <td class="px-2 py-2 text-right whitespace-nowrap">${c.status === 'descartado' ? '' : `
+                                <button type="button" onclick="discView('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Ver</button>
+                                <button type="button" onclick="discPdf('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">PDF</button>
+                                ${canEdit ? `<button type="button" onclick="discWhatsApp('${c.id}')" class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold"><i class="fa-brands fa-whatsapp"></i> ${c.sentAt ? 'Reenviar' : 'Enviar'}</button>` : ''}
+                                ${canEdit && c.status === 'generado' ? `<button type="button" onclick="discEditing='${c.id}'; discTab='rev'; discStartEdit('${c.id}', true)" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Editar</button>` : ''}`}</td>
+                        </tr>`;
+                    }).join('')}</tbody></table>`
+                    : '<p class="text-center text-slate-400 py-8">Aún no hay llamados generados ni descartados.</p>';
+                return;
+            }
+            // Reglas y plantillas
+            const cfg = discData.config;
+            const T = discData.typeLabels;
+            box.innerHTML = `
+                <div class="grid sm:grid-cols-2 gap-3 mb-4">
+                    <label class="block"><span class="font-semibold text-slate-700">Quién firma</span><input id="discSigner" value="${escapeHtml(cfg.signer)}" maxlength="120" placeholder="Ej. María Gómez · Jefe de Recursos Humanos (si lo dejas vacío, el usuario que genera)" class="mt-1 w-full p-2 border rounded-lg"></label>
+                    <label class="block"><span class="font-semibold text-slate-700">Ciudad (para la fecha del documento)</span><input id="discCity" value="${escapeHtml(cfg.city)}" maxlength="60" placeholder="Ej. Medellín" class="mt-1 w-full p-2 border rounded-lg"></label>
+                </div>
+                ${Object.keys(T).map(k => { const r = cfg.rules[k], tp = cfg.templates[k]; return `
+                <div class="border border-slate-200 rounded-lg p-3 mb-3">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <label class="flex items-center gap-1.5 font-bold text-slate-800"><input type="checkbox" id="discOn_${k}" ${r.on ? 'checked' : ''} class="w-4 h-4"> ${escapeHtml(T[k])}</label>
+                        <span class="text-slate-500">· proponer llamado con</span>
+                        <input type="number" id="discCount_${k}" value="${r.count}" min="1" max="50" class="w-16 p-1.5 border rounded-lg">
+                        <span class="text-slate-500">novedad(es) injustificada(s) en</span>
+                        <input type="number" id="discDays_${k}" value="${r.days}" min="1" max="365" class="w-16 p-1.5 border rounded-lg">
+                        <span class="text-slate-500">días</span>
+                    </div>
+                    <details class="mt-2"><summary class="cursor-pointer text-sky-700 font-semibold">Plantilla del documento ${tp.custom ? '<span class="text-amber-700">(propia de la empresa)</span>' : '(sugerida)'}</summary>
+                        <input id="discTplTitle_${k}" value="${escapeHtml(tp.title)}" maxlength="200" class="mt-2 w-full p-2 border rounded-lg font-semibold">
+                        <textarea id="discTplBody_${k}" rows="12" class="mt-1 w-full p-2 border rounded-lg font-mono text-2xs">${escapeHtml(tp.body)}</textarea>
+                        <button type="button" onclick="discRestoreTpl('${k}')" class="mt-1 px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Restaurar la sugerida</button>
+                    </details>
+                </div>`; }).join('')}
+                <p class="text-3xs text-slate-500 mb-2">Puedes pegar el modelo que ya usa la empresa. Datos que la suite llena sola: <code>{{empresa}}</code> <code>{{ciudad_fecha}}</code> <code>{{nombre}}</code> <code>{{documento}}</code> <code>{{cargo}}</code> <code>{{area}}</code> <code>{{novedades}}</code> (lista con fechas y horas) <code>{{cantidad}}</code> <code>{{fecha_descargos}}</code> <code>{{firmante}}</code>. Valida el texto con tu asesor legal.</p>
+                <p id="discCfgMsg" class="hidden text-rose-600 font-semibold mb-2"></p>
+                <button type="button" onclick="discSaveCfg()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold">Guardar reglas y plantillas</button>`;
+        }
+        function discEditorHtml(c) {
+            return `<div class="border-2 border-slate-800 rounded-lg p-3 mb-2">
+                <p class="font-bold text-slate-800 text-sm">${escapeHtml(c.name)} · ${escapeHtml(c.typeLabel)}</p>
+                <p class="text-slate-500 mb-2">Revisa y ajusta el texto si es necesario. Al generarlo queda guardado tal cual en el historial del colaborador.</p>
+                <input id="discDocTitle" maxlength="200" class="w-full p-2 border rounded-lg font-semibold" value="">
+                <textarea id="discDocBody" rows="18" class="mt-1 w-full p-2 border rounded-lg text-xs leading-relaxed"></textarea>
+                <p id="discDocMsg" class="hidden text-rose-600 font-semibold"></p>
+                <div class="flex gap-1.5 mt-2">
+                    <button type="button" onclick="discGenerate('${c.id}')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold">Generar documento</button>
+                    <button type="button" onclick="discEditing=null; renderDisc()" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 font-semibold">Cancelar</button>
+                </div></div>`;
+        }
+        async function discStartEdit(id, fromHist) {
+            const c = discData.cases.find(x => x.id === id);
+            discEditing = id;
+            if (fromHist) setDiscTabKeepEdit();
+            renderDisc();
+            try {
+                if (c && c.status === 'generado' && c.docBody) {
+                    document.getElementById('discDocTitle').value = c.docTitle; document.getElementById('discDocBody').value = c.docBody;
+                } else {
+                    const d = await apiFetch(`/api/discipline/${id}/draft`);
+                    document.getElementById('discDocTitle').value = d.title; document.getElementById('discDocBody').value = d.body;
+                }
+            } catch (e) { const m = document.getElementById('discDocMsg'); m.textContent = e.message; m.classList.remove('hidden'); }
+        }
+        function setDiscTabKeepEdit() {
+            ['rev', 'hist', 'cfg'].forEach(k => { const b = document.getElementById('discTab_' + k); if (b) b.className = `px-3 py-1.5 rounded-lg text-xs font-bold border ${k === 'rev' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`; });
+        }
+        async function discGenerate(id) {
+            const title = document.getElementById('discDocTitle').value.trim(), body = document.getElementById('discDocBody').value.trim();
+            try {
+                await apiFetch(`/api/discipline/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: 'generar', title, body }) });
+                showAppToast('Documento generado. Ahora puedes enviarlo por WhatsApp o descargar el PDF desde el Historial.');
+                await loadDiscData(); setDiscTab('hist');
+            } catch (e) { const m = document.getElementById('discDocMsg'); m.textContent = e.message; m.classList.remove('hidden'); }
+        }
+        async function discDiscard(id) {
+            const reason = (prompt('Motivo para descartar este llamado (queda registrado):') || '').trim();
+            if (!reason) return;
+            try { await apiFetch(`/api/discipline/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: 'descartar', reason }) }); showAppToast('Llamado descartado.'); await loadDiscData(); setDiscTab('rev'); }
+            catch (e) { showAppToast(e.message); }
+        }
+        function discView(id) {
+            const c = discData.cases.find(x => x.id === id); if (!c) return;
+            const box = document.getElementById('discBody');
+            box.innerHTML = `<button type="button" onclick="renderDisc()" class="mb-3 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 font-semibold"><i class="fa-solid fa-arrow-left"></i> Volver</button>
+                <div class="border border-slate-200 rounded-lg p-4"><p class="font-bold text-slate-900 text-sm mb-2">${escapeHtml(c.docTitle)}</p><div class="whitespace-pre-wrap text-slate-800 leading-relaxed">${escapeHtml(c.docBody)}</div></div>
+                ${c.descargos ? `<div class="mt-3 border border-indigo-200 bg-indigo-50/50 rounded-lg p-4"><p class="font-bold text-indigo-900">Descargos del colaborador (${String(c.descargosAt).slice(0, 10).split('-').reverse().join('/')})</p><div class="whitespace-pre-wrap text-slate-800 mt-1">${escapeHtml(c.descargos)}</div></div>` : ''}`;
+        }
+        async function discPdf(id) {
+            const c = discData.cases.find(x => x.id === id); if (!c) return;
+            try { await loadScriptOnce('/vendor/jspdf-2.5.1.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF)); } catch (e) { showAppToast(e.message); return; }
+            const logo = await pdfOrgLogo();
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ unit: 'mm', format: 'letter' });
+            const M = 22, W = doc.internal.pageSize.getWidth() - 2 * M, H = doc.internal.pageSize.getHeight();
+            let y = 18;
+            if (logo) { pdfDrawLogo(doc, logo, M, y - 4, 40, 16, false); y += 18; }
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+            doc.splitTextToSize(c.docTitle, W).forEach(l => { doc.text(l, M, y); y += 6; });
+            y += 3; doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5);
+            String(c.docBody).split('\n').forEach(par => {
+                const lines = par.trim() ? doc.splitTextToSize(par, W) : [''];
+                lines.forEach(l => { if (y > H - 30) { doc.addPage(); y = 22; } doc.text(l, M, y); y += 5.2; });
+            });
+            y += 14; if (y > H - 30) { doc.addPage(); y = 30; }
+            doc.setDrawColor(100); doc.line(M, y, M + 70, y);
+            doc.setFontSize(9); doc.text('Recibido por el colaborador: ' + c.name, M, y + 5); doc.text('Fecha: ____________________', M, y + 10);
+            doc.save(`Comunicacion_${String(c.name).replace(/[^A-Za-z0-9áéíóúñÁÉÍÓÚÑ]+/g, '_')}_${c.docDate}.pdf`);
+        }
+        async function discWhatsApp(id) {
+            const c = discData.cases.find(x => x.id === id); if (!c) return;
+            if (!c.phone) { showAppToast(`${c.name} no tiene celular registrado en su ficha. Agrégalo en Colaboradores.`); return; }
+            const w = window.open('about:blank', '_blank'); // se abre ya (los celulares bloquean ventanas abiertas después de esperar)
+            try {
+                const r = await apiFetch(`/api/discipline/${id}/link`, { method: 'POST', body: '{}' });
+                const link = `${location.origin}/comunicacion.html#t=${r.token}`;
+                const first = String(c.name).split(' ')[0];
+                const org = appState.orgName || 'la empresa';
+                const msg = `Hola ${first}, ${org} te envía una comunicación sobre: ${c.typeLabel.toLowerCase()}.\n\nÁbrela aquí: ${link}\n\nAl abrirla, por favor pulsa "Recibido". Allí también puedes escribir tus descargos. El enlace vence el ${String(r.expires).split('-').reverse().join('/')}.`;
+                const url = `https://wa.me/${c.phone}?text=${encodeURIComponent(msg)}`;
+                if (w) w.location.href = url; else location.href = url;
+                await loadDiscData(); if (document.getElementById('modalDisc').classList.contains('flex')) setDiscTab('hist');
+            } catch (e) { if (w) w.close(); showAppToast(e.message); }
+        }
+        function discRestoreTpl(k) {
+            const t = discData.config.defaults.templates[k];
+            document.getElementById('discTplTitle_' + k).value = t.title; document.getElementById('discTplBody_' + k).value = t.body;
+        }
+        async function discSaveCfg() {
+            const T = discData.typeLabels, rules = {}, templates = {};
+            Object.keys(T).forEach(k => {
+                rules[k] = { on: document.getElementById('discOn_' + k).checked, count: Number(document.getElementById('discCount_' + k).value), days: Number(document.getElementById('discDays_' + k).value) };
+                templates[k] = { title: document.getElementById('discTplTitle_' + k).value, body: document.getElementById('discTplBody_' + k).value };
+            });
+            const m = document.getElementById('discCfgMsg');
+            try {
+                await apiFetch('/api/discipline/config', { method: 'PUT', body: JSON.stringify({ rules, templates, signer: document.getElementById('discSigner').value, city: document.getElementById('discCity').value }) });
+                showAppToast('Reglas y plantillas guardadas.'); await loadDiscData(); setDiscTab('cfg');
+            } catch (e) { m.textContent = e.message; m.classList.remove('hidden'); }
+        }
+
         // ---- Descansos acumulados (contratos fijo e indefinido) ----
         let leaveData = null, leaveLoadedAt = 0, leaveOpenEmp = null;
         async function loadLeaveData(force) {
@@ -8575,7 +8801,7 @@
             };
             document.getElementById('breadcrumbCurrent').innerText = titles[viewId] || 'Módulo';
 
-            if (viewId === 'employees') renderEmployeesView();
+            if (viewId === 'employees') { renderEmployeesView(); loadDiscData(); }
             if (viewId === 'shifts') {
                 loadLeaveData(); // saldo de descansos para el aviso del "Descanso acumulado"
                 // Al entrar al módulo siempre se muestra la semana actual.
