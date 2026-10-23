@@ -300,6 +300,9 @@ const server = http.createServer(async (req, res) => {
   const fullPath = path.normalize(path.join(PUBLIC_DIR, filePath));
   if (!fullPath.startsWith(PUBLIC_DIR)) { res.writeHead(400); return res.end('Bad request'); }
   if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+    // Librerias de /vendor: el nombre lleva la version, asi que el navegador
+    // puede guardarlas un año (si cambian, cambia el nombre del archivo).
+    if (filePath.startsWith('/vendor/')) return sendFile(res, fullPath, { 'Cache-Control': 'public, max-age=31536000, immutable' });
     return sendFile(res, fullPath);
   }
   res.writeHead(404, { 'Content-Type': 'text/plain' });

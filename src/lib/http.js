@@ -23,7 +23,7 @@ function sendJson(res, status, obj) {
   res.end(body);
 }
 
-function sendFile(res, filePath) {
+function sendFile(res, filePath, extraHeaders) {
   fs.readFile(filePath, (err, data) => {
     if (err) {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -34,6 +34,7 @@ function sendFile(res, filePath) {
     res.writeHead(200, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       'X-Content-Type-Options': 'nosniff',
+      ...(extraHeaders || {}),
     });
     res.end(data);
   });
