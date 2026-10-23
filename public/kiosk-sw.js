@@ -6,7 +6,7 @@
 //   (o a la cola sin conexión que ya maneja kiosk.html).
 // IMPORTANTE: cada vez que se modifique kiosk.html, subir KIOSK_SW_VERSION
 // para que las tablets instaladas se actualicen solas.
-const KIOSK_SW_VERSION = '2026.10-facial-local1';
+const KIOSK_SW_VERSION = '2026.10-local2';
 const CORE_CACHE = 'kiosco-core-' + KIOSK_SW_VERSION;
 const CDN_CACHE = 'kiosco-cdn-v1'; // librerías y modelo facial: se conservan entre versiones
 
@@ -21,7 +21,6 @@ const CORE_FILES = [
 ];
 // Se piden igual que las pide la página (<script>/<link> sin CORS).
 const CDN_FILES = [
-  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css',
   'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js',
 ];
 const CDN_HOSTS = ['cdn.tailwindcss.com', 'cdnjs.cloudflare.com', 'cdn.jsdelivr.net'];
@@ -34,7 +33,13 @@ const FACE_FILES = ['face-api.js',
   'model/tiny_face_detector_model-weights_manifest.json', 'model/tiny_face_detector_model.bin',
   'model/face_landmark_68_model-weights_manifest.json', 'model/face_landmark_68_model.bin',
   'model/face_recognition_model-weights_manifest.json', 'model/face_recognition_model.bin',
-].map(f => FACE_DIR + f);
+].map(f => FACE_DIR + f).concat([
+  // Íconos (Font Awesome) servidos por la propia suite.
+  '/vendor/fontawesome-6.5.1/css/all.min.css',
+  '/vendor/fontawesome-6.5.1/webfonts/fa-solid-900.woff2',
+  '/vendor/fontawesome-6.5.1/webfonts/fa-regular-400.woff2',
+  '/vendor/fontawesome-6.5.1/webfonts/fa-brands-400.woff2',
+]);
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
@@ -130,8 +135,9 @@ self.addEventListener('fetch', (event) => {
       event.respondWith(cacheFirst(req, CORE_CACHE));
       return;
     }
-    // Reconocimiento facial (archivos grandes con versión en la ruta): primero lo guardado.
-    if (url.pathname.startsWith(FACE_DIR)) {
+    // Librerías de /vendor (reconocimiento facial, íconos; la versión va en la
+    // ruta, no cambian): primero lo guardado.
+    if (url.pathname.startsWith('/vendor/')) {
       event.respondWith(cacheFirst(new Request(url.pathname), CDN_CACHE));
     }
     return;

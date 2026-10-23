@@ -1,0 +1,9 @@
+/* Letra Inter (rsms/inter, v4, licencia SIL OFL 1.1) servida por la propia suite.
+   Una sola fuente variable cubre todos los grosores (300 a 900) que usa la suite. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('InterVariable.woff2') format('woff2');
+}
