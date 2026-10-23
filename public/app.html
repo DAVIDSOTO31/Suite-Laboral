@@ -3955,9 +3955,48 @@
         }
 
         // Muestra / oculta las horas del turno partido; el descanso se calcula solo.
+        // Turno partido: las 4 horas se agrupan por etapa, en orden:
+        //   Etapa 1: Entrada -> Sale a descanso   |   Etapa 2: Regresa -> Salida final
+        // (se mueven los mismos campos; al quitar "turno partido" vuelven a su lugar).
+        const SPLIT_STAGE_FIELDS = {
+            preset: { start: 'newPresetStart', end: 'newPresetEnd', out: 'newPresetSplitOut', in: 'newPresetSplitIn', box: 'newPresetSplitFields' },
+            roster: { start: 'rosterAssignStart', end: 'rosterAssignEnd', out: 'rosterAssignSplitOut', in: 'rosterAssignSplitIn', box: 'rosterAssignSplitFields' },
+        };
+        const SPLIT_STAGE_LABELS = { start: 'Entrada', out: 'Sale a descanso', in: 'Regresa del descanso', end: 'Salida final' };
+        function arrangeSplitStages(kind, on) {
+            const c = SPLIT_STAGE_FIELDS[kind];
+            const box = c && document.getElementById(c.box);
+            if (!box) return;
+            const wrap = (k) => { const el = document.getElementById(c[k]); return el ? el.parentElement : null; };
+            const w = { start: wrap('start'), out: wrap('out'), in: wrap('in'), end: wrap('end') };
+            if (Object.values(w).some(x => !x)) return;
+            // Marcadores para devolver Entrada y Salida a su sitio original.
+            ['start', 'end'].forEach(k => {
+                if (!w[k]._home) { w[k]._home = document.createComment('lugar-' + c[k]); w[k].parentNode.insertBefore(w[k]._home, w[k]); }
+            });
+            Object.entries(w).forEach(([k, el]) => {
+                const lab = el.querySelector('label');
+                if (!lab) return;
+                if (lab.dataset.origLabel == null) lab.dataset.origLabel = lab.innerHTML;
+                lab.innerHTML = on
+                    ? `${escapeHtml(SPLIT_STAGE_LABELS[k])}${/autom/i.test(lab.dataset.origLabel) ? ' <span class="font-normal text-slate-400">(automática)</span>' : ''}`
+                    : lab.dataset.origLabel;
+            });
+            box.querySelectorAll('[data-split-stage-head]').forEach(h => h.remove());
+            if (on) {
+                const head = (n, txt, cls) => { const p = document.createElement('p'); p.dataset.splitStageHead = n; p.className = `col-span-2 text-2xs font-extrabold uppercase tracking-wide ${cls}`; p.textContent = txt; return p; };
+                box.append(head(1, 'Etapa 1 · primera parte del turno', 'text-sky-800'), w.start, w.out,
+                           head(2, 'Etapa 2 · segunda parte del turno', 'text-violet-800 pt-1 border-t border-yellow-300'), w.in, w.end);
+            } else {
+                ['start', 'end'].forEach(k => { if (w[k]._home && w[k]._home.parentNode) w[k]._home.parentNode.insertBefore(w[k], w[k]._home.nextSibling); });
+                box.append(w.out, w.in);
+            }
+        }
+
         function toggleRosterSplitFields() {
             const on = document.getElementById('rosterAssignIsSplit').checked;
             document.getElementById('rosterAssignSplitFields').classList.toggle('hidden', !on);
+            arrangeSplitStages('roster', on);
             const brk = document.getElementById('rosterAssignBreak');
             const wasSplit = brk.dataset.splitMode === '1';
             if (on && !wasSplit) brk.dataset.prevBreak = brk.value; // se recupera si se vuelve a turno normal
@@ -4105,6 +4144,7 @@
             document.getElementById('newPresetIsSplit').checked = !!p.isSplit;
             document.getElementById('newPresetIsSplit').disabled = p.id === SPLIT_PRESET_ID;
             document.getElementById('newPresetSplitFields').classList.toggle('hidden', !p.isSplit);
+            arrangeSplitStages('preset', !!p.isSplit);
             document.getElementById('newPresetBreak').disabled = !!p.isSplit;
             if (p.isSplit) {
                 document.getElementById('newPresetSplitOut').value = p.splitOut || '12:00';
@@ -4123,6 +4163,7 @@
             document.getElementById('newPresetIsSplit').disabled = false;
             document.getElementById('newPresetLimit').value = 8;
             document.getElementById('newPresetSplitFields').classList.add('hidden');
+            arrangeSplitStages('preset', false);
             document.getElementById('newPresetBreak').disabled = false;
             const f = autoEndForm('preset'); f.recompute && f.recompute();
             syncColorPickers();
@@ -4135,6 +4176,7 @@
         function toggleNewPresetSplit() {
             const on = document.getElementById('newPresetIsSplit').checked;
             document.getElementById('newPresetSplitFields').classList.toggle('hidden', !on);
+            arrangeSplitStages('preset', on);
             document.getElementById('newPresetBreak').disabled = on;
             if (on) document.getElementById('newPresetBreak').value = minutesBetween(document.getElementById('newPresetSplitOut').value, document.getElementById('newPresetSplitIn').value);
             const f = autoEndForm('preset'); f.recompute && f.recompute();
