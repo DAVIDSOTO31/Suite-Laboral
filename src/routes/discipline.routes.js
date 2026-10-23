@@ -428,6 +428,7 @@ async function publicSign(req, res, params) {
       received_at = COALESCE(received_at, datetime('now', '-5 hours')), received_ip = COALESCE(received_ip, ?), status = 'recibido' WHERE id = ?`)
     .run(sig, docTyped, ip, ua, docHash(c), ip, c.id);
   logAction({ organizationId: c.organization_id, userId: null, action: 'discipline.signed', resourceType: 'employee', resourceId: String(c.employee_id), ip, metadata: { tipo: TYPE_LABEL[c.rule_type], colaborador: emp.name } });
+  notifySigned(c, emp);
   sendJson(res, 200, { ok: true });
 }
 async function publicAck(req, res, params) {
@@ -483,9 +484,26 @@ if (scanTimer.unref) scanTimer.unref();
 const firstScan = setTimeout(scanAll, 60 * 1000);
 if (firstScan.unref) firstScan.unref();
 
-// Llamados por revisar para la campana (los de los ultimos dias).
+// Aviso al celular cuando el colaborador firma (fuera del horario de silencio;
+// en la campana queda siempre).
+function notifySigned(c, emp) {
+  let push;
+  try { push = require('../lib/push'); } catch { return; }
+  if (push.isQuietTime()) return;
+  const e = db.prepare("SELECT name, COALESCE(department, 'Sin área') AS department FROM employees WHERE id = ?").get(c.employee_id) || emp || {};
+  const s = String(e.name || '').trim();
+  const nice = s === s.toUpperCase() ? s.toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, sp, ch) => sp + ch.toUpperCase()) : s;
+  push.sendToOrgAdmins(c.organization_id, {
+    title: `✍️ ${nice}`,
+    body: `Firmó el llamado de atención\n${TYPE_LABEL[c.rule_type]}\nÁrea: ${e.department}`,
+    tag: `llamado-firmado-${c.id}`, url: '/app.html#llamados-historial',
+    actions: [{ action: 'ver', title: 'Ver llamado' }],
+  }).catch(err => console.error('[llamados]', err.message));
+}
+
+// Llamados por revisar y llamados firmados, para la campana (los de los ultimos dias).
 function bellItems(orgId, sinceSql) {
-  return db.prepare(`SELECT c.id, c.employee_id, c.rule_type, c.alert_ids, c.created_at, e.name AS employee_name, COALESCE(e.department, 'Sin área') AS department
+  const pend = db.prepare(`SELECT c.id, c.employee_id, c.rule_type, c.alert_ids, c.created_at, e.name AS employee_name, COALESCE(e.department, 'Sin área') AS department
     FROM discipline_cases c JOIN employees e ON e.id = c.employee_id
     WHERE c.organization_id = ? AND c.status = 'propuesto' AND c.created_at >= ? ORDER BY c.created_at DESC`).all(orgId, sinceSql)
     .map(r => {
@@ -493,6 +511,13 @@ function bellItems(orgId, sinceSql) {
       return { id: r.id, type: 'llamado', label: 'Llamado por revisar', employeeId: r.employee_id, employeeName: r.employee_name, department: r.department,
         date: String(r.created_at).slice(0, 10), createdAt: r.created_at, mgmt: 'llamado', text: `${TYPE_LABEL[r.rule_type]}: ${n} novedad(es) injustificada(s). Revisa y decide si se genera el llamado.` };
     });
+  const signed = db.prepare(`SELECT c.id, c.employee_id, c.rule_type, c.signed_at, c.descargos_text, e.name AS employee_name, COALESCE(e.department, 'Sin área') AS department
+    FROM discipline_cases c JOIN employees e ON e.id = c.employee_id
+    WHERE c.organization_id = ? AND c.signed_at IS NOT NULL AND c.signed_at >= ? AND c.annulled_at IS NULL ORDER BY c.signed_at DESC`).all(orgId, sinceSql)
+    .map(r => ({ id: 'firma:' + r.id, caseId: r.id, type: 'llamado_firmado', label: 'Llamado firmado', employeeId: r.employee_id, employeeName: r.employee_name, department: r.department,
+      date: String(r.signed_at).slice(0, 10), createdAt: r.signed_at, mgmt: 'llamado_firmado',
+      text: `Firmó electrónicamente el llamado por ${String(TYPE_LABEL[r.rule_type] || '').toLowerCase()}${r.descargos_text ? ' y envió descargos' : ''}.` }));
+  return pend.concat(signed);
 }
 
 module.exports = { publicSign, caseSignature, bellItems, listCases, draftCase, decideCase, createLink, saveConfig, publicView, publicAck, scanOrg, TYPE_LABEL };

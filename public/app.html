@@ -1917,6 +1917,20 @@
         </div>
     </div>
 
+    <!-- MODAL: Visor de PDF (ver sin descargar) -->
+    <div id="modalPdfViewer" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm hidden items-center justify-center z-[70] p-2 sm:p-4">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-4xl h-[94vh] flex flex-col">
+            <div class="flex items-center justify-between gap-2 px-4 py-2.5 border-b">
+                <p id="pdfViewerCaption" class="font-bold text-slate-800 text-sm truncate"></p>
+                <div class="flex items-center gap-2 shrink-0">
+                    <button type="button" onclick="downloadPdfViewer()" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold"><i class="fa-solid fa-download"></i> Descargar</button>
+                    <button type="button" onclick="closePdfViewer()" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+            </div>
+            <iframe id="pdfViewerFrame" title="Documento PDF" class="flex-1 w-full rounded-b-xl bg-slate-100"></iframe>
+        </div>
+    </div>
+
     <!-- MODAL: Llamados de atención (comunicación de novedades y citación a descargos) -->
     <div id="modalDisc" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
         <div class="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[92vh] flex flex-col">
@@ -3280,11 +3294,11 @@
                         return `<tr>
                             <td class="px-2 py-2 font-semibold text-slate-800">${escapeHtml(c.name)}<span class="block text-3xs font-normal text-slate-500">${escapeHtml(c.area || '')}</span></td>
                             <td class="px-2 py-2">${escapeHtml(c.typeLabel)} <span class="text-slate-400">(${c.count})</span></td>
-                            <td class="px-2 py-2"><span class="px-2 py-0.5 rounded-full text-3xs font-bold ${st[1]}">${st[0]}</span>${c.descargos ? ' <span class="px-2 py-0.5 rounded-full text-3xs font-bold bg-indigo-100 text-indigo-800">Con descargos</span>' : ''}</td>
+                            <td class="px-2 py-2"><span class="px-2 py-0.5 rounded-full text-3xs font-bold ${st[1]}">${st[0]}</span>${c.descargos ? ` <button type="button" onclick="discDescargos('${c.id}')" title="Ver los descargos" class="px-2 py-0.5 rounded-full text-3xs font-bold bg-indigo-100 text-indigo-800 hover:bg-indigo-200 underline decoration-dotted underline-offset-2"><i class="fa-regular fa-comment-dots"></i> Con descargos</button>` : ''}</td>
                             <td class="px-2 py-2 text-3xs text-slate-500 leading-tight">${c.annulledAt ? `Enviado ${fmt(c.sentAt)}<br>Anulado ${fmt(c.annulledAt)}<br>Motivo: ${escapeHtml(c.annulReason)}` : c.status === 'descartado' ? `Descartado ${fmt(c.decidedAt)}<br>Motivo: ${escapeHtml(c.discardReason)}` : `Generado ${fmt(c.docDate)}${c.sentAt ? `<br>Enviado ${fmt(c.sentAt)}` : ''}${c.receivedAt ? `<br>Recibido ${fmt(c.receivedAt)} ${String(c.receivedAt).slice(11, 16)}` : ''}${c.signedAt ? `<br><strong class="text-emerald-700">Firmado ${fmt(c.signedAt)} ${String(c.signedAt).slice(11, 16)}</strong>` : ''}${c.descargosAt ? `<br>Descargos ${fmt(c.descargosAt)}` : ''}`}</td>
                             <td class="px-2 py-2 text-right whitespace-nowrap">${c.annulledAt ? `<button type="button" onclick="discView('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Ver</button>` : c.status === 'descartado' ? '' : `
                                 <button type="button" onclick="discView('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Ver</button>
-                                <button type="button" onclick="discPdf('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">PDF</button>
+                                <button type="button" onclick="discPdf('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold"><i class="fa-regular fa-file-pdf"></i> Ver PDF</button>
                                 ${canEdit ? `<button type="button" onclick="discWhatsApp('${c.id}')" class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold"><i class="fa-brands fa-whatsapp"></i> ${c.sentAt ? 'Reenviar' : 'Enviar'}</button>` : ''}
                                 ${canEdit && c.status === 'generado' ? `<button type="button" onclick="discEditing='${c.id}'; discTab='rev'; discStartEdit('${c.id}', true)" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Editar</button>
                                     <button type="button" onclick="discDiscard('${c.id}', true)" class="px-2 py-1 rounded bg-white border border-slate-300 hover:bg-slate-50 font-semibold">Descartar</button>` : ''}
@@ -3395,14 +3409,54 @@
                 <div class="border border-slate-200 rounded-lg p-4"><p class="font-bold text-slate-900 text-sm mb-2">${escapeHtml(c.docTitle)}</p><div class="whitespace-pre-wrap text-slate-800 leading-relaxed">${escapeHtml(c.docBody)}</div></div>
                 ${c.descargos ? `<div class="mt-3 border border-indigo-200 bg-indigo-50/50 rounded-lg p-4"><p class="font-bold text-indigo-900">Descargos del colaborador (${String(c.descargosAt).slice(0, 10).split('-').reverse().join('/')})</p><div class="whitespace-pre-wrap text-slate-800 mt-1">${escapeHtml(c.descargos)}</div></div>` : ''}`;
         }
+        // Descargos del colaborador (desde la etiqueta "Con descargos" del historial).
+        function discDescargos(id) {
+            const c = discData.cases.find(x => x.id === id); if (!c || !c.descargos) return;
+            const at = String(c.descargosAt || '');
+            document.getElementById('discBody').innerHTML = `<button type="button" onclick="renderDisc()" class="mb-3 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 font-semibold"><i class="fa-solid fa-arrow-left"></i> Volver</button>
+                <div class="border border-indigo-200 bg-indigo-50/50 rounded-lg p-4">
+                    <p class="font-bold text-indigo-900 text-sm"><i class="fa-regular fa-comment-dots"></i> Descargos de ${escapeHtml(c.name)}</p>
+                    <p class="text-3xs text-slate-500 mt-0.5">${escapeHtml(c.typeLabel)} · enviados el ${at.slice(0, 10).split('-').reverse().join('/')}${at.length > 11 ? ' a las ' + at.slice(11, 16) : ''}</p>
+                    <div class="whitespace-pre-wrap text-slate-800 leading-relaxed mt-3 bg-white border border-indigo-100 rounded-lg p-3">${escapeHtml(c.descargos)}</div>
+                </div>
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <button type="button" onclick="discView('${c.id}')" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 font-semibold">Ver el documento</button>
+                    <button type="button" onclick="discPdf('${c.id}')" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 font-semibold"><i class="fa-regular fa-file-pdf"></i> Ver PDF</button>
+                </div>`;
+        }
         async function discPdf(id) {
             const c = discData.cases.find(x => x.id === id); if (!c) return;
             let signature = '';
             if (c.signedAt) { try { signature = (await apiFetch(`/api/discipline/${id}/signature`)).signature; } catch (e) { /* sin imagen */ } }
-            await buildDiscPdf({ title: c.docTitle, body: c.docBody, name: c.name, employeeId: c.employeeId, docDate: c.docDate,
+            const res = await buildDiscPdf({ title: c.docTitle, body: c.docBody, name: c.name, employeeId: c.employeeId, docDate: c.docDate,
                 signature, signedAt: c.signedAt, signedDoc: c.signedDoc, signedIp: c.signedIp, verifyCode: c.verifyCode,
-                adminSignature: discData.config.signerSignature || '' }, false);
+                adminSignature: discData.config.signerSignature || '' }, false, true);
+            if (res) openPdfViewer(res.doc, res.fileName, `${c.name} · ${c.typeLabel}${c.signedAt ? ' · Firmado' : ''}`);
         }
+        // Visor de PDF dentro de la suite: se ve sin descargar; si el navegador
+        // no muestra PDF incrustados (algunos celulares), se abre en otra pestaña.
+        let pdfViewerUrl = '', pdfViewerDoc = null, pdfViewerName = '';
+        function openPdfViewer(doc, fileName, caption) {
+            closePdfViewer();
+            pdfViewerDoc = doc; pdfViewerName = fileName;
+            pdfViewerUrl = URL.createObjectURL(doc.output('blob'));
+            if (navigator.pdfViewerEnabled === false) {
+                const w = window.open(pdfViewerUrl, '_blank');
+                if (!w) doc.save(fileName);
+                return;
+            }
+            document.getElementById('pdfViewerCaption').textContent = caption || fileName;
+            document.getElementById('pdfViewerFrame').src = pdfViewerUrl;
+            const m = document.getElementById('modalPdfViewer'); m.classList.remove('hidden'); m.classList.add('flex');
+        }
+        function closePdfViewer() {
+            const m = document.getElementById('modalPdfViewer');
+            if (m) { m.classList.add('hidden'); m.classList.remove('flex'); }
+            const f = document.getElementById('pdfViewerFrame'); if (f) f.removeAttribute('src');
+            if (pdfViewerUrl) { const u = pdfViewerUrl; setTimeout(() => URL.revokeObjectURL(u), 60000); }
+            pdfViewerUrl = '';
+        }
+        function downloadPdfViewer() { if (pdfViewerDoc) pdfViewerDoc.save(pdfViewerName); }
         // Vista previa: el PDF con el texto que está en pantalla, sin guardar nada.
         async function discPreviewPdf(id) {
             const c = discData.cases.find(x => x.id === id); if (!c) return;
@@ -3410,7 +3464,7 @@
             if (!title || !body.trim()) { showAppToast('El documento está vacío.'); return; }
             await buildDiscPdf({ title, body, name: c.name, employeeId: c.employeeId, docDate: bogotaTodayISO(), adminSignature: discData.config.signerSignature || '' }, true);
         }
-        async function buildDiscPdf(c, preview) {
+        async function buildDiscPdf(c, preview, forView) {
             try { await loadScriptOnce('/vendor/jspdf-2.5.1.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF)); } catch (e) { showAppToast(e.message); return; }
             const logo = await pdfOrgLogo();
             const { jsPDF } = window.jspdf;
@@ -3490,7 +3544,9 @@
                 }
                 doc.setTextColor(0, 0, 0);
             }
-            doc.save(`${preview ? 'VISTA_PREVIA_' : ''}Comunicacion_${String(c.name).replace(/[^A-Za-z0-9áéíóúñÁÉÍÓÚÑ]+/g, '_')}_${c.docDate}.pdf`);
+            const fileName = `${preview ? 'VISTA_PREVIA_' : ''}Comunicacion_${String(c.name).replace(/[^A-Za-z0-9áéíóúñÁÉÍÓÚÑ]+/g, '_')}_${c.docDate}.pdf`;
+            if (forView) return { doc, fileName };
+            doc.save(fileName);
         }
         async function discWhatsApp(id) {
             const c = discData.cases.find(x => x.id === id); if (!c) return;
@@ -9681,6 +9737,7 @@
         // =================================================================
         const NOTIF_TYPE_UI = {
             llamado: { icon: 'fa-file-signature', cls: 'bg-amber-100 text-amber-800' },
+            llamado_firmado: { icon: 'fa-signature', cls: 'bg-emerald-100 text-emerald-700' },
             llegada_tarde: { icon: 'fa-clock', cls: 'bg-rose-100 text-rose-700' },
             exceso_almuerzo: { icon: 'fa-utensils', cls: 'bg-orange-100 text-orange-700' },
             salida_anticipada: { icon: 'fa-person-walking-arrow-right', cls: 'bg-amber-100 text-amber-800' },
@@ -9791,7 +9848,7 @@
             const list = document.getElementById('notifList');
             const items = notifData.items || [];
             const n = notifData.unread || 0;
-            const sub = items.some(i => i.type === 'llamado') ? 'Alertas y llamados de atención' : 'Alertas de Asistencia';
+            const sub = items.some(i => i.type === 'llamado' || i.type === 'llamado_firmado') ? 'Alertas y llamados de atención' : 'Alertas de Asistencia';
             document.getElementById('notifSubtitle').textContent = n ? `${n} nueva${n === 1 ? '' : 's'} · ${sub}` : `${sub} · todo al día`;
             document.getElementById('notifMarkAllBtn').classList.toggle('invisible', n === 0);
             if (!items.length) {
@@ -9799,7 +9856,7 @@
                     <p class="text-sm font-semibold text-slate-700">Sin alertas recientes</p><p class="text-xs text-slate-500">Aquí aparecerán las llegadas tarde, ausencias y demás novedades.</p></div>`;
                 return;
             }
-            const EST = { justificada: ['Justificada', 'text-emerald-700'], injustificada: ['Injustificada', 'text-rose-700'], pendiente: ['Pendiente', 'text-slate-500'], llamado: ['Por revisar · Colaboradores → Llamados de atención', 'text-amber-700'] };
+            const EST = { justificada: ['Justificada', 'text-emerald-700'], injustificada: ['Injustificada', 'text-rose-700'], pendiente: ['Pendiente', 'text-slate-500'], llamado: ['Por revisar · Colaboradores → Llamados de atención', 'text-amber-700'], llamado_firmado: ['Firmado · Ver en el historial de llamados', 'text-emerald-700'] };
             list.innerHTML = items.map(it => {
                 const ui = NOTIF_TYPE_UI[it.type] || { icon: 'fa-bell', cls: 'bg-slate-100 text-slate-600' };
                 const est = EST[it.mgmt] || EST.pendiente;
@@ -9908,6 +9965,7 @@
             const it = (notifData.items || []).find(x => x.id === id);
             closeNotifPanel();
             if (it && it.type === 'llamado') { switchView('employees'); discTab = 'rev'; openDiscModal(); return; }
+            if (it && it.type === 'llamado_firmado') { switchView('employees'); discTab = 'hist'; openDiscModal(); return; }
             if (!it) { openAllNotifAlerts(); return; }
             switchView('attendance');
             document.getElementById('attAlertsFrom').value = it.date;
@@ -9934,6 +9992,7 @@
         // Al tocar un aviso del celular la suite abre con #alerta=<id> o #alertas.
         async function handleNotifHash(hash) {
             if (!hash) return;
+            if (hash === '#llamados-historial' && CAN('employees.view')) { history.replaceState(null, '', location.pathname + location.search); switchView('employees'); discTab = 'hist'; openDiscModal(); return; }
             if (hash === '#llamados' && CAN('employees.view')) { history.replaceState(null, '', location.pathname + location.search); switchView('employees'); discTab = 'rev'; openDiscModal(); return; }
             if (!CAN('attendance.view_alerts')) return;
             if (!hash.startsWith('#alerta=') && hash !== '#alertas') return;
