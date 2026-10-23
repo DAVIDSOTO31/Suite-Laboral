@@ -2112,8 +2112,12 @@ function loadIndicatorData(orgId, from, to) {
       WHERE a.organization_id = ? AND a.shift_date BETWEEN ? AND ?
         AND a.alert_type IN ('llegada_tarde','exceso_almuerzo','salida_anticipada','inasistencia','turno_sin_cerrar','marcacion_manual','etapa_extendida')`)
     .all(orgId, from, to);
+  // Correcciones hechas en el Historial (una fila por marcacion corregida).
+  const corrections = db.prepare(`SELECT c.employee_id, c.shift_date, c.mark_type, c.original_time, c.corrected_time, c.reason, c.created_at, u.email AS by_email
+      FROM attendance_corrections c LEFT JOIN users u ON u.id = c.created_by
+      WHERE c.organization_id = ? AND c.shift_date BETWEEN ? AND ? ORDER BY c.created_at`).all(orgId, from, to);
   const mw = db.prepare('SELECT minimum_wage FROM org_settings WHERE organization_id = ?').get(orgId);
-  return { employees, shifts, absenceDays, days, alerts, dayZero: getDayZero(orgId), incapacityEpisodes: buildIncapacityEpisodes(incapDays, workKeys), minimumWage: (mw && Number(mw.minimum_wage)) || 1750905 };
+  return { employees, shifts, absenceDays, days, alerts, corrections, dayZero: getDayZero(orgId), incapacityEpisodes: buildIncapacityEpisodes(incapDays, workKeys), minimumWage: (mw && Number(mw.minimum_wage)) || 1750905 };
 }
 
 // Agrupa los dias de incapacidad de cada colaborador en EPISODIOS (una misma
@@ -2150,7 +2154,7 @@ function buildIncapacityEpisodes(incapDays, workKeys) {
 function emptyBucket(name) {
   return { name, programados: 0, asistidos: 0, ausencias: 0, ausenciasJustificadas: 0, ausIncapacidad: 0, ausOtras: 0, entradas: 0, tarde: 0,
     minutosRetraso: 0, minutosAlmuerzo: 0, minutosPerdidos: 0, costoPerdido: 0, almuerzosExceso: 0, costoRetraso: 0, costoAlmuerzo: 0, extraDiurnaMin: 0, extraNocturnaMin: 0,
-    extraGeneradaMin: 0, descuentoSalidaMin: 0, valorExtras: 0, sinCerrar: 0, manuales: 0,
+    extraGeneradaMin: 0, descuentoSalidaMin: 0, valorExtras: 0, sinCerrar: 0, manuales: 0, correcciones: 0,
     // Costo de extras y recargos (dias con turno cerrado, marcaciones reales).
     recargoNocturnoMin: 0, costoRecargo: 0, costoExtraDiurna: 0, costoExtraNocturna: 0, costoSalida: 0, costoTotal: 0 };
 }
@@ -2180,7 +2184,7 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
   const today = bogota.todayISOInBogota(now);
   // Detalle de cada indicador (solo para el periodo consultado): se muestra al
   // hacer clic en la tarjeta correspondiente.
-  const det = withDetails ? { ausencias: [], tardes: [], perdido: new Map(), extras: new Map(), costo: new Map(), sinCerrar: [], manuales: [] } : null;
+  const det = withDetails ? { ausencias: [], tardes: [], perdido: new Map(), extras: new Map(), costo: new Map(), sinCerrar: [], manuales: [], correcciones: [] } : null;
   const empRow = (map, emp, init) => { if (!map.has(emp.id)) map.set(emp.id, { employeeId: emp.id, name: emp.name, area: emp.department, ...init }); return map.get(emp.id); };
   const mgmtOf = new Map(data.alerts.map(a => [`${a.employee_id}|${a.shift_date}|${a.alert_type}`, a.mgmt]));
   const total = emptyBucket('Total');
@@ -2284,6 +2288,27 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
       (a.alert_type === 'turno_sin_cerrar' ? det.sinCerrar : det.manuales).push({ employeeId: emp.id, name: emp.name, area: emp.department, date: a.shift_date, estado: a.mgmt });
     }
   }
+  // Correcciones en el Historial: se cuenta cada DIA corregido (un dia puede
+  // tener varias marcaciones corregidas).
+  const corrByDay = new Map();
+  for (const c of data.corrections || []) {
+    if (c.shift_date < from || c.shift_date > to) continue;
+    if (data.dayZero && c.shift_date <= data.dayZero) continue;
+    const emp = data.employees.get(c.employee_id);
+    if (!emp || (area && emp.department !== area)) continue;
+    const k = `${c.employee_id}|${c.shift_date}`;
+    if (!corrByDay.has(k)) corrByDay.set(k, { emp, date: c.shift_date, marks: new Map(), reasons: [], by: new Set() });
+    const g = corrByDay.get(k);
+    const prev = g.marks.get(c.mark_type);
+    g.marks.set(c.mark_type, { type: c.mark_type, from: prev ? prev.from : (c.original_time || null), to: c.corrected_time });
+    if (c.reason && !g.reasons.includes(c.reason)) g.reasons.push(c.reason);
+    if (c.by_email) g.by.add(c.by_email);
+  }
+  for (const g of corrByDay.values()) {
+    for (const b of bucketsFor(g.emp)) b.correcciones++;
+    if (det) det.correcciones.push({ employeeId: g.emp.id, name: g.emp.name, area: g.emp.department, date: g.date,
+      marcas: [...g.marks.values()], motivo: g.reasons.join(' · '), por: [...g.by].join(', ') });
+  }
   const out = {
     total: finishBucket(total),
     areas: [...byArea.values()].map(finishBucket).sort((a, b) => a.name.localeCompare(b.name, 'es')),
@@ -2300,6 +2325,7 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
         .sort((x, y) => y.total - x.total || x.name.localeCompare(y.name, 'es')),
       sinCerrar: det.sinCerrar.sort(byDate).slice(0, 3000),
       manuales: det.manuales.sort(byDate).slice(0, 3000),
+      correcciones: det.correcciones.sort(byDate).slice(0, 3000),
     };
   }
   return out;
@@ -2355,7 +2381,7 @@ function computeIncapacities(data, from, to, area, now) {
 //   periodo), costoMaxMes (costo de extras y recargos, $ por mes, tambien
 //   prorrateado), sinCerrarMaxPct (% de turnos asistidos), manualesMaxPct (%).
 // ---------------------------------------------------------------------------
-const DEFAULT_INDICATOR_GOALS = { ausentismoMax: 3, puntualidadMin: 95, perdidoMaxPorTurno: 5, extrasValorMaxMes: null, costoMaxMes: null, sinCerrarMaxPct: 2, manualesMaxPct: 5 };
+const DEFAULT_INDICATOR_GOALS = { ausentismoMax: 3, puntualidadMin: 95, perdidoMaxPorTurno: 5, extrasValorMaxMes: null, costoMaxMes: null, sinCerrarMaxPct: 2, manualesMaxPct: 5, correccionesMaxPct: 5 };
 function getIndicatorGoals(orgId) {
   const r = db.prepare('SELECT indicator_goals FROM org_settings WHERE organization_id = ?').get(orgId);
   let g = {};
@@ -2372,7 +2398,7 @@ async function saveIndicatorGoals(req, res) {
   try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
   const orgId = resolveOrgId(req, body);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
-  const LIMITS = { ausentismoMax: [0, 100], puntualidadMin: [0, 100], perdidoMaxPorTurno: [0, 480], extrasValorMaxMes: [0, 10000000000], costoMaxMes: [0, 10000000000], sinCerrarMaxPct: [0, 100], manualesMaxPct: [0, 100] };
+  const LIMITS = { ausentismoMax: [0, 100], puntualidadMin: [0, 100], perdidoMaxPorTurno: [0, 480], extrasValorMaxMes: [0, 10000000000], costoMaxMes: [0, 10000000000], sinCerrarMaxPct: [0, 100], manualesMaxPct: [0, 100], correccionesMaxPct: [0, 100] };
   const g = {};
   for (const [k, [lo, hi]] of Object.entries(LIMITS)) {
     const v = body[k];

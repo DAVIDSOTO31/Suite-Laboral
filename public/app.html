@@ -472,7 +472,7 @@
                                         <th class="text-right px-3 py-2">Costo extras y recargos</th>
                                         <th class="text-center px-3 py-2">Incapacidad</th>
                                         <th class="text-center px-3 py-2">Sin cerrar</th>
-                                        <th class="text-center px-3 py-2">Manuales</th>
+                                        <th class="text-center px-3 py-2">Correcciones</th>
                                     </tr></thead>
                                     <tbody id="indAreaBody"></tbody>
                                 </table>
@@ -2416,7 +2416,7 @@
                 <label class="block"><span class="font-semibold text-slate-700">Valor de horas extra máx. por mes ($)</span><input type="number" step="1000" min="0" id="goal_extrasValorMaxMes" placeholder="Ej. 3000000" class="mt-1 w-full p-2 border rounded-lg"></label>
                 <label class="block"><span class="font-semibold text-slate-700">Costo de extras y recargos máx. por mes ($)</span><input type="number" step="1000" min="0" id="goal_costoMaxMes" placeholder="Ej. 4000000" class="mt-1 w-full p-2 border rounded-lg"></label>
                 <label class="block"><span class="font-semibold text-slate-700">Turnos sin cerrar máx. (% de turnos asistidos)</span><input type="number" step="0.1" min="0" max="100" id="goal_sinCerrarMaxPct" class="mt-1 w-full p-2 border rounded-lg"></label>
-                <label class="block"><span class="font-semibold text-slate-700">Marcaciones manuales máx. (% de turnos asistidos)</span><input type="number" step="0.1" min="0" max="100" id="goal_manualesMaxPct" class="mt-1 w-full p-2 border rounded-lg"></label>
+                <label class="block"><span class="font-semibold text-slate-700">Correcciones en el historial máx. (% de turnos asistidos)</span><input type="number" step="0.1" min="0" max="100" id="goal_correccionesMaxPct" class="mt-1 w-full p-2 border rounded-lg"></label>
             </div>
             <p class="text-3xs text-slate-500">"Cerca de la meta" (amarillo): hasta un 25 % por encima del máximo permitido; en puntualidad, hasta 5 puntos por debajo del mínimo. Las metas en pesos (horas extra y costo de extras y recargos) son mensuales y se ajustan solas a la duración del periodo consultado.</p>
             <p id="indGoalsMsg" class="hidden text-xs text-rose-600 font-semibold"></p>
@@ -10788,8 +10788,8 @@
         const fmtHorasDec = (m) => `${((Number(m) || 0) / 60).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/^[−‐-]/, '-')} h`; // minutos -> horas con decimales
         const moneyS = (v) => { const n = Math.round(Number(v) || 0); return (n < 0 ? '−' : '') + pdfMoney(Math.abs(n)); }; // pesos con signo
         // ---- Metas (semáforo) ----
-        const IND_GOAL_KEYS = ['ausentismoMax', 'puntualidadMin', 'perdidoMaxPorTurno', 'extrasValorMaxMes', 'costoMaxMes', 'sinCerrarMaxPct', 'manualesMaxPct'];
-        const IND_GOAL_DEFAULTS = { ausentismoMax: 3, puntualidadMin: 95, perdidoMaxPorTurno: 5, extrasValorMaxMes: null, costoMaxMes: null, sinCerrarMaxPct: 2, manualesMaxPct: 5 };
+        const IND_GOAL_KEYS = ['ausentismoMax', 'puntualidadMin', 'perdidoMaxPorTurno', 'extrasValorMaxMes', 'costoMaxMes', 'sinCerrarMaxPct', 'correccionesMaxPct'];
+        const IND_GOAL_DEFAULTS = { ausentismoMax: 3, puntualidadMin: 95, perdidoMaxPorTurno: 5, extrasValorMaxMes: null, costoMaxMes: null, sinCerrarMaxPct: 2, correccionesMaxPct: 5 };
         // Evalúa una tarjeta contra su meta: { st: 'ok'|'warn'|'bad'|null, meta: texto }.
         function indGoalEval(key, t, d) {
             const g = (d && d.goals) || {};
@@ -10824,7 +10824,7 @@
                     return r;
                 }
                 case 'sinCerrar': return asist ? maxRule(t.sinCerrar / asist * 100, g.sinCerrarMaxPct, pctF) : { st: null };
-                case 'manuales': return asist ? maxRule(t.manuales / asist * 100, g.manualesMaxPct, pctF) : { st: null };
+                case 'correcciones': return asist ? maxRule((t.correcciones || 0) / asist * 100, g.correccionesMaxPct, pctF) : { st: null };
             }
             return { st: null };
         }
@@ -10862,7 +10862,7 @@
         // Tarjeta de Indicadores abierta (detalle desplegado debajo de las tarjetas).
         let indSelectedCard = null;
         const IND_CARD_TITLES = { ausentismo: 'Tasa de ausentismo', puntualidad: 'Índice de puntualidad', perdido: 'Tiempo perdido', extras: 'Horas extra (netas)',
-            costo: 'Costo de extras y recargos', sinCerrar: 'Turnos sin cerrar', manuales: 'Marcaciones manuales' };
+            costo: 'Costo de extras y recargos', sinCerrar: 'Turnos sin cerrar', correcciones: 'Correcciones en el historial' };
         // El botón "Exportar Excel" descarga SOLO el indicador abierto; sin ninguno abierto, todos.
         function updateIndExportButton() {
             const lbl = document.getElementById('indExportXlsLabel'), btn = document.getElementById('indExportXlsBtn');
@@ -10922,7 +10922,7 @@
             const t = d.total, p = d.previous;
             document.getElementById('indPeriodNote').innerHTML = `Periodo: <strong>${pdfDate(d.from)} – ${pdfDate(d.to)}</strong>${d.area ? ` · Área: <strong>${escapeHtml(d.area)}</strong>` : ''} · Comparado con: ${pdfDate(d.prevFrom)} – ${pdfDate(d.prevTo)}${d.dayZero ? ` · No incluye días hasta el Día 0 (${pdfDate(d.dayZero)})` : ''}`;
             // Cada tarjeta es un botón: al hacer clic se despliega su detalle.
-            const cardKeys = ['ausentismo', 'puntualidad', 'perdido', 'extras', 'costo', 'sinCerrar', 'manuales'];
+            const cardKeys = ['ausentismo', 'puntualidad', 'perdido', 'extras', 'costo', 'sinCerrar', 'correcciones'];
             let cardIdx = 0;
             const card = (title, icon, value, sub, delta) => {
                 const key = cardKeys[cardIdx++];
@@ -10963,9 +10963,9 @@
                 card('Turnos sin cerrar', 'fa-door-open', String(t.sinCerrar),
                     'Marcaron entrada pero no la salida',
                     indDelta(t.sinCerrar, p.sinCerrar, 'down', (v) => String(v), '')),
-                card('Marcaciones manuales', 'fa-hand-pointer', String(t.manuales),
-                    'Hechas a mano (suite o kiosco), no por rostro',
-                    indDelta(t.manuales, p.manuales, 'down', (v) => String(v), '')),
+                card('Correcciones en el historial', 'fa-pen-to-square', String(t.correcciones || 0),
+                    'Días en que un administrador corrigió las marcaciones (botón "Corregir" del Historial)',
+                    indDelta(t.correcciones || 0, p.correcciones, 'down', (v) => String(v), '')),
             ].join('');
             renderIndCardDetail(d);
 
@@ -10982,7 +10982,7 @@
                     <td class="px-3 py-2 text-right">${indCellSt('costo', a, d, `<strong class="${(a.costoTotal || 0) < 0 ? 'text-rose-700' : ''}">${moneyS(a.costoTotal)}</strong>`)}<span class="block text-3xs text-slate-500" title="Recargo nocturno · extras diurnas netas · extras nocturnas">RN ${moneyS(a.costoRecargo)} · ED ${moneyS(a.costoExtraDiurna)} · EN ${moneyS(a.costoExtraNocturna)}</span></td>
                     <td class="px-3 py-2 text-center">${a.incapacidadDias ? `${a.incapacidadDias} d <span class="block text-3xs text-slate-500">${pdfMoney(a.incapacidadCosto)}</span>` : '<span class="text-slate-300">0</span>'}</td>
                     <td class="px-3 py-2 text-center">${a.sinCerrar}</td>
-                    <td class="px-3 py-2 text-center">${a.manuales}</td>
+                    <td class="px-3 py-2 text-center">${a.correcciones || 0}</td>
                 </tr>`;
             document.getElementById('indAreaBody').innerHTML = d.areas.length
                 ? d.areas.map(a => areaRow(a, false)).join('') + (d.areas.length > 1 ? areaRow(t, true) : '')
@@ -11039,8 +11039,8 @@
                     foot: (() => { const t = d.total || {}; return ['TOTAL', '', '', moneyS(t.costoRecargo), moneyS(t.costoExtraDiurna), t.costoSalida ? '−' + pdfMoney(t.costoSalida) : '-', moneyS(t.costoExtraNocturna), `<strong class="${(t.costoTotal || 0) < 0 ? 'text-rose-700' : ''}">${moneyS(t.costoTotal)}</strong>`]; })() },
                 sinCerrar: { title: 'Turnos sin cerrar', hint: 'Marcaron entrada pero no la salida.',
                     head: ['Colaborador', 'Área', 'Fecha', 'Estado'], rows: (det.sinCerrar || []).map(r => [who(r), escapeHtml(r.area), pdfDate(r.date), est(r.estado)]) },
-                manuales: { title: 'Marcaciones manuales', hint: 'Hechas a mano (suite o "Selección manual" del kiosco).',
-                    head: ['Colaborador', 'Área', 'Fecha', 'Estado'], rows: (det.manuales || []).map(r => [who(r), escapeHtml(r.area), pdfDate(r.date), est(r.estado)]) },
+                correcciones: { title: 'Correcciones en el historial', hint: 'Días en que un administrador corrigió las horas de las marcaciones. Se ve qué marcación cambió, de qué hora a qué hora, el motivo y quién lo hizo.',
+                    head: ['Colaborador', 'Área', 'Fecha', 'Marcaciones corregidas', 'Motivo', 'Corrigió'], rows: (det.correcciones || []).map(r => [who(r), escapeHtml(r.area), pdfDate(r.date), corrMarksText(r.marcas, true), escapeHtml(r.motivo || '-'), escapeHtml(r.por || '-')]) },
             }[indSelectedCard];
             if (!cfg) { box.innerHTML = ''; return; }
             box.innerHTML = `<div class="border border-sky-200 rounded-lg overflow-hidden bg-white">
@@ -11055,6 +11055,11 @@
                     <tbody>${cfg.rows.map(r => `<tr class="border-t border-slate-100">${r.map((c, i) => `<td class="px-3 py-1.5 ${i < 2 ? 'text-left' : 'text-center'}">${c}</td>`).join('')}</tr>`).join('')}</tbody>${cfg.foot ? `<tfoot class="bg-slate-100 font-semibold sticky bottom-0"><tr class="border-t-2 border-slate-300">${cfg.foot.map((c, i) => `<td class="px-3 py-2 ${i < 2 ? 'text-left uppercase text-2xs text-slate-600' : 'text-center'}">${c}</td>`).join('')}</tr></tfoot>` : ''}</table></div>`
                 : '<p class="px-3 py-5 text-center text-slate-400 text-xs">No hay registros en este periodo.</p>'}
             </div>`;
+        }
+        // "Entrada 07:12 → 07:00 · Salida — → 15:00" (correcciones del Historial).
+        function corrMarksText(marcas, html) {
+            const t = (marcas || []).map(m => `${CORR_LABELS[m.type] || m.type} ${m.from || '—'} → ${m.to}`).join(' · ');
+            return html ? escapeHtml(t) : t;
         }
         // Descarga en Excel el detalle de la tarjeta abierta (valores numéricos para filtrar y sumar).
         async function exportIndCardDetail() {
@@ -11073,7 +11078,7 @@
                     (det.costo || []).map(r => [r.name, doc(r.employeeId), r.area, r.dias, h2(r.recargoMin), r.costoRecargo, h2(r.diurnaMin), r.costoDiurna, h2(r.salidaMin), r.costoSalida, h2(r.nocturnaMin), r.costoNocturna, r.total])
                         .concat([['TOTAL', '', '', '', h2(d.total.recargoNocturnoMin), d.total.costoRecargo, h2(d.total.extraDiurnaMin), d.total.costoExtraDiurna, h2(d.total.descuentoSalidaMin), d.total.costoSalida, h2(d.total.extraNocturnaMin), d.total.costoExtraNocturna, d.total.costoTotal]])],
                 sinCerrar: ['Turnos sin cerrar', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Estado'], (det.sinCerrar || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, EST[r.estado] || r.estado])],
-                manuales: ['Marcaciones manuales', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Estado'], (det.manuales || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, EST[r.estado] || r.estado])],
+                correcciones: ['Correcciones en el historial', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Marcaciones corregidas', 'Motivo', 'Corrigió'], (det.correcciones || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, corrMarksText(r.marcas, false), r.motivo || '', r.por || ''])],
             }[indSelectedCard];
             if (!X) return;
             if (!X[2].length || (indSelectedCard === 'costo' && X[2].length <= 1)) { showAppToast(`"${IND_CARD_TITLES[indSelectedCard]}" no tiene registros en este periodo.`); return; }
@@ -11361,7 +11366,7 @@
         function indAreaSheetRows(d) {
             const row = (a, name) => [name, a.programados, a.asistidos, a.ausencias, a.ausenciasJustificadas, a.ausentismo, a.ausentismoInjustificado,
                 a.entradas, a.tarde, a.puntualidad, a.minutosRetraso, a.minutosAlmuerzo || 0, a.minutosPerdidos, a.costoPerdido,
-                Math.round((a.extraGeneradaMin || 0) / 6) / 10, Math.round((a.descuentoSalidaMin || 0) / 6) / 10, Math.round(a.extraDiurnaMin / 6) / 10, Math.round(a.extraNocturnaMin / 6) / 10, Math.round(a.extraTotalMin / 6) / 10, a.valorExtras || 0, a.costoRecargo || 0, a.costoExtraDiurna || 0, a.costoExtraNocturna || 0, a.costoTotal || 0, a.incapacidadDias || 0, a.incapacidadCosto || 0, a.sinCerrar, a.manuales];
+                Math.round((a.extraGeneradaMin || 0) / 6) / 10, Math.round((a.descuentoSalidaMin || 0) / 6) / 10, Math.round(a.extraDiurnaMin / 6) / 10, Math.round(a.extraNocturnaMin / 6) / 10, Math.round(a.extraTotalMin / 6) / 10, a.valorExtras || 0, a.costoRecargo || 0, a.costoExtraDiurna || 0, a.costoExtraNocturna || 0, a.costoTotal || 0, a.incapacidadDias || 0, a.incapacidadCosto || 0, a.sinCerrar, a.correcciones || 0];
             return d.areas.map(a => row(a, a.name)).concat([row(d.total, 'TOTAL')]);
         }
         async function exportIndicatorsXLSX() {
@@ -11373,7 +11378,7 @@
                 const wb = XLSX.utils.book_new();
                 const empById0 = (id) => { const e = appState.employees.find(x => Number(x.id) === Number(id)); return e ? docLabel(e) : ''; };
                 const head = ['Área', 'Turnos evaluados', 'Asistidos', 'Ausencias', 'Ausencias justificadas', 'Ausentismo %', 'Ausentismo injustificado %',
-                    'Entradas', 'Llegadas tarde', 'Puntualidad %', 'Min. de retraso', 'Min. exceso de almuerzo', 'Min. perdidos (retraso + almuerzo)', 'Costo perdido ($)', 'Horas extra generadas', 'Horas descontadas por salida anticipada', 'Horas extra diurnas netas', 'Horas extra nocturnas', 'Horas extra netas', 'Valor horas extra netas ($)', 'Costo recargo nocturno ($)', 'Costo extras diurnas netas ($)', 'Costo extras nocturnas ($)', 'Costo de extras y recargos ($)', 'Días de incapacidad', 'Costo incapacidad ($)', 'Turnos sin cerrar', 'Marcaciones manuales'];
+                    'Entradas', 'Llegadas tarde', 'Puntualidad %', 'Min. de retraso', 'Min. exceso de almuerzo', 'Min. perdidos (retraso + almuerzo)', 'Costo perdido ($)', 'Horas extra generadas', 'Horas descontadas por salida anticipada', 'Horas extra diurnas netas', 'Horas extra nocturnas', 'Horas extra netas', 'Valor horas extra netas ($)', 'Costo recargo nocturno ($)', 'Costo extras diurnas netas ($)', 'Costo extras nocturnas ($)', 'Costo de extras y recargos ($)', 'Días de incapacidad', 'Costo incapacidad ($)', 'Turnos sin cerrar', 'Correcciones en el historial'];
                 const info = [[`Indicadores de asistencia · ${appState.orgName || ''}`], [`Periodo: ${pdfDate(d.from)} al ${pdfDate(d.to)}${d.area ? ' · Área: ' + d.area : ''}`], []];
                 const areaRows = indAreaSheetRows(d);
                 const wsArea = XLSX.utils.aoa_to_sheet([...info, head, ...areaRows]);
@@ -11438,13 +11443,13 @@
                 ['Horas extra (netas)', fmtHorasDec(t.extraTotalMin), `Generadas ${fmtHorasDec(t.extraGeneradaMin || 0)} menos salidas anticipadas ${fmtHorasDec(t.descuentoSalidaMin || 0)}; diurnas ${fmtHorasDec(t.extraDiurnaMin)}, nocturnas ${fmtHorasDec(t.extraNocturnaMin)}`, fmtHorasDec(p.extraTotalMin)],
                 ['Costo de extras y recargos', moneyS(t.costoTotal), `Recargo nocturno ${moneyS(t.costoRecargo)}; extras diurnas netas ${moneyS(t.costoExtraDiurna)} (ya restadas salidas anticipadas ${pdfMoney(t.costoSalida || 0)}); extras nocturnas ${moneyS(t.costoExtraNocturna)}`, moneyS(p.costoTotal)],
                 ['Turnos sin cerrar', String(t.sinCerrar), 'Marcaron entrada pero no la salida', String(p.sinCerrar)],
-                ['Marcaciones manuales', String(t.manuales), 'Hechas a mano (suite o kiosco)', String(p.manuales)],
+                ['Correcciones en el historial', String(t.correcciones || 0), 'Días con marcaciones corregidas por un administrador', String(p.correcciones || 0)],
                 ['Incapacidades', `${(d.incapacities && d.incapacities.total.dias) || 0} día(s)`, `${(d.incapacities && d.incapacities.total.episodios) || 0} incapacidad(es); costo en salario ${pdfMoney(d.incapacities && d.incapacities.total.costoSalario)}`, `${(d.incapacities && d.incapacities.previous.dias) || 0} día(s)`],
             ]);
             ensure(20); txt('Por área', M, 11, 'bold', [15, 23, 42]); y += 6;
             table([{ h: 'Área', w: 40 }, { h: 'Turnos', w: 18, r: 1 }, { h: 'Ausencias', w: 18, r: 1 }, { h: 'Ausentismo', w: 22, r: 1 }, { h: 'Puntualidad', w: 22, r: 1 },
-                { h: 'Tiempo perdido', w: 26, r: 1 }, { h: 'Costo perdido', w: 26, r: 1 }, { h: 'Horas extra', w: 24, r: 1 }, { h: 'Costo extras y recargos', w: 30, r: 1 }, { h: 'Incapacidad', w: 30, r: 1 }, { h: 'Sin cerrar', w: 18, r: 1 }, { h: 'Manuales', w: 18, r: 1 }],
-                d.areas.concat(d.areas.length > 1 ? [Object.assign({}, t, { name: 'TOTAL' })] : []).map(a => [a.name, a.programados, a.ausencias, fmtPct(a.ausentismo), fmtPct(a.puntualidad), fmtMins(a.minutosPerdidos), pdfMoney(a.costoPerdido), fmtHorasDec(a.extraTotalMin), moneyS(a.costoTotal), `${a.incapacidadDias || 0} d · ${pdfMoney(a.incapacidadCosto)}`, a.sinCerrar, a.manuales]), d.areas.length > 1);
+                { h: 'Tiempo perdido', w: 26, r: 1 }, { h: 'Costo perdido', w: 26, r: 1 }, { h: 'Horas extra', w: 24, r: 1 }, { h: 'Costo extras y recargos', w: 30, r: 1 }, { h: 'Incapacidad', w: 30, r: 1 }, { h: 'Sin cerrar', w: 18, r: 1 }, { h: 'Correcciones', w: 18, r: 1 }],
+                d.areas.concat(d.areas.length > 1 ? [Object.assign({}, t, { name: 'TOTAL' })] : []).map(a => [a.name, a.programados, a.ausencias, fmtPct(a.ausentismo), fmtPct(a.puntualidad), fmtMins(a.minutosPerdidos), pdfMoney(a.costoPerdido), fmtHorasDec(a.extraTotalMin), moneyS(a.costoTotal), `${a.incapacidadDias || 0} d · ${pdfMoney(a.incapacidadCosto)}`, a.sinCerrar, a.correcciones || 0]), d.areas.length > 1);
             const inc = d.incapacities || { total: {}, previous: {}, employees: [] };
             ensure(30); txt('Incapacidades', M, 11, 'bold', [15, 23, 42]); y += 5;
             txt(`${inc.total.dias || 0} día(s) en ${inc.total.episodios || 0} incapacidad(es) de ${inc.total.colaboradores || 0} colaborador(es) · Tasa ${fmtPct(inc.total.tasa)} · Costo en salario ${pdfMoney(inc.total.costoSalario)} · A cargo de la empresa (est.) ${pdfMoney(inc.total.valorEmpresa)} · Periodo anterior: ${inc.previous.dias || 0} día(s), ${pdfMoney(inc.previous.costoSalario)}`, M, 8, 'normal', [71, 85, 105]); y += 6;

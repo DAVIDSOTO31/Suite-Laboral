@@ -211,7 +211,7 @@ function describeAudit(row, ctx = {}) {
     case 'org_data.sync': return out('Configuración', 'Guardado (registro anterior)', 'Guardó cambios en colaboradores y turnos (registro anterior, sin detalle).');
 
     case 'attendance.indicator_goals': {
-      const N = { ausentismoMax: 'Ausentismo máximo (%)', puntualidadMin: 'Puntualidad mínima (%)', perdidoMaxPorTurno: 'Tiempo perdido máx. por turno (min)', extrasValorMaxMes: 'Valor de horas extra máx. por mes ($)', costoMaxMes: 'Costo de extras y recargos máx. por mes ($)', sinCerrarMaxPct: 'Turnos sin cerrar máx. (%)', manualesMaxPct: 'Marcaciones manuales máx. (%)' };
+      const N = { ausentismoMax: 'Ausentismo máximo (%)', puntualidadMin: 'Puntualidad mínima (%)', perdidoMaxPorTurno: 'Tiempo perdido máx. por turno (min)', extrasValorMaxMes: 'Valor de horas extra máx. por mes ($)', costoMaxMes: 'Costo de extras y recargos máx. por mes ($)', sinCerrarMaxPct: 'Turnos sin cerrar máx. (%)', manualesMaxPct: 'Marcaciones manuales máx. (%)', correccionesMaxPct: 'Correcciones en el historial máx. (%)' };
       const a = m.antes || {}, b = m.despues || {};
       const fv = (k, v) => v == null ? 'sin meta' : (/\(\$\)$/.test(N[k]) ? money(v) : v);
       const d = Object.keys(N).filter(k => String(a[k] ?? '') !== String(b[k] ?? '')).map(k => `${N[k]}: ${fv(k, a[k])} → ${fv(k, b[k])}`);
