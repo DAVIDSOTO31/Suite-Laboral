@@ -16,7 +16,7 @@
 <meta name="application-name" content="RR.HH PYMES">
     <!-- Tailwind CSS CDN -->
     <!-- Chart.js for data visualization -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/vendor/chart-4.4.4.umd.js"></script>
     <!-- FontAwesome 6 Pro-grade icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Google Fonts: Inter -->
@@ -7513,7 +7513,7 @@
             const closure = cache && cache.closures && cache.closures[type];
             if (!closure) return;
             try {
-                await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
+                await loadScriptOnce('/vendor/jspdf-2.5.1.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
             } catch (e) { showAppToast(e.message); return; }
             const all = [...(closure.snapshot.employees || [])].sort((a, b) => String(a.name).localeCompare(String(b.name)));
             const list = sel.value === '_ALL_' ? all : all.filter(e => String(e.employeeId) === sel.value);
@@ -7644,7 +7644,7 @@
             const closure = cache && cache.closures && cache.closures[type];
             if (!closure) { showAppToast('Este periodo no está cerrado.'); return; }
             try {
-                await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
+                await loadScriptOnce('/vendor/jspdf-2.5.1.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
             } catch (e) { showAppToast(e.message); return; }
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
@@ -9979,8 +9979,8 @@
             showAppToast(asImage ? 'Generando imagen del cuadro de turnos…' : 'Generando PDF del cuadro de turnos…');
             let wrap = null, pdfFixStyle = null;
             try {
-                await loadScriptOnce('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js', () => !!window.html2canvas);
-                if (!asImage) await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
+                await loadScriptOnce('/vendor/html2canvas-1.4.1.min.js', () => !!window.html2canvas);
+                if (!asImage) await loadScriptOnce('/vendor/jspdf-2.5.1.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
 
                 const monday = appState.rosterCurrentMonday;
                 const rangeEnd = rosterRangeEnd();
@@ -10113,7 +10113,7 @@
             if (xlsxLoadPromise) return xlsxLoadPromise;
             xlsxLoadPromise = new Promise((resolve, reject) => {
                 const s = document.createElement('script');
-                s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+                s.src = '/vendor/xlsx-0.18.5.full.min.js';
                 s.onload = resolve;
                 s.onerror = () => reject(new Error('No se pudo cargar la librería para generar el archivo Excel.'));
                 document.head.appendChild(s);
@@ -11401,7 +11401,7 @@
             const d = lastIndicators;
             if (!d) { showAppToast('Primero consulta el periodo.'); return; }
             try {
-                await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
+                await loadScriptOnce('/vendor/jspdf-2.5.1.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
             } catch (e) { showAppToast(e.message); return; }
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });

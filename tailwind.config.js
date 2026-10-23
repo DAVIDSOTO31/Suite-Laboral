@@ -5,7 +5,8 @@
 // Se recompila solo al publicar (Dockerfile). A mano:
 //   npx tailwindcss@3.4.17 -c tailwind.config.js -i src/styles/tailwind.css -o public/tw.css --minify
 module.exports = {
-  content: ['./public/**/*.html', './public/**/*.js'],
+  // public/vendor (librerías de terceros) no se revisa: no tiene clases de la suite.
+  content: ['./public/**/*.html', './public/*.js'],
   theme: { extend: {} },
   plugins: [],
 };
