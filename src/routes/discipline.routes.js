@@ -58,7 +58,7 @@ const DESCARGOS_DAYS = 5;
 const LINK_DAYS = 15;
 
 // Plantillas sugeridas. Variables: {{empresa}} {{ciudad_fecha}} {{nombre}} {{documento}} {{cargo}}
-// {{area}} {{novedades}} {{cantidad}} {{fecha_descargos}} {{firmante}}
+// {{area}} {{novedades}} {{cantidad}} {{fecha_descargos}} {{firmante}} {{cargo_firmante}} {{nit}}
 const BASE_HEAD = `{{ciudad_fecha}}
 
 Señor(a)
@@ -75,8 +75,10 @@ Esta comunicación no constituye una sanción. Cualquier decisión se tomará de
 
 Atentamente,
 
+
 {{firmante}}
-{{empresa}}`;
+{{empresa}}
+NIT {{nit}}`;
 const DEFAULT_TEMPLATES = {
   llegada_tarde: {
     title: 'Comunicación de novedades y citación a descargos: llegadas tarde',
@@ -135,7 +137,7 @@ function getConfig(orgId) {
     const tp = (c.templates || {})[t];
     templates[t] = tp && tp.body ? { title: String(tp.title || DEFAULT_TEMPLATES[t].title), body: String(tp.body), custom: true } : { ...DEFAULT_TEMPLATES[t], custom: false };
   }
-  return { rules, templates, signer: c.signer || '', city: c.city || '' };
+  return { rules, templates, signer: c.signer || '', signerRole: c.signerRole || '', city: c.city || '' };
 }
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -206,7 +208,23 @@ function caseAlerts(c) {
     WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY shift_date`).all(...ids);
 }
 function fillTemplate(text, vars) { return String(text || '').replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (m, k) => (vars[k] !== undefined ? vars[k] : m)); }
-function docVars(orgId, c, emp, signer) {
+// Administrador de la organizacion (el primero creado con el rol org_admin):
+// firma por defecto de los llamados, sin importar que usuario los genere.
+function orgAdminName(orgId) {
+  const u = db.prepare(`SELECT u.display_name, u.email, e.name AS emp_name FROM users u
+    JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id AND r.name = 'org_admin'
+    LEFT JOIN employees e ON e.id = u.employee_id
+    WHERE u.organization_id = ? AND u.status = 'active' ORDER BY u.created_at LIMIT 1`).get(orgId);
+  if (!u) return '';
+  return (u.display_name || u.emp_name || String(u.email || '').split('@')[0] || '').trim();
+}
+// Firma: nombre configurado en "Reglas y plantillas" (o el administrador), y el cargo si se configuró.
+function signerText(orgId, cfg) {
+  const name = cfg.signer || orgAdminName(orgId) || 'Recursos Humanos';
+  return name + (cfg.signerRole ? '\n' + cfg.signerRole : '');
+}
+function orgNit(orgId) { return ((db.prepare('SELECT nit FROM organizations WHERE id = ?').get(orgId) || {}).nit || '').trim(); }
+function docVars(orgId, c, emp) {
   const cfg = getConfig(orgId);
   const st = db.prepare('SELECT org_name FROM org_settings WHERE organization_id = ?').get(orgId) || {};
   const alerts = caseAlerts(c);
@@ -219,7 +237,9 @@ function docVars(orgId, c, emp, signer) {
     cargo: emp.role || '-', area: emp.department || '-',
     novedades: alerts.map(noveltyLine).join('\n'), cantidad: String(alerts.length),
     fecha_descargos: longDate(addDaysISO(today, DESCARGOS_DAYS)),
-    firmante: signer || cfg.signer || 'Recursos Humanos',
+    firmante: signerText(orgId, cfg),
+    cargo_firmante: cfg.signerRole || '',
+    nit: orgNit(orgId) || '(sin NIT registrado)',
   };
 }
 function caseOut(c, emp) {
@@ -251,7 +271,7 @@ function listCases(req, res, query) {
       if (c.status === 'propuesto') { o.novedades = caseAlerts(c).map(noveltyLine); }
       return o;
     }),
-    config: { rules: cfg.rules, templates: cfg.templates, signer: cfg.signer, city: cfg.city, defaults: { rules: DEFAULT_RULES, templates: DEFAULT_TEMPLATES } },
+    config: { rules: cfg.rules, templates: cfg.templates, signer: cfg.signer, signerRole: cfg.signerRole, adminName: orgAdminName(orgId), city: cfg.city, nit: orgNit(orgId), defaults: { rules: DEFAULT_RULES, templates: DEFAULT_TEMPLATES } },
     typeLabels: TYPE_LABEL, descargosDays: DESCARGOS_DAYS, linkDays: LINK_DAYS,
   });
 }
@@ -264,8 +284,7 @@ function draftCase(req, res, params) {
   const emp = db.prepare('SELECT * FROM employees WHERE id = ? AND organization_id = ?').get(c.employee_id, orgId);
   const cfg = getConfig(orgId);
   const tpl = cfg.templates[c.rule_type];
-  const signer = req.user.displayName || req.user.employeeName || '';
-  const vars = docVars(orgId, c, emp || {}, signer);
+  const vars = docVars(orgId, c, emp || {});
   sendJson(res, 200, { title: fillTemplate(tpl.title, vars), body: fillTemplate(tpl.body, vars), novedades: caseAlerts(c).map(noveltyLine) });
 }
 
@@ -321,7 +340,7 @@ async function saveConfig(req, res) {
   try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
   const orgId = resolveOrgId(req, body);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
-  const out = { rules: {}, templates: {}, signer: String(body.signer || '').trim().slice(0, 120), city: String(body.city || '').trim().slice(0, 60) };
+  const out = { rules: {}, templates: {}, signer: String(body.signer || '').trim().slice(0, 120), signerRole: String(body.signerRole || '').trim().slice(0, 120), city: String(body.city || '').trim().slice(0, 60) };
   for (const t of TYPES) {
     const r = (body.rules || {})[t] || {};
     const count = Math.round(Number(r.count)), days = Math.round(Number(r.days));
@@ -348,7 +367,7 @@ function publicView(req, res, params) {
   if (!c) return sendJson(res, 404, { error: 'Este enlace no es válido o ya venció. Comunícate con Recursos Humanos.' });
   const st = db.prepare('SELECT org_name, logo_base64 FROM org_settings WHERE organization_id = ?').get(c.organization_id) || {};
   const emp = db.prepare('SELECT name FROM employees WHERE id = ?').get(c.employee_id) || {};
-  sendJson(res, 200, { org: st.org_name || '', logo: st.logo_base64 || null, name: emp.name || '', title: c.doc_title, body: c.doc_body, docDate: c.doc_date,
+  sendJson(res, 200, { org: st.org_name || '', nit: orgNit(c.organization_id), logo: st.logo_base64 || null, name: emp.name || '', title: c.doc_title, body: c.doc_body, docDate: c.doc_date,
     descargosUntil: c.descargos_until, receivedAt: c.received_at, descargos: c.descargos_text || '', descargosAt: c.descargos_at || '' });
 }
 async function publicAck(req, res, params) {
