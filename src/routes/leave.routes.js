@@ -4,11 +4,12 @@
 //
 //  - Se GANA +1 descanso por cada semana (lunes a domingo, ya terminada) en la
 //    que el colaborador trabajo los 7 dias (los 7 con marcacion de entrada).
-//  - Se USA asignando en el cuadro de turnos la inasistencia "Compensatorio":
-//    cada dia descuenta 1.
+//  - Se USA asignando en el cuadro de turnos la inasistencia "Descanso
+//    acumulado": cada dia descuenta 1. (El "Compensatorio" NO se toca: ese se da
+//    a cambio de horas extras a favor.)
 //  - Saldo inicial (una vez) y ajustes manuales con motivo.
 //  - El saldo NO se guarda como un numero suelto: se calcula siempre desde las
-//    marcaciones y el cuadro de turnos. Si se quita un Compensatorio del cuadro,
+//    marcaciones y el cuadro de turnos. Si se quita un Descanso acumulado del cuadro,
 //    el dia vuelve solo al saldo.
 //  - Cuenta desde el dia siguiente al Dia 0 de la organizacion (o desde que se
 //    activo esta funcion, si no hay Dia 0). Lo anterior va en el saldo inicial.
@@ -16,6 +17,7 @@
 const { db, uid } = require('../db');
 const { sendJson, readBody, getClientIp } = require('../lib/http');
 const { logAction } = require('../lib/audit');
+const live = require('../lib/live');
 const { todayISOInBogota, addDaysISO } = require('../lib/bogota-time');
 
 db.exec(`
@@ -54,14 +56,23 @@ function restSince(orgId) {
   return today;
 }
 
-// Id de la inasistencia "Compensatorio" de la organizacion (o null).
-function compensatorioKey(orgId) {
-  for (const r of db.prepare('SELECT data_json FROM shift_presets WHERE organization_id = ?').all(orgId)) {
-    let p; try { p = JSON.parse(r.data_json); } catch { continue; }
-    if (p && p.kind === 'absence' && !p.hidden && String(p.name || '').trim().toLowerCase() === 'compensatorio') return p.id;
+// Inasistencia "Descanso acumulado": id fijo para todas las organizaciones (asi,
+// si alguien la borra, al recrearla los dias ya asignados siguen contando).
+// No cuenta como ausentismo.
+const REST_KEY = 'abs_descanso_acumulado';
+function ensureRestAbsence(orgId) {
+  const row = db.prepare('SELECT id, data_json FROM shift_presets WHERE organization_id = ? AND data_json LIKE ?').get(orgId, `%"id":"${REST_KEY}"%`);
+  if (row) {
+    let p; try { p = JSON.parse(row.data_json); } catch { p = null; }
+    if (p && p.hidden) { p.hidden = false; db.prepare('UPDATE shift_presets SET data_json = ? WHERE id = ?').run(JSON.stringify(p), row.id); return true; }
+    return false;
   }
-  return null;
+  db.prepare('INSERT INTO shift_presets (id, organization_id, data_json) VALUES (?, ?, ?)')
+    .run(uid('psr'), orgId, JSON.stringify({ id: REST_KEY, kind: 'absence', name: 'Descanso acumulado', color: 'cyan', countsAbsence: false }));
+  return true;
 }
+// Al arrancar: todas las organizaciones tienen la inasistencia.
+try { for (const o of db.prepare('SELECT id FROM organizations').all()) ensureRestAbsence(o.id); } catch (e) { console.error('[descansos]', e.message); }
 
 function weekdayISO(dateISO) { return new Date(dateISO + 'T00:00:00Z').getUTCDay(); } // 0 = domingo
 function mondayOnOrAfter(dateISO) {
@@ -72,7 +83,10 @@ function mondayOnOrAfter(dateISO) {
 function computeRestDays(orgId) {
   const since = restSince(orgId);
   const today = todayISOInBogota();
-  const compKey = compensatorioKey(orgId);
+  // Si la inasistencia no existe (organizacion nueva o la borraron), se crea y
+  // se avisa a las pestanas abiertas para que la carguen.
+  if (ensureRestAbsence(orgId)) { try { live.publish(orgId, { scopes: ['data'], kind: 'rest-absence' }); } catch { /* nada */ } }
+  const restKey = REST_KEY;
   const employees = db.prepare(`SELECT id, name, department, contract_type FROM employees
     WHERE organization_id = ? AND COALESCE(status, 'activo') != 'retirado' ORDER BY name`).all(orgId)
     .filter(e => ELIGIBLE.has(e.contract_type || 'indefinido'));
@@ -90,12 +104,12 @@ function computeRestDays(orgId) {
   const weeks = [];
   for (let mon = mondayOnOrAfter(since); addDaysISO(mon, 6) < today; mon = addDaysISO(mon, 7)) weeks.push(mon);
 
-  // Dias de Compensatorio en el cuadro de turnos.
+  // Dias de "Descanso acumulado" en el cuadro de turnos.
   const used = new Map();
-  if (compKey) {
-    for (const r of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ? AND data_json LIKE ?').all(orgId, `%"absenceType":"${compKey}"%`)) {
+  {
+    for (const r of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ? AND data_json LIKE ?').all(orgId, `%"absenceType":"${restKey}"%`)) {
       let s; try { s = JSON.parse(r.data_json); } catch { continue; }
-      if (!s || s.absenceType !== compKey || !s.date || s.date < since || !ids.has(Number(s.empId))) continue;
+      if (!s || s.absenceType !== restKey || !s.date || s.date < since || !ids.has(Number(s.empId))) continue;
       const k = Number(s.empId);
       if (!used.has(k)) used.set(k, new Set());
       used.get(k).add(s.date);
@@ -111,7 +125,7 @@ function computeRestDays(orgId) {
   }
 
   return {
-    since, today, compKey,
+    since, today, restKey,
     employees: employees.map(e => {
       const id = Number(e.id);
       const w = worked.get(e.id) || worked.get(id) || new Set();
