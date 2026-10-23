@@ -38,6 +38,23 @@
       <button id="ackBtn" type="button" class="mt-3 w-full sm:w-auto px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm">Recibido</button>
       <p id="ackDone" class="hidden mt-2 text-sm font-semibold text-emerald-700"></p>
     </div>
+    <div id="signBox" class="bg-white rounded-2xl border-2 border-sky-300 p-4">
+      <p class="font-bold text-slate-800 text-sm">Firmar el documento</p>
+      <p class="text-xs text-slate-500 mt-0.5">Dibuja tu firma con el dedo en el recuadro y escribe tu número de cédula. No necesitas imprimir nada.</p>
+      <div id="signForm">
+        <div class="mt-2 relative">
+          <canvas id="sigPad" class="w-full h-40 bg-white border-2 border-dashed border-slate-300 rounded-xl" style="touch-action:none"></canvas>
+          <button id="sigClear" type="button" class="absolute top-2 right-2 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-xs font-semibold">Borrar</button>
+          <p id="sigHint" class="absolute inset-x-0 bottom-3 text-center text-xs text-slate-300 pointer-events-none">Firma aquí</p>
+        </div>
+        <label class="block mt-3 text-sm font-semibold text-slate-700">Número de cédula
+          <input id="sigDoc" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="15" class="mt-1 w-full p-3 border border-slate-300 rounded-xl text-base" placeholder="Solo números">
+        </label>
+        <button id="sigBtn" type="button" class="mt-3 w-full px-5 py-3 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm">Firmar documento</button>
+        <p id="sigMsg" class="hidden mt-2 text-sm font-semibold text-rose-600"></p>
+      </div>
+      <div id="signDone" class="hidden mt-2 text-sm"></div>
+    </div>
     <div id="descBox" class="bg-white rounded-2xl border border-slate-200 p-4">
       <p class="font-bold text-slate-800 text-sm">Tus descargos</p>
       <p id="descHint" class="text-xs text-slate-500 mt-0.5"></p>
@@ -72,7 +89,19 @@
     if (d.logo) { $('logo').src = d.logo; $('logo').classList.remove('hidden'); }
     $('docTitle').textContent = d.title || '';
     $('docBody').textContent = d.body || '';
-    if (d.receivedAt) { $('ackBtn').classList.add('hidden'); $('ackDone').textContent = 'Recibido el ' + fmt(d.receivedAt) + ' a las ' + String(d.receivedAt).slice(11, 16) + '.'; $('ackDone').classList.remove('hidden'); }
+    setTimeout(function () { if (window.__sizePad) window.__sizePad(); }, 0);
+    if (d.signedAt) {
+      $('signForm').classList.add('hidden');
+      var h = Number(String(d.signedAt).slice(11, 13)), mi = String(d.signedAt).slice(14, 16);
+      var hora = ((h % 12) || 12) + ':' + mi + (h < 12 ? ' a. m.' : ' p. m.');
+      $('signDone').innerHTML = '';
+      var im = document.createElement('img'); im.src = d.signature; im.alt = 'Tu firma'; im.className = 'h-20 w-auto';
+      var p1 = document.createElement('p'); p1.className = 'font-semibold text-emerald-700'; p1.textContent = 'Firmado el ' + fmt(d.signedAt) + ' a las ' + hora + '.';
+      var p2 = document.createElement('p'); p2.className = 'text-xs text-slate-500'; p2.textContent = 'Código de verificación: ' + (d.verifyCode || '');
+      $('signDone').appendChild(im); $('signDone').appendChild(p1); $('signDone').appendChild(p2); $('signDone').classList.remove('hidden');
+      setTimeout(function () { $('signBox').scrollIntoView({ block: 'nearest' }); }, 50);
+    }
+    if (d.receivedAt) { $('ackBtn').classList.add('hidden'); var rh = Number(String(d.receivedAt).slice(11, 13)); $('ackDone').textContent = 'Recibido el ' + fmt(d.receivedAt) + ' a las ' + ((rh % 12) || 12) + ':' + String(d.receivedAt).slice(14, 16) + (rh < 12 ? ' a. m.' : ' p. m.') + '.'; $('ackDone').classList.remove('hidden'); }
     $('descHint').textContent = 'Puedes enviarlos por aquí, una sola vez, a más tardar el ' + fmt(d.descargosUntil) + '. También puedes presentarlos directamente ante Recursos Humanos.';
     if (d.descargos) {
       $('descText').classList.add('hidden'); $('descBtn').classList.add('hidden');
@@ -101,6 +130,30 @@
     send({ descargos: t }).then(load).catch(function (e) { $('descBtn').disabled = false; $('descMsg').textContent = e.message; $('descMsg').classList.remove('hidden'); });
   });
   $('printBtn').addEventListener('click', function () { window.print(); });
+  // ---- Firma con el dedo ----
+  var pad = $('sigPad'), ctx = pad.getContext('2d'), drawing = false, drawn = false, last = null;
+  function sizePad() { var r = pad.getBoundingClientRect(); var k = window.devicePixelRatio || 1; pad.width = Math.round(r.width * k); pad.height = Math.round(r.height * k); ctx.setTransform(k, 0, 0, k, 0, 0); ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0f172a'; drawn = false; $('sigHint').classList.remove('hidden'); }
+  function pt(e) { var r = pad.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  pad.addEventListener('pointerdown', function (e) { e.preventDefault(); drawing = true; last = pt(e); pad.setPointerCapture(e.pointerId); });
+  pad.addEventListener('pointermove', function (e) { if (!drawing) return; var p = pt(e); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); last = p; drawn = true; $('sigHint').classList.add('hidden'); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) { pad.addEventListener(ev, function () { drawing = false; }); });
+  $('sigClear').addEventListener('click', function () { ctx.clearRect(0, 0, pad.width, pad.height); drawn = false; $('sigHint').classList.remove('hidden'); });
+  $('sigDoc').addEventListener('input', function () { this.value = this.value.replace(/\D/g, ''); });
+  $('sigBtn').addEventListener('click', function () {
+    var msg = $('sigMsg'); msg.classList.add('hidden');
+    if (!drawn) { msg.textContent = 'Dibuja tu firma en el recuadro.'; msg.classList.remove('hidden'); return; }
+    var doc = $('sigDoc').value.replace(/\D/g, '');
+    if (doc.length < 5) { msg.textContent = 'Escribe tu número de cédula.'; msg.classList.remove('hidden'); return; }
+    if (!confirm('¿Firmar el documento? Después no se puede cambiar.')) return;
+    $('sigBtn').disabled = true;
+    fetch('/api/public/comunicacion/' + token + '/sign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signature: pad.toDataURL('image/png'), documento: doc }) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'No se pudo firmar.'); return j; }); })
+      .then(load).catch(function (e) { $('sigBtn').disabled = false; msg.textContent = e.message; msg.classList.remove('hidden'); });
+  });
+  // El recuadro se dimensiona cuando ya está visible (y si cambia el ancho, sin firma aún).
+  var padW = 0;
+  window.addEventListener('resize', function () { var w = pad.getBoundingClientRect().width; if (!drawn && w && Math.abs(w - padW) > 2) { padW = w; sizePad(); } });
+  window.__sizePad = function () { var w = pad.getBoundingClientRect().width; if (w && !drawn && Math.abs(w - padW) > 2) { padW = w; sizePad(); } };
   load();
 })();
 </script>
