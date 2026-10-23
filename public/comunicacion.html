@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Comunicación · RR.HH</title>
+<link rel="stylesheet" href="/tw.css">
+<link href="/vendor/inter-4/inter.css" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  #docBody { white-space: pre-wrap; }
+  @media print { .no-print { display: none !important; } body { background: #fff !important; } #card { box-shadow: none !important; border: 0 !important; } }
+</style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+<main class="max-w-2xl mx-auto px-4 py-6">
+  <div id="card" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-8">
+    <p id="loading" class="text-center text-slate-500 text-sm py-10">Cargando…</p>
+    <div id="error" class="hidden text-center py-10">
+      <p class="font-bold text-slate-800">No se pudo abrir la comunicación</p>
+      <p id="errorMsg" class="text-sm text-slate-500 mt-1"></p>
+    </div>
+    <div id="doc" class="hidden">
+      <div class="flex items-center gap-3 border-b border-slate-200 pb-4 mb-4">
+        <img id="logo" class="hidden h-12 w-auto" alt="">
+        <p id="org" class="font-extrabold text-slate-800 text-lg"></p>
+      </div>
+      <h1 id="docTitle" class="font-bold text-slate-900 text-base sm:text-lg mb-4"></h1>
+      <div id="docBody" class="text-sm text-slate-800 leading-relaxed"></div>
+    </div>
+  </div>
+
+  <div id="actions" class="hidden no-print mt-4 space-y-3">
+    <div id="ackBox" class="bg-white rounded-2xl border border-slate-200 p-4">
+      <p class="text-sm text-slate-700">Confirma que recibiste y leíste esta comunicación. Esto <strong>no</strong> significa que estés de acuerdo con su contenido.</p>
+      <button id="ackBtn" type="button" class="mt-3 w-full sm:w-auto px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm">Recibido</button>
+      <p id="ackDone" class="hidden mt-2 text-sm font-semibold text-emerald-700"></p>
+    </div>
+    <div id="descBox" class="bg-white rounded-2xl border border-slate-200 p-4">
+      <p class="font-bold text-slate-800 text-sm">Tus descargos</p>
+      <p id="descHint" class="text-xs text-slate-500 mt-0.5"></p>
+      <textarea id="descText" rows="6" maxlength="5000" class="mt-2 w-full p-3 border border-slate-300 rounded-xl text-sm" placeholder="Escribe aquí tu versión de los hechos y, si tienes soportes (incapacidad, permiso, etc.), menciónalos para entregarlos a Recursos Humanos."></textarea>
+      <button id="descBtn" type="button" class="mt-2 w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-sm">Enviar descargos</button>
+      <div id="descDone" class="hidden mt-2 text-sm text-slate-700"></div>
+      <p id="descMsg" class="hidden mt-2 text-sm font-semibold text-rose-600"></p>
+    </div>
+    <button id="printBtn" type="button" class="w-full px-5 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-700 font-semibold text-sm">Imprimir o guardar en PDF</button>
+  </div>
+</main>
+<script>
+(function () {
+  var token = (location.hash.match(/t=([A-Za-z0-9_-]+)/) || [])[1] || '';
+  var $ = function (id) { return document.getElementById(id); };
+  var fmt = function (iso) { return iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : ''; };
+  function fail(msg) { $('loading').classList.add('hidden'); $('error').classList.remove('hidden'); $('errorMsg').textContent = msg; }
+  function render(d) {
+    $('loading').classList.add('hidden');
+    $('doc').classList.remove('hidden');
+    $('actions').classList.remove('hidden');
+    $('org').textContent = d.org || '';
+    if (d.logo) { $('logo').src = d.logo; $('logo').classList.remove('hidden'); }
+    $('docTitle').textContent = d.title || '';
+    $('docBody').textContent = d.body || '';
+    if (d.receivedAt) { $('ackBtn').classList.add('hidden'); $('ackDone').textContent = 'Recibido el ' + fmt(d.receivedAt) + ' a las ' + String(d.receivedAt).slice(11, 16) + '.'; $('ackDone').classList.remove('hidden'); }
+    $('descHint').textContent = 'Puedes enviarlos por aquí, una sola vez, a más tardar el ' + fmt(d.descargosUntil) + '. También puedes presentarlos directamente ante Recursos Humanos.';
+    if (d.descargos) {
+      $('descText').classList.add('hidden'); $('descBtn').classList.add('hidden');
+      $('descDone').innerHTML = '';
+      var p1 = document.createElement('p'); p1.className = 'font-semibold text-emerald-700'; p1.textContent = 'Descargos enviados el ' + fmt(d.descargosAt) + '.';
+      var p2 = document.createElement('p'); p2.className = 'mt-1 whitespace-pre-wrap text-slate-600'; p2.textContent = d.descargos;
+      $('descDone').appendChild(p1); $('descDone').appendChild(p2); $('descDone').classList.remove('hidden');
+    }
+  }
+  function load() {
+    if (!token) return fail('El enlace está incompleto. Ábrelo de nuevo desde el mensaje que recibiste.');
+    fetch('/api/public/comunicacion/' + token).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (x) { if (!x.ok) return fail(x.j.error || 'Enlace no válido.'); render(x.j); })
+      .catch(function () { fail('No hay conexión. Intenta de nuevo en un momento.'); });
+  }
+  function send(payload) {
+    return fetch('/api/public/comunicacion/' + token + '/ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'No se pudo enviar.'); return j; }); });
+  }
+  $('ackBtn').addEventListener('click', function () { $('ackBtn').disabled = true; send({}).then(load).catch(function (e) { $('ackBtn').disabled = false; alert(e.message); }); });
+  $('descBtn').addEventListener('click', function () {
+    var t = $('descText').value.trim();
+    if (t.length < 10) { $('descMsg').textContent = 'Escribe tus descargos (mínimo 10 caracteres).'; $('descMsg').classList.remove('hidden'); return; }
+    if (!confirm('¿Enviar tus descargos? Solo se pueden enviar una vez por este medio.')) return;
+    $('descBtn').disabled = true;
+    send({ descargos: t }).then(load).catch(function (e) { $('descBtn').disabled = false; $('descMsg').textContent = e.message; $('descMsg').classList.remove('hidden'); });
+  });
+  $('printBtn').addEventListener('click', function () { window.print(); });
+  load();
+})();
+</script>
+</body>
+</html>

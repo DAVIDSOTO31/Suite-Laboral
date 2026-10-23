@@ -32,14 +32,24 @@ function listNotifications(req, res) {
   const unread = db.prepare(`SELECT COUNT(*) AS n FROM attendance_alerts
     WHERE organization_id = ? AND created_at >= ? AND alert_type IN (${types.map(() => '?').join(',')})${seenUntil ? ' AND created_at > ?' : ''}`)
     .get(orgId, since, ...types, ...(seenUntil ? [seenUntil] : [])).n;
+  let items = rows.map(r => ({
+    id: r.id, type: r.alert_type, label: push.TYPE_LABEL[r.alert_type] || r.alert_type,
+    employeeId: r.employee_id, employeeName: r.employee_name, department: r.department,
+    date: r.shift_date, createdAt: r.created_at, mgmt: r.mgmt,
+    text: push.alertText(r), unread: !seenUntil || r.created_at > seenUntil,
+  }));
+  // Llamados de atencion por revisar (solo para quien puede verlos).
+  let unreadAll = unread;
+  if (req.user.isSuperAdmin || req.user.permissions.has('employees.view')) {
+    try {
+      const ll = require('./discipline.routes').bellItems(orgId, since).map(x => ({ ...x, unread: !seenUntil || x.createdAt > seenUntil }));
+      unreadAll += ll.filter(x => x.unread).length;
+      items = ll.concat(items).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, MAX_ITEMS);
+    } catch (e) { /* sin llamados */ }
+  }
   sendJson(res, 200, {
-    items: rows.map(r => ({
-      id: r.id, type: r.alert_type, label: push.TYPE_LABEL[r.alert_type] || r.alert_type,
-      employeeId: r.employee_id, employeeName: r.employee_name, department: r.department,
-      date: r.shift_date, createdAt: r.created_at, mgmt: r.mgmt,
-      text: push.alertText(r), unread: !seenUntil || r.created_at > seenUntil,
-    })),
-    unread, seenUntil, now: bogotaNowSql(),
+    items,
+    unread: unreadAll, seenUntil, now: bogotaNowSql(),
     quiet: { from: '23:00', to: '05:30', active: push.isQuietTime() },
   });
 }
