@@ -24,8 +24,8 @@
     </div>
     <div id="doc" class="hidden">
       <div class="flex items-center gap-3 border-b border-slate-200 pb-4 mb-4">
-        <img id="logo" class="hidden h-12 w-auto" alt="">
-        <p id="org" class="font-extrabold text-slate-800 text-lg"></p>
+        <img id="logo" class="hidden h-14 w-auto max-w-[40%] object-contain" alt="">
+        <div><p id="org" class="font-extrabold text-slate-800 text-lg leading-tight"></p><p id="nit" class="text-xs text-slate-500"></p></div>
       </div>
       <h1 id="docTitle" class="font-bold text-slate-900 text-base sm:text-lg mb-4"></h1>
       <div id="docBody" class="text-sm text-slate-800 leading-relaxed"></div>
@@ -60,6 +60,7 @@
     $('doc').classList.remove('hidden');
     $('actions').classList.remove('hidden');
     $('org').textContent = d.org || '';
+    $('nit').textContent = d.nit ? 'NIT ' + d.nit : '';
     if (d.logo) { $('logo').src = d.logo; $('logo').classList.remove('hidden'); }
     $('docTitle').textContent = d.title || '';
     $('docBody').textContent = d.body || '';
