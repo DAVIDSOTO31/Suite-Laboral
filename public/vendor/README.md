@@ -11,3 +11,4 @@ actualizar una librería se agrega el archivo nuevo y se cambia la ruta en app.h
 | jspdf-2.5.1.umd.min.js | jsPDF | 2.5.1 | MIT | PDF (cierres, colillas, indicadores, cuadro de turnos) |
 | html2canvas-1.4.1.min.js | html2canvas | 1.4.1 | MIT | PDF e imagen del cuadro de turnos |
 | xlsx-0.18.5.full.min.js | SheetJS (xlsx) | 0.18.5 | Apache-2.0 | Archivos Excel |
+| face-api-1.7.15/ (face-api.js + 3 modelos) | @vladmandic/face-api | 1.7.15 | MIT | Reconocimiento facial (kiosco y Biometría). Modelos: detector de rostro, puntos de la cara y plantilla de 128 números. Si fallan, la suite usa el sitio externo de antes como respaldo. |
