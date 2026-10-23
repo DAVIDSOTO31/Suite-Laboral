@@ -10160,28 +10160,51 @@
         // Solo se descarga cuando el usuario realmente abre Asistencia -- no
         // afecta el tiempo de carga del resto de la app.
         // -----------------------------------------------------------------
-        const FACE_MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
+        // Primero la copia de la propia suite (/vendor, versión fija 1.7.15, la misma
+        // que se usaba); si falla, el sitio externo de antes.
+        const FACE_SOURCES = [
+            { script: '/vendor/face-api-1.7.15/face-api.js', models: '/vendor/face-api-1.7.15/model' },
+            { script: 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js', models: 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model' },
+        ];
+        let faceSourceIdx = 0;
         let faceApiLoadPromise = null;
         function loadFaceApiScript() {
             if (window.faceapi) return Promise.resolve();
             if (faceApiLoadPromise) return faceApiLoadPromise;
-            faceApiLoadPromise = new Promise((resolve, reject) => {
+            const tryLoad = (i) => new Promise((resolve, reject) => {
                 const s = document.createElement('script');
-                s.src = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js';
-                s.onload = resolve;
-                s.onerror = () => reject(new Error('No se pudo cargar la librería de reconocimiento facial (revisa tu conexión a internet).'));
+                s.src = FACE_SOURCES[i].script;
+                s.onload = () => { faceSourceIdx = i; resolve(); };
+                s.onerror = () => { s.remove(); reject(new Error('No se pudo cargar la librería de reconocimiento facial (revisa tu conexión a internet).')); };
                 document.head.appendChild(s);
             });
+            faceApiLoadPromise = (async () => {
+                let last;
+                for (let i = 0; i < FACE_SOURCES.length; i++) {
+                    try { await tryLoad(i); if (window.faceapi) return; } catch (e) { last = e; }
+                }
+                faceApiLoadPromise = null;
+                throw last || new Error('No se pudo cargar la librería de reconocimiento facial.');
+            })();
             return faceApiLoadPromise;
+        }
+        async function loadFaceNet(net) {
+            if (net.isLoaded) return;
+            const order = [faceSourceIdx, ...FACE_SOURCES.map((_, i) => i).filter(i => i !== faceSourceIdx)];
+            let last;
+            for (const i of order) {
+                try { await net.loadFromUri(FACE_SOURCES[i].models); return; } catch (e) { last = e; }
+            }
+            throw last;
         }
         let faceModelsLoaded = false;
         async function ensureFaceModelsLoaded() {
             await loadFaceApiScript();
             if (faceModelsLoaded) return;
             await Promise.all([
-                faceapi.nets.tinyFaceDetector.loadFromUri(FACE_MODEL_URL),
-                faceapi.nets.faceLandmark68Net.loadFromUri(FACE_MODEL_URL),
-                faceapi.nets.faceRecognitionNet.loadFromUri(FACE_MODEL_URL),
+                loadFaceNet(faceapi.nets.tinyFaceDetector),
+                loadFaceNet(faceapi.nets.faceLandmark68Net),
+                loadFaceNet(faceapi.nets.faceRecognitionNet),
             ]);
             faceModelsLoaded = true;
         }

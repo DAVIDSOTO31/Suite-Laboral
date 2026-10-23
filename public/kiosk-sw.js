@@ -6,7 +6,7 @@
 //   (o a la cola sin conexión que ya maneja kiosk.html).
 // IMPORTANTE: cada vez que se modifique kiosk.html, subir KIOSK_SW_VERSION
 // para que las tablets instaladas se actualicen solas.
-const KIOSK_SW_VERSION = '2026.10-seguro1';
+const KIOSK_SW_VERSION = '2026.10-facial-local1';
 const CORE_CACHE = 'kiosco-core-' + KIOSK_SW_VERSION;
 const CDN_CACHE = 'kiosco-cdn-v1'; // librerías y modelo facial: se conservan entre versiones
 
@@ -25,6 +25,16 @@ const CDN_FILES = [
   'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js',
 ];
 const CDN_HOSTS = ['cdn.tailwindcss.com', 'cdnjs.cloudflare.com', 'cdn.jsdelivr.net'];
+// Motor y modelos de reconocimiento facial servidos por la propia suite
+// (versión fija). Se guardan en el equipo al instalar la nueva versión para que
+// el kiosco siga reconociendo rostros sin internet. Los del sitio externo se
+// conservan como respaldo.
+const FACE_DIR = '/vendor/face-api-1.7.15/';
+const FACE_FILES = ['face-api.js',
+  'model/tiny_face_detector_model-weights_manifest.json', 'model/tiny_face_detector_model.bin',
+  'model/face_landmark_68_model-weights_manifest.json', 'model/face_landmark_68_model.bin',
+  'model/face_recognition_model-weights_manifest.json', 'model/face_recognition_model.bin',
+].map(f => FACE_DIR + f);
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
@@ -33,6 +43,13 @@ self.addEventListener('install', (event) => {
     // Librerías externas: si alguna falla no se bloquea la instalación;
     // se guardarán la primera vez que la página las use.
     const cdn = await caches.open(CDN_CACHE);
+    await Promise.all(FACE_FILES.map(async (u) => {
+      try {
+        if (await cdn.match(u)) return;
+        const r = await fetch(u);
+        if (r && r.ok) await cdn.put(u, r);
+      } catch (e) { /* se guardará la primera vez que la página lo use */ }
+    }));
     await Promise.all(CDN_FILES.map(async (u) => {
       try {
         if (await cdn.match(u)) return;
@@ -111,6 +128,11 @@ self.addEventListener('fetch', (event) => {
     }
     if (url.pathname.startsWith('/kiosk-icons/') || url.pathname === '/kiosk.webmanifest') {
       event.respondWith(cacheFirst(req, CORE_CACHE));
+      return;
+    }
+    // Reconocimiento facial (archivos grandes con versión en la ruta): primero lo guardado.
+    if (url.pathname.startsWith(FACE_DIR)) {
+      event.respondWith(cacheFirst(new Request(url.pathname), CDN_CACHE));
     }
     return;
   }
