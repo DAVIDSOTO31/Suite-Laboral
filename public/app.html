@@ -786,6 +786,9 @@
                         <p class="text-xs text-slate-500">Administre el personal registrado, contratos y áreas asignadas.</p>
                     </div>
                     <div class="flex gap-2 w-full sm:w-auto">
+                        <button onclick="openLeaveModal()" data-perm="shifts.view" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
+                            <i class="fa-solid fa-mug-hot text-teal-600"></i> Descansos y vacaciones
+                        </button>
                         <button onclick="openEmployeeModal(null)" data-perm="employees.create" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
                             <i class="fa-solid fa-user-plus"></i> Vincular Colaborador
                         </button>
@@ -1881,6 +1884,40 @@
                 <button onclick="closeModal('modalCorrDetail')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
             <div id="corrDetailBody" class="text-xs space-y-2"></div>
+        </div>
+    </div>
+
+    <!-- MODAL: Descansos y vacaciones (descansos acumulados de contratos fijo e indefinido) -->
+    <div id="modalLeave" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[92vh] flex flex-col">
+            <div class="flex items-start justify-between gap-3 p-4 border-b">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-mug-hot text-teal-600"></i> Descansos y vacaciones</h3>
+                    <p class="text-2xs text-slate-500 mt-0.5">Descansos acumulados (término fijo e indefinido): <strong>+1</strong> por cada semana (lunes a domingo) trabajada los 7 días · <strong>−1</strong> por cada día de <strong>Descanso acumulado</strong> en el cuadro de turnos (el Compensatorio no cuenta aquí). <span id="leaveSince"></span></p>
+                </div>
+                <button onclick="closeModal('modalLeave')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 px-4 py-2 border-b bg-slate-50 text-xs">
+                <select id="leaveArea" onchange="renderLeaveTable()" class="p-2 border border-slate-300 rounded-lg bg-white"></select>
+                <input id="leaveSearch" oninput="renderLeaveTable()" placeholder="Buscar colaborador..." class="p-2 border border-slate-300 rounded-lg w-52">
+                <button type="button" onclick="exportLeaveExcel()" class="ml-auto px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5"><i class="fa-solid fa-file-excel"></i> Excel</button>
+            </div>
+            <div class="overflow-auto flex-1">
+                <table class="w-full text-xs">
+                    <thead class="bg-slate-100 text-slate-600 text-3xs uppercase font-bold sticky top-0 z-10">
+                        <tr>
+                            <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Contrato</th>
+                            <th class="text-center px-2 py-2" title="Saldo inicial cargado una vez">Inicial</th>
+                            <th class="text-center px-2 py-2" title="Semanas trabajadas los 7 días">Ganados</th>
+                            <th class="text-center px-2 py-2" title="Días de Descanso acumulado en el cuadro">Usados</th>
+                            <th class="text-center px-2 py-2" title="Ajustes manuales">Ajustes</th>
+                            <th class="text-center px-2 py-2 bg-teal-50 text-teal-800">Saldo descansos</th>
+                            <th class="px-3 py-2"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="leaveTableBody" class="divide-y divide-slate-100"></tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -3169,6 +3206,125 @@
             if (x && x.isSplit && x.splitOut && x.splitIn) return `${x.startTime}-${x.splitOut} / ${x.splitIn}-${x.endTime}`;
             return `${x.startTime} - ${x.endTime}`;
         }
+        // ---- Descansos acumulados (contratos fijo e indefinido) ----
+        let leaveData = null, leaveLoadedAt = 0, leaveOpenEmp = null;
+        async function loadLeaveData(force) {
+            if (!CAN('shifts.view')) return null;
+            if (!force && leaveData && Date.now() - leaveLoadedAt < 60000) return leaveData;
+            try { leaveData = await apiFetch('/api/rest-days'); leaveLoadedAt = Date.now(); } catch (e) { /* sin datos: no se avisa */ }
+            return leaveData;
+        }
+        // Saldo de descansos de un colaborador teniendo en cuenta los cambios del
+        // cuadro que aún no se han guardado. null si no aplica (contrato de servicios).
+        function restBalanceNow(empId) {
+            if (!leaveData || !leaveData.restKey) return null;
+            const e = leaveData.employees.find(x => Number(x.id) === Number(empId));
+            if (!e) return null;
+            const k = leaveData.restKey, since = leaveData.since, from = appState.shiftsLoadedFrom || since;
+            const srv = new Set(e.usedDates);
+            let bal = e.balance;
+            appState.shifts.forEach(s => { if (Number(s.empId) === Number(empId) && s.absenceType === k && s.date >= since && !srv.has(s.date)) bal--; });
+            srv.forEach(d => {
+                if (d < from) return;
+                const sh = appState.shifts.find(s => Number(s.empId) === Number(empId) && s.date === d);
+                if (!sh || sh.absenceType !== k) bal++;
+            });
+            return bal;
+        }
+        const LEAVE_CONTRACT = { indefinido: 'Indefinido', fijo: 'Término fijo' };
+        async function openLeaveModal() {
+            const sel = document.getElementById('leaveArea');
+            const hasOther = appState.employees.some(e => empAreaKey(e) === '_otras');
+            sel.innerHTML = '<option value="">Todas las áreas</option>' + (appState.departments || []).map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}</option>`).join('') + (hasOther ? '<option value="_otras">Otras áreas / No asignados</option>' : '');
+            document.getElementById('leaveTableBody').innerHTML = '<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>';
+            openModal('modalLeave');
+            await loadLeaveData(true);
+            renderLeaveTable();
+        }
+        function leaveRows() {
+            if (!leaveData) return [];
+            const area = document.getElementById('leaveArea').value;
+            const q = (document.getElementById('leaveSearch').value || '').trim().toLowerCase();
+            return leaveData.employees.filter(e => {
+                const emp = appState.employees.find(x => Number(x.id) === Number(e.id)) || e;
+                return (!area || empAreaKey(emp) === area) && (!q || e.name.toLowerCase().includes(q));
+            });
+        }
+        function leaveMovements(e) {
+            const fmt = (d) => d.split('-').reverse().join('/');
+            const list = [];
+            e.moves.forEach(m => list.push({ date: m.date, qty: m.qty, text: m.kind === 'inicial' ? 'Saldo inicial' : `Ajuste: ${m.note}`, by: m.by }));
+            e.earnedWeeks.forEach(mon => list.push({ date: addDaysToISO(mon, 6), qty: 1, text: `Semana del ${fmt(mon)} al ${fmt(addDaysToISO(mon, 6))}: trabajó los 7 días` }));
+            e.usedDates.forEach(d => list.push({ date: d, qty: -1, text: `Descanso acumulado el ${fmt(d)}` }));
+            list.sort((a, b) => a.date.localeCompare(b.date) || b.qty - a.qty);
+            let run = 0;
+            return list.map(m => ({ ...m, bal: (run += m.qty) }));
+        }
+        function addDaysToISO(iso, n) { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+        function renderLeaveTable() {
+            const body = document.getElementById('leaveTableBody');
+            if (!leaveData) { body.innerHTML = '<tr><td colspan="8" class="px-3 py-6 text-center text-rose-600">No se pudo cargar la información.</td></tr>'; return; }
+            document.getElementById('leaveSince').textContent = `Se cuenta desde el ${leaveData.since.split('-').reverse().join('/')}; lo anterior va en el saldo inicial.`;
+                        const rows = leaveRows();
+            const canEdit = CAN('shifts.edit');
+            const num = (n, sign) => n ? `${sign && n > 0 ? '+' : ''}${n}` : '<span class="text-slate-300">0</span>';
+            body.innerHTML = rows.map(e => {
+                const bal = e.balance;
+                const open = leaveOpenEmp === e.id;
+                const mv = open ? leaveMovements(e) : [];
+                return `<tr class="hover:bg-slate-50">
+                    <td class="px-3 py-2 font-semibold text-slate-800">${escapeHtml(e.name)}<span class="block text-3xs font-normal text-slate-500">${escapeHtml(e.department || 'Sin área')}</span></td>
+                    <td class="px-3 py-2 text-slate-600">${LEAVE_CONTRACT[e.contractType] || e.contractType}</td>
+                    <td class="px-2 py-2 text-center font-mono">${num(e.initial)}</td>
+                    <td class="px-2 py-2 text-center font-mono text-emerald-700">${num(e.earned, true)}</td>
+                    <td class="px-2 py-2 text-center font-mono text-rose-700">${e.used ? '-' + e.used : num(0)}</td>
+                    <td class="px-2 py-2 text-center font-mono">${num(e.adjust, true)}</td>
+                    <td class="px-2 py-2 text-center bg-teal-50/50"><span class="inline-block min-w-[2.5rem] font-mono font-extrabold text-sm px-2 py-0.5 rounded-lg ${bal < 0 ? 'bg-rose-100 text-rose-700' : bal > 0 ? 'bg-teal-100 text-teal-800' : 'text-slate-500'}">${bal}</span></td>
+                    <td class="px-3 py-2 text-right whitespace-nowrap"><button type="button" onclick="toggleLeaveEmp(${e.id})" class="text-2xs font-semibold px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700">${open ? 'Cerrar' : 'Movimientos'}</button></td>
+                </tr>${open ? `<tr><td colspan="8" class="px-4 py-3 bg-slate-50">
+                    <div class="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <p class="text-3xs font-bold uppercase text-slate-500 mb-1">Movimientos</p>
+                            ${mv.length ? `<table class="w-full text-2xs"><tbody class="divide-y divide-slate-200">${mv.map(m => `<tr><td class="py-1 pr-2 text-slate-500 whitespace-nowrap">${m.date.split('-').reverse().join('/')}</td><td class="py-1 pr-2">${escapeHtml(m.text)}${m.by ? `<span class="block text-slate-400">${escapeHtml(m.by)}</span>` : ''}</td><td class="py-1 pr-2 text-right font-mono font-bold ${m.qty < 0 ? 'text-rose-700' : 'text-emerald-700'}">${m.qty > 0 ? '+' : ''}${m.qty}</td><td class="py-1 text-right font-mono text-slate-700">${m.bal}</td></tr>`).join('')}</tbody></table>` : '<p class="text-2xs text-slate-400">Sin movimientos todavía.</p>'}
+                        </div>
+                        ${canEdit ? `<div class="space-y-2">
+                            <p class="text-3xs font-bold uppercase text-slate-500">Registrar</p>
+                            <div class="flex gap-2">
+                                <select id="leaveMoveKind" class="p-2 border rounded-lg bg-white text-xs">${e.moves.some(m => m.kind === 'inicial') ? '' : '<option value="inicial">Saldo inicial</option>'}<option value="ajuste">Ajuste (+/−)</option></select>
+                                <input id="leaveMoveQty" type="number" step="1" value="1" class="w-20 p-2 border rounded-lg text-xs" title="Cantidad de descansos (negativo para restar)">
+                            </div>
+                            <input id="leaveMoveNote" maxlength="300" placeholder="Motivo (ej. trabajó el festivo del 12/10)" class="w-full p-2 border rounded-lg text-xs">
+                            <p id="leaveMoveMsg" class="hidden text-2xs font-semibold text-rose-600"></p>
+                            <button type="button" onclick="saveLeaveMove(${e.id})" class="px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold">Guardar</button>
+                            <p class="text-3xs text-slate-400">El saldo inicial se registra una sola vez (descansos que ya se debían antes del ${leaveData.since.split('-').reverse().join('/')}). Para corregir, usa un ajuste.</p>
+                        </div>` : ''}
+                    </div></td></tr>` : ''}`;
+            }).join('') || '<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">No hay colaboradores con contrato a término fijo o indefinido.</td></tr>';
+        }
+        function toggleLeaveEmp(id) { leaveOpenEmp = leaveOpenEmp === id ? null : id; renderLeaveTable(); }
+        async function saveLeaveMove(empId) {
+            const msg = document.getElementById('leaveMoveMsg');
+            const show = (t) => { msg.textContent = t; msg.classList.remove('hidden'); };
+            const kind = document.getElementById('leaveMoveKind').value;
+            const qty = Number(document.getElementById('leaveMoveQty').value);
+            const note = document.getElementById('leaveMoveNote').value.trim();
+            if (!Number.isInteger(qty) || qty === 0) return show('Escribe una cantidad entera distinta de 0.');
+            if (kind === 'ajuste' && note.length < 5) return show('Escribe el motivo del ajuste (mínimo 5 caracteres).');
+            try {
+                await apiFetch('/api/rest-days/moves', { method: 'POST', body: JSON.stringify({ employeeId: empId, kind, qty, note }) });
+                showAppToast(kind === 'inicial' ? 'Saldo inicial registrado.' : 'Ajuste registrado.');
+                await loadLeaveData(true);
+                renderLeaveTable();
+            } catch (e) { show(e.message); }
+        }
+        async function exportLeaveExcel() {
+            const rows = leaveRows();
+            await downloadXLSX(`Descansos_acumulados_${bogotaTodayISO()}.xlsx`,
+                ['Colaborador', 'Área', 'Contrato', 'Saldo inicial', 'Ganados', 'Usados', 'Ajustes', 'Saldo descansos'],
+                rows.map(e => [e.name, e.department || 'Sin área', LEAVE_CONTRACT[e.contractType] || e.contractType, e.initial, e.earned, -e.used, e.adjust, e.balance]),
+                'Descansos');
+        }
+
         function buildAbsenceShift(empId, dateISO, type) {
             const a = ABSENCE_TYPES[type];
             return {
@@ -3794,11 +3950,17 @@
 
             if (ABSENCE_TYPES[appState.quickBrushMode]) {
                 const a = ABSENCE_TYPES[appState.quickBrushMode];
+                // "Descanso acumulado": usa un descanso del saldo (se avisa si no tiene).
+                const isComp = leaveData && leaveData.restKey === appState.quickBrushMode;
+                const prev = appState.shifts.find(s => s.empId === empId && s.date === dateISO);
+                const balBefore = isComp ? restBalanceNow(empId) : null;
+                const consumes = isComp && balBefore !== null && !(prev && prev.absenceType === appState.quickBrushMode) && dateISO >= leaveData.since;
+                if (consumes && balBefore <= 0 && !confirm(`${empName} no tiene descansos acumulados (saldo: ${balBefore}).\n\n¿Asignarle el descanso de todas formas? El saldo quedará en ${balBefore - 1}.`)) return;
                 appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
                 const abs = buildAbsenceShift(empId, dateISO, appState.quickBrushMode);
                 if (brushNote) abs.note = brushNote;
                 appState.shifts.push(abs);
-                showAppToast(`${a.label} asignado a ${empName}.`);
+                showAppToast(consumes ? `${a.label} asignado a ${empName}. Descansos acumulados restantes: ${balBefore - 1}.` : `${a.label} asignado a ${empName}.`);
                 renderWeeklyRoster();
                 renderSelectedEmployeeLedger();
                 return;
@@ -8237,6 +8399,7 @@
 
             if (viewId === 'employees') renderEmployeesView();
             if (viewId === 'shifts') {
+                loadLeaveData(); // saldo de descansos para el aviso del "Descanso acumulado"
                 // Al entrar al módulo siempre se muestra la semana actual.
                 appState.rosterCurrentMonday = getMondayOfDate(new Date()); appState.rosterDays = 7;
                 renderShiftsView();
@@ -10676,7 +10839,7 @@
             const est = (e) => { const x = EST[e] || EST.pendiente; return `<span class="px-2 py-0.5 rounded-full text-3xs font-bold ${x[1]}">${x[0]}</span>`; };
             const who = (r) => `<button type="button" onclick="indOpenEmployee(${r.employeeId})" class="font-semibold text-sky-700 hover:underline text-left">${escapeHtml(r.name)}</button>`;
             const cfg = {
-                ausentismo: { title: 'Ausencias del periodo', hint: 'Faltas (turnos terminados sin marcación de entrada; el estado viene de la alerta "No se presentó"), incapacidades y demás inasistencias que cuentan como ausentismo (estado "Novedad"). No cuentan descansos, vacaciones, "Sin horario" ni Compensatorio.',
+                ausentismo: { title: 'Ausencias del periodo', hint: 'Faltas (turnos terminados sin marcación de entrada; el estado viene de la alerta "No se presentó"), incapacidades y demás inasistencias que cuentan como ausentismo (estado "Novedad"). No cuentan descansos, vacaciones, "Sin horario", Compensatorio ni Descanso acumulado.',
                     head: ['Colaborador', 'Área', 'Fecha', 'Turno', 'Estado'], rows: (det.ausencias || []).map(r => [who(r), escapeHtml(r.area), pdfDate(r.date), escapeHtml(r.turno), est(r.estado)]) },
                 puntualidad: { title: 'Llegadas tarde del periodo', hint: 'Cada día con minutos de retraso en la entrada.',
                     head: ['Colaborador', 'Área', 'Fecha', 'Hora programada', 'Hora de llegada', 'Retraso'], rows: (det.tardes || []).map(r => [who(r), escapeHtml(r.area), pdfDate(r.date), escapeHtml(r.programada), escapeHtml(r.real || '-'), `<strong>${fmtMins(r.min)}</strong>`]) },

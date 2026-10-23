@@ -13,6 +13,7 @@ const superadmin = require('./routes/superadmin.routes');
 const org = require('./routes/org.routes');
 const attendance = require('./routes/attendance.routes');
 const notifications = require('./routes/notifications.routes');
+const leave = require('./routes/leave.routes');
 const live = require('./lib/live');
 const presence = require('./lib/presence');
 
@@ -120,6 +121,8 @@ route('PUT', '/api/payroll/opening-balance', [requirePermission('employees.edit_
 route('POST', '/api/payroll/opening-balance/:employeeId/delete', [requirePermission('employees.edit_payroll')], (req, res, params) => org.deleteOpeningBalance(req, res, params));
 // Cuadro de turnos: publicar, historial de cambios y patrones de rotacion.
 route('POST', '/api/shifts/publish', [requirePermission('shifts.edit')], (req, res) => org.publishShifts(req, res));
+route('GET', '/api/rest-days', [requirePermission('shifts.view')], (req, res, params, query) => leave.listRestDays(req, res, query));
+route('POST', '/api/rest-days/moves', [requirePermission('shifts.edit')], (req, res) => leave.addRestDayMove(req, res));
 route('GET', '/api/shifts/changes', [requirePermission('shifts.view')], (req, res, params, query) => org.listShiftChanges(req, res, query));
 route('PUT', '/api/org/rotation-patterns', [requirePermission('shifts.edit')], (req, res) => org.replaceRotationPatterns(req, res));
 // Cierres de periodo (recargos y horas extras por separado).
