@@ -133,6 +133,13 @@ function describeAudit(row, ctx = {}) {
       [m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));
     case 'attendance.absence_alert_removed': return out('Asistencia', '"No se presentó" eliminada',
       `La suite eliminó ${m.cantidad || 0} alerta(s) de "no se presentó" porque ese día quedó como descanso (o novedad) en el cuadro de turnos y la persona no tenía marcaciones.`, (m.detalle || []).slice(0, 10), 'Sistema (automático)');
+    case 'vacations.move': {
+      const T = { ingreso: 'Fecha de ingreso (vacaciones)', inicial: 'Saldo inicial de vacaciones', ajuste: 'Ajuste de vacaciones', reinicio: 'Contrato nuevo: vacaciones reiniciadas' };
+      const txt = m.tipo === 'ingreso' ? `Registró la fecha de ingreso de ${val(m.colaborador)}: ${dayName(m.fecha)}.`
+        : m.tipo === 'reinicio' ? `Reinició el conteo de vacaciones de ${val(m.colaborador)} desde el ${dayName(m.fecha)} (contrato nuevo; las anteriores se liquidaron).`
+        : `${m.tipo === 'inicial' ? 'Registró el saldo inicial' : 'Ajustó las vacaciones'} de ${val(m.colaborador)}: ${m.cantidad > 0 ? '+' : ''}${m.cantidad} día(s) hábil(es).`;
+      return out('Colaboradores', T[m.tipo] || 'Vacaciones', txt, [m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));
+    }
     case 'rest_days.move': return out('Colaboradores', m.tipo === 'inicial' ? 'Saldo inicial de descansos' : 'Ajuste de descansos acumulados',
       `${m.tipo === 'inicial' ? 'Registró el saldo inicial' : 'Ajustó los descansos acumulados'} de ${val(m.colaborador)}: ${m.cantidad > 0 ? '+' : ''}${m.cantidad} descanso(s).`,
       [m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));

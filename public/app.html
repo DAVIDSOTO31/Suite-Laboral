@@ -1893,7 +1893,11 @@
             <div class="flex items-start justify-between gap-3 p-4 border-b">
                 <div>
                     <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-mug-hot text-teal-600"></i> Descansos y vacaciones</h3>
-                    <p class="text-2xs text-slate-500 mt-0.5">Descansos acumulados (término fijo e indefinido): <strong>+1</strong> por cada semana (lunes a domingo) trabajada los 7 días · <strong>−1</strong> por cada día de <strong>Descanso acumulado</strong> en el cuadro de turnos (el Compensatorio no cuenta aquí). <span id="leaveSince"></span></p>
+                    <div class="flex gap-1 mt-2">
+                        <button type="button" id="leaveTabRest" onclick="setLeaveTab('rest')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Descansos acumulados</button>
+                        <button type="button" id="leaveTabVac" onclick="setLeaveTab('vac')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Vacaciones</button>
+                    </div>
+                    <p class="text-2xs text-slate-500 mt-1.5" id="leaveHelp"></p>
                 </div>
                 <button onclick="closeModal('modalLeave')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
@@ -1904,17 +1908,7 @@
             </div>
             <div class="overflow-auto flex-1">
                 <table class="w-full text-xs">
-                    <thead class="bg-slate-100 text-slate-600 text-3xs uppercase font-bold sticky top-0 z-10">
-                        <tr>
-                            <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Contrato</th>
-                            <th class="text-center px-2 py-2" title="Saldo inicial cargado una vez">Inicial</th>
-                            <th class="text-center px-2 py-2" title="Semanas trabajadas los 7 días">Ganados</th>
-                            <th class="text-center px-2 py-2" title="Días de Descanso acumulado en el cuadro">Usados</th>
-                            <th class="text-center px-2 py-2" title="Ajustes manuales">Ajustes</th>
-                            <th class="text-center px-2 py-2 bg-teal-50 text-teal-800">Saldo descansos</th>
-                            <th class="px-3 py-2"></th>
-                        </tr>
-                    </thead>
+                    <thead id="leaveTableHead" class="bg-slate-100 text-slate-600 text-3xs uppercase font-bold sticky top-0 z-10"></thead>
                     <tbody id="leaveTableBody" class="divide-y divide-slate-100"></tbody>
                 </table>
             </div>
@@ -3211,8 +3205,38 @@
         async function loadLeaveData(force) {
             if (!CAN('shifts.view')) return null;
             if (!force && leaveData && Date.now() - leaveLoadedAt < 60000) return leaveData;
-            try { leaveData = await apiFetch('/api/rest-days'); leaveLoadedAt = Date.now(); } catch (e) { /* sin datos: no se avisa */ }
+            try {
+                const [r, v] = await Promise.all([apiFetch('/api/rest-days'), apiFetch('/api/vacations')]);
+                leaveData = r; vacData = v; leaveLoadedAt = Date.now();
+            } catch (e) { /* sin datos: no se avisa */ }
             return leaveData;
+        }
+        let vacData = null, leaveTab = 'rest';
+        // Vacaciones disponibles (días hábiles) teniendo en cuenta los cambios del
+        // cuadro aún sin guardar. null si no aplica.
+        function isVacBusinessDay(d) { return !isSundayOrHolidayCO(d); }
+        function vacAvailableNow(empId) {
+            if (!vacData) return null;
+            const e = vacData.employees.find(x => Number(x.id) === Number(empId));
+            if (!e) return null;
+            const k = vacData.vacKey, from = e.usageFrom || vacData.since, loaded = appState.shiftsLoadedFrom || from;
+            const srv = new Set(e.businessDays);
+            let av = e.available;
+            appState.shifts.forEach(s => { if (Number(s.empId) === Number(empId) && s.absenceType === k && s.date >= from && isVacBusinessDay(s.date) && !srv.has(s.date)) av--; });
+            srv.forEach(d => {
+                if (d < loaded) return;
+                const sh = appState.shifts.find(s => Number(s.empId) === Number(empId) && s.date === d);
+                if (!sh || sh.absenceType !== k) av++;
+            });
+            return Math.round(av * 100) / 100;
+        }
+        function setLeaveTab(t) {
+            leaveTab = t; leaveOpenEmp = null;
+            [['rest', 'leaveTabRest'], ['vac', 'leaveTabVac']].forEach(([k, id]) => {
+                const b = document.getElementById(id);
+                b.className = `px-3 py-1.5 rounded-lg text-xs font-bold border ${k === t ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`;
+            });
+            renderLeaveTable();
         }
         // Saldo de descansos de un colaborador teniendo en cuenta los cambios del
         // cuadro que aún no se han guardado. null si no aplica (contrato de servicios).
@@ -3238,14 +3262,16 @@
             sel.innerHTML = '<option value="">Todas las áreas</option>' + (appState.departments || []).map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}</option>`).join('') + (hasOther ? '<option value="_otras">Otras áreas / No asignados</option>' : '');
             document.getElementById('leaveTableBody').innerHTML = '<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>';
             openModal('modalLeave');
+            setLeaveTab(leaveTab);
             await loadLeaveData(true);
             renderLeaveTable();
         }
         function leaveRows() {
-            if (!leaveData) return [];
+            const src = leaveTab === 'vac' ? vacData : leaveData;
+            if (!src) return [];
             const area = document.getElementById('leaveArea').value;
             const q = (document.getElementById('leaveSearch').value || '').trim().toLowerCase();
-            return leaveData.employees.filter(e => {
+            return src.employees.filter(e => {
                 const emp = appState.employees.find(x => Number(x.id) === Number(e.id)) || e;
                 return (!area || empAreaKey(emp) === area) && (!q || e.name.toLowerCase().includes(q));
             });
@@ -3262,9 +3288,18 @@
         }
         function addDaysToISO(iso, n) { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
         function renderLeaveTable() {
+            if (leaveTab === 'vac') return renderVacTable();
             const body = document.getElementById('leaveTableBody');
+            document.getElementById('leaveTableHead').innerHTML = `<tr>
+                <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Contrato</th>
+                <th class="text-center px-2 py-2" title="Saldo inicial cargado una vez">Inicial</th>
+                <th class="text-center px-2 py-2" title="Semanas trabajadas los 7 días">Ganados</th>
+                <th class="text-center px-2 py-2" title="Días de Descanso acumulado en el cuadro">Usados</th>
+                <th class="text-center px-2 py-2" title="Ajustes manuales">Ajustes</th>
+                <th class="text-center px-2 py-2 bg-teal-50 text-teal-800">Saldo descansos</th>
+                <th class="px-3 py-2"></th></tr>`;
             if (!leaveData) { body.innerHTML = '<tr><td colspan="8" class="px-3 py-6 text-center text-rose-600">No se pudo cargar la información.</td></tr>'; return; }
-            document.getElementById('leaveSince').textContent = `Se cuenta desde el ${leaveData.since.split('-').reverse().join('/')}; lo anterior va en el saldo inicial.`;
+            document.getElementById('leaveHelp').innerHTML = `Término fijo e indefinido: <strong>+1</strong> por cada semana (lunes a domingo) trabajada los 7 días · <strong>−1</strong> por cada día de <strong>Descanso acumulado</strong> en el cuadro de turnos (el Compensatorio no cuenta aquí). Se cuenta desde el ${leaveData.since.split('-').reverse().join('/')}; lo anterior va en el saldo inicial.`;
                         const rows = leaveRows();
             const canEdit = CAN('shifts.edit');
             const num = (n, sign) => n ? `${sign && n > 0 ? '+' : ''}${n}` : '<span class="text-slate-300">0</span>';
@@ -3318,11 +3353,141 @@
             } catch (e) { show(e.message); }
         }
         async function exportLeaveExcel() {
+            if (leaveTab === 'vac') return exportVacExcel();
             const rows = leaveRows();
             await downloadXLSX(`Descansos_acumulados_${bogotaTodayISO()}.xlsx`,
                 ['Colaborador', 'Área', 'Contrato', 'Saldo inicial', 'Ganados', 'Usados', 'Ajustes', 'Saldo descansos'],
                 rows.map(e => [e.name, e.department || 'Sin área', LEAVE_CONTRACT[e.contractType] || e.contractType, e.initial, e.earned, -e.used, e.adjust, e.balance]),
                 'Descansos');
+        }
+
+        // ---- Vacaciones (término indefinido y fijo) ----
+        const fmtD = (d) => d ? d.split('-').reverse().join('/') : '';
+        const fmtDays = (n) => { const v = Math.round((Number(n) || 0) * 100) / 100; return String(v).replace('.', ','); };
+        // Agrupa días de vacaciones seguidos en bloques (para el extracto).
+        function vacBlocks(e) {
+            const blocks = [];
+            e.vacationDays.forEach(d => {
+                const last = blocks[blocks.length - 1];
+                if (last && addDaysToISO(last.to, 1) === d) { last.to = d; } else blocks.push({ from: d, to: d });
+            });
+            const biz = new Set(e.businessDays);
+            return blocks.map(b => { let n = 0; for (let d = b.from; d <= b.to; d = addDaysToISO(d, 1)) if (biz.has(d)) n++; return { ...b, biz: n }; });
+        }
+        function vacMovements(e) {
+            const list = [];
+            e.moves.forEach(m => {
+                if (m.kind === 'ingreso') list.push({ date: m.date, qty: 0, text: `Fecha de ingreso: ${fmtD(m.date)}`, by: m.by, info: true });
+                else if (m.kind === 'reinicio') list.push({ date: m.date, qty: 0, text: `Contrato nuevo: el conteo se reinicia desde el ${fmtD(m.date)}${m.note ? ' · ' + m.note : ''}`, by: m.by, info: true, reset: true });
+                else list.push({ date: m.date, qty: m.qty, text: m.kind === 'inicial' ? 'Saldo inicial (días disponibles)' : `Ajuste: ${m.note}`, by: m.by });
+            });
+            if (e.start) list.push({ date: vacData.today, qty: e.accrued, text: `Causadas desde el ${fmtD(e.usageFrom && e.initial ? e.usageFrom : e.start)} hasta hoy (15 días hábiles por año)`, accrual: true });
+            vacBlocks(e).forEach(b => list.push({ date: b.from, qty: -b.biz, text: `Vacaciones ${fmtD(b.from)}${b.to !== b.from ? ' al ' + fmtD(b.to) : ''}${b.from > vacData.today ? ' (programadas)' : ''} · ${b.biz} día(s) hábil(es)` }));
+            list.sort((a, b) => (a.reset ? -1 : 0) - (b.reset ? -1 : 0) || (a.accrual ? 1 : 0) - (b.accrual ? 1 : 0) || a.date.localeCompare(b.date));
+            return list;
+        }
+        function renderVacTable() {
+            const body = document.getElementById('leaveTableBody');
+            document.getElementById('leaveTableHead').innerHTML = `<tr>
+                <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Contrato · ingreso</th>
+                <th class="text-center px-2 py-2" title="Días disponibles al Día 0 (cargado una vez)">Inicial</th>
+                <th class="text-center px-2 py-2" title="15 días hábiles por año, causados día a día">Causadas</th>
+                <th class="text-center px-2 py-2" title="Días hábiles de vacaciones ya tomados">Disfrutadas</th>
+                <th class="text-center px-2 py-2" title="Días hábiles de vacaciones programados a futuro en el cuadro">Programadas</th>
+                <th class="text-center px-2 py-2" title="Ajustes manuales">Ajustes</th>
+                <th class="text-center px-2 py-2 bg-amber-50 text-amber-800">Disponibles</th>
+                <th class="px-3 py-2"></th></tr>`;
+            if (!vacData) { body.innerHTML = '<tr><td colspan="9" class="px-3 py-6 text-center text-rose-600">No se pudo cargar la información.</td></tr>'; return; }
+            document.getElementById('leaveHelp').innerHTML = `Término indefinido y fijo: <strong>15 días hábiles por año</strong>, causados día a día desde la fecha de ingreso. Al asignar <strong>Vacaciones</strong> en el cuadro de turnos solo descuentan los días hábiles (lunes a sábado; <strong>no</strong> domingos ni festivos). Saldo inicial: días disponibles al ${fmtD(addDaysToISO(vacData.since, -1))}.`;
+            const rows = leaveRows();
+            const canEdit = CAN('shifts.edit');
+            const num = (n, sign) => n ? `${sign && n > 0 ? '+' : ''}${fmtDays(n)}` : '<span class="text-slate-300">0</span>';
+            body.innerHTML = rows.map(e => {
+                const open = leaveOpenEmp === e.id;
+                const av = e.available;
+                const flags = [
+                    !e.start ? '<span class="block text-3xs font-bold text-amber-700">Falta la fecha de ingreso</span>' : '',
+                    e.needsInitial ? '<span class="block text-3xs font-bold text-amber-700">Falta el saldo inicial</span>' : '',
+                    e.twoPeriods ? '<span class="block text-3xs font-bold text-rose-700">2 periodos o más: programarle vacaciones</span>' : '',
+                    e.anniversaryThisMonth ? `<span class="block text-3xs font-bold text-sky-700">Cumple ${e.years} año(s) este mes</span>` : '',
+                ].join('');
+                const mv = open ? vacMovements(e) : [];
+                return `<tr class="hover:bg-slate-50">
+                    <td class="px-3 py-2 font-semibold text-slate-800">${escapeHtml(e.name)}<span class="block text-3xs font-normal text-slate-500">${escapeHtml(e.department || 'Sin área')}</span>${flags}</td>
+                    <td class="px-3 py-2 text-slate-600">${LEAVE_CONTRACT[e.contractType] || e.contractType}<span class="block text-3xs text-slate-500">${e.start ? (e.restarted ? 'Contrato nuevo: ' : 'Ingreso: ') + fmtD(e.start) : '—'}</span></td>
+                    <td class="px-2 py-2 text-center font-mono">${num(e.initial)}</td>
+                    <td class="px-2 py-2 text-center font-mono text-emerald-700">${num(e.accrued, true)}</td>
+                    <td class="px-2 py-2 text-center font-mono text-rose-700">${e.taken ? '-' + e.taken : num(0)}</td>
+                    <td class="px-2 py-2 text-center font-mono text-orange-700">${e.scheduled ? '-' + e.scheduled : num(0)}</td>
+                    <td class="px-2 py-2 text-center font-mono">${num(e.adjust, true)}</td>
+                    <td class="px-2 py-2 text-center bg-amber-50/50"><span class="inline-block min-w-[3rem] font-mono font-extrabold text-sm px-2 py-0.5 rounded-lg ${av < 0 ? 'bg-rose-100 text-rose-700' : av > 0 ? 'bg-amber-100 text-amber-900' : 'text-slate-500'}">${fmtDays(av)}</span></td>
+                    <td class="px-3 py-2 text-right whitespace-nowrap"><button type="button" onclick="toggleLeaveEmp(${e.id})" class="text-2xs font-semibold px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700">${open ? 'Cerrar' : 'Movimientos'}</button></td>
+                </tr>${open ? `<tr><td colspan="9" class="px-4 py-3 bg-slate-50">
+                    <div class="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <p class="text-3xs font-bold uppercase text-slate-500 mb-1">Movimientos</p>
+                            ${mv.length ? `<table class="w-full text-2xs"><tbody class="divide-y divide-slate-200">${mv.map(m => `<tr><td class="py-1 pr-2 text-slate-500 whitespace-nowrap">${fmtD(m.date)}</td><td class="py-1 pr-2">${escapeHtml(m.text)}${m.by ? `<span class="block text-slate-400">${escapeHtml(m.by)}</span>` : ''}</td><td class="py-1 text-right font-mono font-bold ${m.info ? 'text-slate-400' : m.qty < 0 ? 'text-rose-700' : 'text-emerald-700'}">${m.info ? '' : (m.qty > 0 ? '+' : '') + fmtDays(m.qty)}</td></tr>`).join('')}
+                                <tr class="font-bold"><td></td><td class="py-1 pr-2">Disponibles hoy</td><td class="py-1 text-right font-mono">${fmtDays(av)}</td></tr></tbody></table>` : '<p class="text-2xs text-slate-400">Sin movimientos todavía.</p>'}
+                        </div>
+                        ${canEdit ? `<div class="space-y-2">
+                            <p class="text-3xs font-bold uppercase text-slate-500">Registrar</p>
+                            <select id="vacMoveKind" onchange="vacMoveKindChanged()" class="w-full p-2 border rounded-lg bg-white text-xs">
+                                <option value="ingreso">Fecha de ingreso</option>
+                                ${e.moves.some(m => m.kind === 'inicial') ? '' : '<option value="inicial">Saldo inicial (días disponibles)</option>'}
+                                <option value="ajuste">Ajuste (+/−)</option>
+                                ${e.contractType === 'fijo' ? '<option value="reinicio">Contrato nuevo (reinicia el conteo)</option>' : ''}
+                            </select>
+                            <div class="flex gap-2">
+                                <input id="vacMoveDate" type="date" value="${e.hireDate || ''}" max="${vacData.today}" class="p-2 border rounded-lg text-xs" title="Fecha">
+                                <input id="vacMoveQty" type="number" step="0.5" value="1" class="hidden w-24 p-2 border rounded-lg text-xs" title="Días hábiles (negativo para restar; se permite medio día)">
+                            </div>
+                            <input id="vacMoveNote" maxlength="300" placeholder="Motivo / nota" class="w-full p-2 border rounded-lg text-xs">
+                            <p id="vacMoveHint" class="text-3xs text-slate-500"></p>
+                            <p id="vacMoveMsg" class="hidden text-2xs font-semibold text-rose-600"></p>
+                            <button type="button" onclick="saveVacMove(${e.id})" class="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold">Guardar</button>
+                        </div>` : ''}
+                    </div></td></tr>` : ''}`;
+            }).join('') || '<tr><td colspan="9" class="px-3 py-6 text-center text-slate-400">No hay colaboradores con contrato a término fijo o indefinido.</td></tr>';
+            if (leaveOpenEmp != null && canEdit) vacMoveKindChanged();
+        }
+        function vacMoveKindChanged() {
+            const k = document.getElementById('vacMoveKind');
+            if (!k) return;
+            const kind = k.value;
+            document.getElementById('vacMoveDate').classList.toggle('hidden', !(kind === 'ingreso' || kind === 'reinicio'));
+            document.getElementById('vacMoveQty').classList.toggle('hidden', !(kind === 'inicial' || kind === 'ajuste'));
+            document.getElementById('vacMoveNote').placeholder = kind === 'ajuste' ? 'Motivo del ajuste (obligatorio)' : 'Nota (opcional)';
+            document.getElementById('vacMoveHint').textContent = {
+                ingreso: 'Fecha en que empezó a trabajar. Desde ahí se causan las vacaciones.',
+                inicial: `Días hábiles de vacaciones que tenía disponibles al ${fmtD(addDaysToISO(vacData.since, -1))} (lo anterior a la suite). Se registra una sola vez.`,
+                ajuste: 'Suma o resta días (ej. vacaciones tomadas antes y no registradas en el cuadro). Se permite medio día.',
+                reinicio: 'Úsalo solo si el contrato anterior terminó y se liquidó (vacaciones pagadas) y firmó uno nuevo. Una prórroga NO reinicia el conteo.',
+            }[kind] || '';
+        }
+        async function saveVacMove(empId) {
+            const msg = document.getElementById('vacMoveMsg');
+            const show = (t) => { msg.textContent = t; msg.classList.remove('hidden'); };
+            const kind = document.getElementById('vacMoveKind').value;
+            const date = document.getElementById('vacMoveDate').value;
+            const qty = Number(document.getElementById('vacMoveQty').value);
+            const note = document.getElementById('vacMoveNote').value.trim();
+            if ((kind === 'ingreso' || kind === 'reinicio') && !date) return show('Indica la fecha.');
+            if ((kind === 'inicial' || kind === 'ajuste') && (!Number.isFinite(qty) || qty === 0)) return show('Escribe una cantidad de días distinta de 0.');
+            if (kind === 'ajuste' && note.length < 5) return show('Escribe el motivo del ajuste (mínimo 5 caracteres).');
+            if (kind === 'reinicio' && !confirm(`¿Confirmas que es un CONTRATO NUEVO desde el ${fmtD(date)}?\n\nLas vacaciones del contrato anterior se dan por liquidadas y el conteo empieza de cero. Si es solo una prórroga, cancela.`)) return;
+            try {
+                await apiFetch('/api/vacations/moves', { method: 'POST', body: JSON.stringify({ employeeId: empId, kind, date, qty, note }) });
+                showAppToast('Registrado.');
+                await loadLeaveData(true);
+                renderLeaveTable();
+            } catch (e) { show(e.message); }
+        }
+        async function exportVacExcel() {
+            const rows = leaveRows();
+            await downloadXLSX(`Vacaciones_${bogotaTodayISO()}.xlsx`,
+                ['Colaborador', 'Área', 'Contrato', 'Fecha de ingreso', 'Saldo inicial (días)', 'Causadas (días)', 'Disfrutadas (días)', 'Programadas (días)', 'Ajustes (días)', 'Disponibles (días)'],
+                rows.map(e => [e.name, e.department || 'Sin área', LEAVE_CONTRACT[e.contractType] || e.contractType, e.start ? fmtD(e.start) : '', e.initial, e.accrued, -e.taken, -e.scheduled, e.adjust, e.available]),
+                'Vacaciones', [null, null, null, null, 'hours', 'hours', 'hours', 'hours', 'hours', 'hours']);
         }
 
         function buildAbsenceShift(empId, dateISO, type) {
@@ -3955,12 +4120,19 @@
                 const prev = appState.shifts.find(s => s.empId === empId && s.date === dateISO);
                 const balBefore = isComp ? restBalanceNow(empId) : null;
                 const consumes = isComp && balBefore !== null && !(prev && prev.absenceType === appState.quickBrushMode) && dateISO >= leaveData.since;
+                // Vacaciones: descuentan solo días hábiles; aviso si no le alcanzan.
+                const isVac = vacData && vacData.vacKey === appState.quickBrushMode && isVacBusinessDay(dateISO) && !(prev && prev.absenceType === appState.quickBrushMode);
+                const vacBefore = isVac ? vacAvailableNow(empId) : null;
+                if (vacBefore !== null && vacBefore < 1 && !confirm(`${empName} tiene ${fmtDays(vacBefore)} día(s) hábil(es) de vacaciones disponibles.\n\n¿Asignar este día de vacaciones de todas formas? Quedarán ${fmtDays(vacBefore - 1)}.`)) return;
                 if (consumes && balBefore <= 0 && !confirm(`${empName} no tiene descansos acumulados (saldo: ${balBefore}).\n\n¿Asignarle el descanso de todas formas? El saldo quedará en ${balBefore - 1}.`)) return;
                 appState.shifts = appState.shifts.filter(s => !(s.empId === empId && s.date === dateISO));
                 const abs = buildAbsenceShift(empId, dateISO, appState.quickBrushMode);
                 if (brushNote) abs.note = brushNote;
                 appState.shifts.push(abs);
-                showAppToast(consumes ? `${a.label} asignado a ${empName}. Descansos acumulados restantes: ${balBefore - 1}.` : `${a.label} asignado a ${empName}.`);
+                showAppToast(consumes ? `${a.label} asignado a ${empName}. Descansos acumulados restantes: ${balBefore - 1}.`
+                    : vacBefore !== null ? `Vacaciones asignadas a ${empName}. Días hábiles disponibles: ${fmtDays(vacBefore - 1)}.`
+                    : (isVac === false && vacData && vacData.vacKey === appState.quickBrushMode && !isVacBusinessDay(dateISO)) ? `Vacaciones asignadas a ${empName} (domingo o festivo: no descuenta días).`
+                    : `${a.label} asignado a ${empName}.`);
                 renderWeeklyRoster();
                 renderSelectedEmployeeLedger();
                 return;
@@ -4773,11 +4945,20 @@
             if (editing) {
                 const salaryChanged = Number(editing.salary) !== Number(salary);
                 const typeChanged = empContractType(editing) !== contractType;
+                const prevContractStart = empContractType(editing) === 'fijo' ? (editing.contractStart || '') : '';
                 Object.assign(editing, { name, role, department: dept, departmentId: deptId, salary, email, documentType, documentNumber, phoneCountry: phoneNumber ? phoneCountry : '+57', phoneNumber, contractType, contractStart, contractEnd });
                 // Al cambiar el tipo de contrato se ajustan solos el recargo nocturno
                 // y el conteo de días laborados (se pueden cambiar a mano después).
                 if (typeChanged) applyContractDefaults(editing);
                 if (salaryChanged || typeChanged) recomputeShiftsForEmployee(editing.id);
+                // Término fijo con nueva fecha de inicio: ¿prórroga o contrato nuevo?
+                // (las vacaciones solo se reinician si el anterior se liquidó).
+                if (contractType === 'fijo' && prevContractStart && contractStart && contractStart > prevContractStart && contractStart <= bogotaTodayISO() && CAN('shifts.edit')
+                    && confirm(`Cambiaste el inicio del contrato de ${name} al ${contractStart.split('-').reverse().join('/')}.\n\n¿Es un CONTRATO NUEVO (el anterior terminó y se le liquidaron las vacaciones)?\n\nAceptar = contrato nuevo: el conteo de vacaciones se reinicia.\nCancelar = prórroga: el conteo de vacaciones continúa igual.`)) {
+                    apiFetch('/api/vacations/moves', { method: 'POST', body: JSON.stringify({ employeeId: editing.id, kind: 'reinicio', date: contractStart, note: 'Contrato nuevo (desde la ficha)' }) })
+                        .then(() => showAppToast(`Vacaciones de ${name}: el conteo se reinicia desde el ${contractStart.split('-').reverse().join('/')}.`))
+                        .catch(e => showAppToast('No se pudo reiniciar el conteo de vacaciones: ' + e.message));
+                }
                 closeModal('modalAddEmp');
                 showAppToast(typeChanged ? `Ficha de ${name} actualizada: ${CONTRACT_INFO[contractType].label}. ${CONTRACT_INFO[contractType].applied}` : `Ficha de ${name} actualizada.`);
             } else {

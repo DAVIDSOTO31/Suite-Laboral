@@ -179,4 +179,155 @@ async function addRestDayMove(req, res) {
   sendJson(res, 200, { ok: true, id });
 }
 
-module.exports = { listRestDays, addRestDayMove, computeRestDays };
+// ---------------------------------------------------------------------------
+// VACACIONES (contrato a termino indefinido y fijo)
+//
+//  - 15 dias HABILES por cada año de servicio, causados dia a dia en proporcion
+//    (15 por cada 360 dias, año comercial: 1,25 dias por mes).
+//  - Se cuentan desde la FECHA DE INGRESO (se registra aqui; en termino fijo, si
+//    no se registra, se usa el inicio del contrato). Si el contrato fijo termino,
+//    se liquido y se firmo uno nuevo, se registra "contrato nuevo" y el conteo
+//    se reinicia. Una prorroga NO reinicia el conteo.
+//  - Saldo inicial: dias disponibles al Dia 0 (lo anterior a la suite). Si hay
+//    saldo inicial, se causa desde el dia siguiente al Dia 0.
+//  - Se USAN asignando "Vacaciones" en el cuadro de turnos. Solo descuentan los
+//    dias habiles: lunes a sabado que no sean festivo (domingos y festivos no).
+//  - Como los descansos, el saldo se calcula siempre desde el cuadro de turnos.
+// ---------------------------------------------------------------------------
+const { isHolidayCO } = require('../lib/holidays-co');
+db.exec(`
+CREATE TABLE IF NOT EXISTS vacation_moves (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  employee_id INTEGER NOT NULL,
+  move_date TEXT NOT NULL,
+  qty REAL NOT NULL DEFAULT 0,
+  kind TEXT NOT NULL CHECK(kind IN ('ingreso','inicial','ajuste','reinicio')),
+  note TEXT,
+  created_by TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', '-5 hours'))
+);
+CREATE INDEX IF NOT EXISTS idx_vacation_moves_emp ON vacation_moves(organization_id, employee_id);
+`);
+const VAC_KEY = 'vacaciones';
+const VAC_PER_YEAR = 15;
+function isBusinessDayCO(dateISO) { return weekdayISO(dateISO) !== 0 && !isHolidayCO(dateISO); }
+// Dias entre dos fechas en año comercial de 360 dias (meses de 30), contando
+// ambos extremos: del 1 de enero al 31 de diciembre = 360.
+function days360(fromISO, toISO) {
+  if (!fromISO || !toISO || toISO < fromISO) return 0;
+  const [y1, m1, d1r] = fromISO.split('-').map(Number), [y2, m2, d2r] = toISO.split('-').map(Number);
+  const d1 = Math.min(d1r, 30), d2 = Math.min(d2r, 30);
+  return (y2 - y1) * 360 + (m2 - m1) * 30 + (d2 - d1) + 1;
+}
+const round2 = (n) => Math.round(n * 100) / 100;
+
+function computeVacations(orgId) {
+  const since = restSince(orgId);
+  const today = todayISOInBogota();
+  const employees = db.prepare(`SELECT id, name, department, contract_type, contract_start FROM employees
+    WHERE organization_id = ? AND COALESCE(status, 'activo') != 'retirado' ORDER BY name`).all(orgId)
+    .filter(e => ELIGIBLE.has(e.contract_type || 'indefinido'));
+  const ids = new Set(employees.map(e => Number(e.id)));
+  // Dias de Vacaciones en el cuadro de turnos.
+  const vac = new Map();
+  for (const r of db.prepare('SELECT data_json FROM shifts WHERE organization_id = ? AND data_json LIKE ?').all(orgId, `%"absenceType":"${VAC_KEY}"%`)) {
+    let s; try { s = JSON.parse(r.data_json); } catch { continue; }
+    if (!s || s.absenceType !== VAC_KEY || !s.date || !ids.has(Number(s.empId))) continue;
+    const k = Number(s.empId);
+    if (!vac.has(k)) vac.set(k, new Set());
+    vac.get(k).add(s.date);
+  }
+  const moves = new Map();
+  for (const m of db.prepare(`SELECT m.*, u.email AS by_email FROM vacation_moves m LEFT JOIN users u ON u.id = m.created_by
+    WHERE m.organization_id = ? ORDER BY m.created_at`).all(orgId)) {
+    const k = Number(m.employee_id);
+    if (!moves.has(k)) moves.set(k, []);
+    moves.get(k).push({ id: m.id, date: m.move_date, qty: m.qty, kind: m.kind, note: m.note || '', by: m.by_email || '', at: m.created_at });
+  }
+  const thisMonth = today.slice(5, 7);
+  return {
+    since, today, vacKey: VAC_KEY, perYear: VAC_PER_YEAR,
+    employees: employees.map(e => {
+      const id = Number(e.id);
+      const mv = moves.get(id) || [];
+      const ingresoMv = mv.filter(m => m.kind === 'ingreso').pop();
+      const hireDate = ingresoMv ? ingresoMv.date : (e.contract_type === 'fijo' && e.contract_start ? e.contract_start : null);
+      const reinicio = mv.filter(m => m.kind === 'reinicio').sort((a, b) => a.date.localeCompare(b.date)).pop() || null;
+      // Fecha desde la que se causan las vacaciones de la relacion actual.
+      const start = reinicio && (!hireDate || reinicio.date > hireDate) ? reinicio.date : hireDate;
+      // El saldo inicial y los ajustes anteriores a un "contrato nuevo" ya no cuentan.
+      const current = mv.filter(m => !reinicio || m.created_at >= reinicio.at || m === reinicio);
+      const inicialMv = current.find(m => m.kind === 'inicial') || null;
+      const initial = inicialMv ? inicialMv.qty : 0;
+      const adjust = round2(current.filter(m => m.kind === 'ajuste').reduce((a, m) => a + m.qty, 0));
+      // Causacion: con saldo inicial, desde el dia siguiente al Dia 0; sin el,
+      // desde la fecha de ingreso (o el contrato nuevo).
+      let accrualFrom = start;
+      if (start && inicialMv && since > start) accrualFrom = since;
+      const usageFrom = start ? (inicialMv && since > start ? since : start) : since;
+      const accrued = start ? round2(days360(accrualFrom, today) * VAC_PER_YEAR / 360) : 0;
+      const days = [...(vac.get(id) || [])].filter(d => d >= usageFrom).sort();
+      const business = days.filter(isBusinessDayCO);
+      const taken = business.filter(d => d <= today).length;
+      const scheduled = business.filter(d => d > today).length;
+      const available = round2(initial + accrued + adjust - taken - scheduled);
+      const years = start ? Math.floor(days360(start, today) / 360) : 0;
+      return {
+        id, name: e.name, department: e.department || '', contractType: e.contract_type || 'indefinido',
+        hireDate, start, usageFrom, restarted: !!(reinicio && start === reinicio.date), needsInitial: !!(start && start < since && !inicialMv),
+        initial, accrued, adjust, taken, scheduled, available, years,
+        anniversaryThisMonth: !!(start && years >= 0 && start.slice(5, 7) === thisMonth && start.slice(0, 4) < today.slice(0, 4)),
+        twoPeriods: available >= 2 * VAC_PER_YEAR,
+        vacationDays: days, businessDays: business, moves: current,
+      };
+    }),
+  };
+}
+
+// GET /api/vacations
+function listVacations(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  sendJson(res, 200, computeVacations(orgId));
+}
+
+// POST /api/vacations/moves { employeeId, kind: 'ingreso'|'inicial'|'ajuste'|'reinicio', date?, qty?, note? }
+async function addVacationMove(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const emp = db.prepare('SELECT id, name, contract_type FROM employees WHERE id = ? AND organization_id = ?').get(Number(body.employeeId), orgId);
+  if (!emp) return sendJson(res, 404, { error: 'Colaborador no encontrado.' });
+  if (!ELIGIBLE.has(emp.contract_type || 'indefinido')) return sendJson(res, 400, { error: 'Las vacaciones se llevan solo para contratos a término fijo o indefinido.' });
+  const kind = ['ingreso', 'inicial', 'ajuste', 'reinicio'].includes(body.kind) ? body.kind : null;
+  if (!kind) return sendJson(res, 400, { error: 'Tipo de movimiento no valido.' });
+  const today = todayISOInBogota();
+  const okDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) ? String(d) : null;
+  const note = String(body.note || '').trim().slice(0, 300);
+  let date = today, qty = 0;
+  if (kind === 'ingreso' || kind === 'reinicio') {
+    date = okDate(body.date);
+    if (!date) return sendJson(res, 400, { error: 'Indica la fecha.' });
+    if (date > today) return sendJson(res, 400, { error: 'La fecha no puede ser futura.' });
+  } else {
+    qty = Math.round(Number(body.qty) * 2) / 2; // de a medio dia
+    if (!Number.isFinite(qty) || qty === 0 || Math.abs(qty) > 120) return sendJson(res, 400, { error: 'La cantidad debe estar entre -120 y 120 días (sin 0; se permite medio día).' });
+    if (kind === 'inicial' && qty < 0) return sendJson(res, 400, { error: 'El saldo inicial no puede ser negativo.' });
+    if (kind === 'ajuste' && note.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo del ajuste (mínimo 5 caracteres).' });
+    if (kind === 'inicial') {
+      const st = computeVacations(orgId).employees.find(x => x.id === Number(emp.id));
+      if (st && st.moves.some(m => m.kind === 'inicial')) return sendJson(res, 409, { error: `${emp.name} ya tiene saldo inicial. Para corregirlo, haz un ajuste.` });
+      date = addDaysISO(restSince(orgId), -1);
+    }
+  }
+  const id = uid('vac');
+  db.prepare('INSERT INTO vacation_moves (id, organization_id, employee_id, move_date, qty, kind, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, orgId, emp.id, date, qty, kind, note || null, req.user.id);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'vacations.move', resourceType: 'employee', resourceId: String(emp.id), ip: getClientIp(req),
+    metadata: { colaborador: emp.name, tipo: kind, cantidad: qty || null, fecha: date, motivo: note || null } });
+  sendJson(res, 200, { ok: true, id });
+}
+
+module.exports = { listRestDays, addRestDayMove, computeRestDays, listVacations, addVacationMove, computeVacations };
