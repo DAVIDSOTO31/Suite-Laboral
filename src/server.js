@@ -271,6 +271,9 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
     "img-src 'self' data:; " +
+    // frame-src blob:: el visor de PDF dentro de la suite (llamados firmados)
+    // muestra el PDF que el mismo navegador acaba de armar, sin descargarlo.
+    "frame-src 'self' blob:; " +
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; " +
     "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; " +
     `script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net ${INLINE_SCRIPT_HASHES}; ` +
