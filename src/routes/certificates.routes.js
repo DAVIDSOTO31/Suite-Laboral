@@ -15,7 +15,7 @@
 //  - Verificacion publica con el codigo: solo muestra lo minimo (Ley 1581).
 //  - Enlace para el colaborador (WhatsApp manual): ve y descarga su certificado.
 // ---------------------------------------------------------------------------
-const { db, uid } = require('../db');
+const { db, uid, TRANSPORT_ALLOWANCE } = require('../db');
 const { sendJson, readBody, getClientIp } = require('../lib/http');
 const { logAction } = require('../lib/audit');
 const { randomToken, sha256Hex } = require('../lib/crypto');
@@ -208,13 +208,21 @@ function buildVars(orgId, emp, opts) {
   else vinculo = retired ? `laboró en nuestra empresa desde el ${desde} hasta el ${longDate(emp.retired_at)}` : `labora en nuestra empresa desde el ${desde}`;
   let tipo = CONTRACT_PHRASE[contract] || CONTRACT_PHRASE.indefinido;
   if (contract === 'fijo' && !retired && emp.contract_end && emp.contract_end >= today) tipo += ` con vigencia hasta el ${longDate(emp.contract_end)}`;
-  const salary = Math.round(Number(emp.salary) || 0);
+  const basic = Math.round(Number(emp.salary) || 0);
+  // Auxilio de transporte (término fijo o indefinido): el salario certificado es
+  // la suma del básico + el auxilio, con el desglose.
+  const auxYear = Number((retired && emp.retired_at ? emp.retired_at : today).slice(0, 4));
+  const aux = kind === 'laboral' && emp.transport_allowance === 1 ? (TRANSPORT_ALLOWANCE[auxYear] || TRANSPORT_ALLOWANCE[Math.max(...Object.keys(TRANSPORT_ALLOWANCE).map(Number))] || 0) : 0;
+  const salary = basic + aux;
   let pSal = '';
-  if (opts.includeSalary && salary > 0) {
+  if (opts.includeSalary && basic > 0) {
     const v = `${pesosEnLetras(salary)} (${money(salary)})`;
+    const det = aux ? (retired ? `, que correspondía al salario básico de ${money(basic)} más el auxilio de transporte de ${money(aux)}` : `, que corresponde al salario básico de ${money(basic)} más el auxilio de transporte de ${money(aux)}`) : '';
     pSal = kind === 'servicios'
       ? (retired ? `Sus últimos honorarios mensuales pactados fueron de ${v}.` : `Sus honorarios mensuales pactados son de ${v}.`)
-      : (retired ? `Su último salario básico mensual devengado fue de ${v}.` : `Actualmente devenga un salario básico mensual de ${v}.`);
+      : aux
+        ? (retired ? `Su último salario mensual devengado fue de ${v}${det}.` : `Actualmente devenga un salario mensual de ${v}${det}.`)
+        : (retired ? `Su último salario básico mensual devengado fue de ${v}.` : `Actualmente devenga un salario básico mensual de ${v}.`);
   }
   let pFun = '';
   const fn = String(opts.functionsText || '').split('\n').map(s => s.replace(/^[\s\-•*]+/, '').trim()).filter(Boolean);
@@ -235,8 +243,10 @@ function buildVars(orgId, emp, opts) {
       documento: docPhrase(emp),
       vinculo, tipo_contrato: tipo,
       cargo: emp.role || '__________',
-      salario: salary ? money(salary) : '',
-      salario_letras: salary ? pesosEnLetras(salary) : '',
+      salario: basic ? money(salary) : '',
+      salario_letras: basic ? pesosEnLetras(salary) : '',
+      salario_basico: basic ? money(basic) : '',
+      auxilio_transporte: aux ? money(aux) : '',
       fecha_ingreso: hire ? longDate(hire) : '',
       fecha_retiro: retired ? longDate(emp.retired_at) : '',
       parrafo_salario: pSal,
@@ -244,7 +254,7 @@ function buildVars(orgId, emp, opts) {
       firmante: (sc.signer || orgAdminName(orgId) || 'Recursos Humanos') + (sc.signerRole ? '\n' + sc.signerRole : ''),
       cargo_firmante: sc.signerRole || '',
     },
-    snapshot: { name: emp.name, documentType: emp.document_type || 'CC', documentNumber: emp.document_number || '', role: emp.role || '', contract, hireDate: hire || '', retiredAt: retired ? emp.retired_at : '', salary: opts.includeSalary ? salary : null },
+    snapshot: { name: emp.name, documentType: emp.document_type || 'CC', documentNumber: emp.document_number || '', role: emp.role || '', contract, hireDate: hire || '', retiredAt: retired ? emp.retired_at : '', salary: opts.includeSalary ? salary : null, basicSalary: opts.includeSalary ? basic : null, transportAllowance: opts.includeSalary ? aux : null },
   };
 }
 function render(orgId, emp, opts) {

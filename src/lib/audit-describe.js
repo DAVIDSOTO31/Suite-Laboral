@@ -75,6 +75,7 @@ function describeAudit(row, ctx = {}) {
         m.perfilFacialBorrado ? 'Se borró su perfil facial (dato biométrico)' : null, m.usuarioDesactivado ? `Se desactivó su usuario ${m.usuarioDesactivado}` : null].filter(Boolean));
     case 'employee.reactivated': return out('Colaboradores', 'Colaborador reintegrado',
       `Reactivó a ${val(m.colaborador)}${m.retiroAnterior ? ` (estaba retirado desde el ${dmy(m.retiroAnterior)})` : ''}.`);
+    case 'employee.transport_allowance_changed': return out('Colaboradores', 'Auxilio de transporte', `${m.recibe ? 'Activó' : 'Desactivó'} el auxilio de transporte de ${val(m.employeeName)}.`);
     case 'employee.night_surcharge_changed': return out('Colaboradores', 'Recargo nocturno', `${m.aplica ? 'Activó' : 'Desactivó'} el recargo nocturno de ${val(m.employeeName)}.`, m.motivo ? [`Motivo: ${m.motivo}`] : []);
     case 'employee.count_worked_days_changed': return out('Colaboradores', 'Días laborados', `${m.contabiliza ? 'Activó' : 'Desactivó'} el conteo de días laborados de ${val(m.employeeName)}.`);
 

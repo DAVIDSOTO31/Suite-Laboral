@@ -847,12 +847,17 @@
                                     <input type="checkbox" id="detailEmpCountDays" class="w-4 h-4 accent-teal-600" onchange="toggleEmployeeCountDays(this)">
                                     Contabilizar días laborados
                                 </label>
+                                <label id="detailEmpAuxBox" class="mt-2 ml-1 inline-flex items-center gap-2 text-xs font-semibold text-amber-900 cursor-pointer bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1" title="Solo término fijo o indefinido. No hace parte de la base de horas extras ni recargos.">
+                                    <input type="checkbox" id="detailEmpAux" class="w-4 h-4 accent-amber-600" onchange="toggleEmployeeTransport(this)">
+                                    Auxilio de transporte <span class="font-mono font-normal">$249.095</span>
+                                </label>
                                 <p class="text-3xs text-slate-500 mt-1 hidden" id="detailEmpNightReason"></p>
                             </div>
                             <div class="text-left sm:text-right bg-slate-50 sm:bg-transparent p-2 sm:p-0 rounded-lg">
                                 <span class="text-3xs uppercase tracking-wider text-slate-400 block font-semibold">Salario Ordinario</span>
                                 <span class="font-bold text-slate-800 text-base font-mono" id="detailEmpSalary">$0 COP</span>
                                 <span class="text-3xs text-emerald-600 font-bold block" id="detailEmpHourlyRate">$0/hora</span>
+                                <span class="text-3xs text-amber-700 font-semibold block hidden" id="detailEmpAuxInfo"></span>
                             </div>
                         </div>
 
@@ -2682,7 +2687,9 @@
                 percHEND: 1.65, // referencia: extra nocturna dominical = 75% + dominical (se calcula sola)
                 monthlyHoursDivider: 210,
                 weeklyLimit: 42,
-                smlmv2026: 1750905
+                smlmv2026: 1750905,
+                // Auxilio de transporte 2026 (Decreto 1470 de 2025). NO entra en la base de horas extras ni recargos.
+                auxTransporte2026: 249095
             },
             departments: getPredefinedDepartments(),
             employees: [], 
@@ -3351,7 +3358,7 @@
                     <button type="button" onclick="certRestoreTpl('${k}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold text-2xs">Restaurar modelo sugerido</button>
                 </div>`;
                 box.innerHTML = `<div class="space-y-3">
-                    <p class="text-3xs text-slate-500">Puedes pegar el modelo que ya usa la empresa. Datos que la suite llena sola: <code>{{ciudad_fecha}}</code> <code>{{dirigido_a}}</code> <code>{{empresa}}</code> <code>{{nit}}</code> <code>{{nombre}}</code> <code>{{documento}}</code> <code>{{vinculo}}</code> (desde cuándo labora, o desde y hasta si ya se retiró) <code>{{tipo_contrato}}</code> <code>{{cargo}}</code> <code>{{fecha_ingreso}}</code> <code>{{fecha_retiro}}</code> <code>{{salario}}</code> <code>{{salario_letras}}</code> <code>{{parrafo_salario}}</code> (vacío si no incluyes salario) <code>{{parrafo_funciones}}</code> (vacío si no incluyes funciones) <code>{{firmante}}</code>. La firma, quien firma y la ciudad son las mismas de <strong>Llamados → Reglas y plantillas</strong>. Valida el texto con tu asesor legal.</p>
+                    <p class="text-3xs text-slate-500">Puedes pegar el modelo que ya usa la empresa. Datos que la suite llena sola: <code>{{ciudad_fecha}}</code> <code>{{dirigido_a}}</code> <code>{{empresa}}</code> <code>{{nit}}</code> <code>{{nombre}}</code> <code>{{documento}}</code> <code>{{vinculo}}</code> (desde cuándo labora, o desde y hasta si ya se retiró) <code>{{tipo_contrato}}</code> <code>{{cargo}}</code> <code>{{fecha_ingreso}}</code> <code>{{fecha_retiro}}</code> <code>{{salario}}</code> y <code>{{salario_letras}}</code> (básico + auxilio de transporte, si lo recibe) <code>{{salario_basico}}</code> <code>{{auxilio_transporte}}</code> <code>{{parrafo_salario}}</code> (vacío si no incluyes salario) <code>{{parrafo_funciones}}</code> (vacío si no incluyes funciones) <code>{{firmante}}</code>. La firma, quien firma y la ciudad son las mismas de <strong>Llamados → Reglas y plantillas</strong>. Valida el texto con tu asesor legal.</p>
                     <div class="grid lg:grid-cols-2 gap-3">${tpl('laboral', 'Contrato de trabajo (término indefinido o fijo)')}${tpl('servicios', 'Prestación de servicios')}</div>
                     <button type="button" onclick="certSaveCfg()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold">Guardar plantillas</button>
                 </div>`;
@@ -5604,10 +5611,13 @@
                 emp.nightSurcharge = false;
                 emp.nightSurchargeReason = 'Contrato de prestación de servicios';
                 emp.countWorkedDays = true;
+                emp.transportAllowance = false;
             } else {
                 emp.nightSurcharge = true;
                 emp.nightSurchargeReason = '';
                 emp.countWorkedDays = false;
+                // Auxilio de transporte: por ley, para quien devenga hasta 2 salarios mínimos.
+                emp.transportAllowance = Number(emp.salary || appState.settings.smlmv2026) <= 2 * appState.settings.smlmv2026;
             }
         }
         function onEmpContractTypeChange() {
@@ -5769,6 +5779,7 @@
                 let id = Date.now();
                 const newEmp = { id, name, role, department: dept, departmentId: deptId, salary, email, documentType, documentNumber, phoneCountry: phoneNumber ? phoneCountry : '+57', phoneNumber, nightSurcharge, nightSurchargeReason: nightSurcharge ? '' : nightSurchargeReason, contractType, contractStart, contractEnd };
                 if (contractType === 'servicios') applyContractDefaults(newEmp);
+                else newEmp.transportAllowance = Number(newEmp.salary || appState.settings.smlmv2026) <= 2 * appState.settings.smlmv2026;
                 appState.employees.push(newEmp);
                 appState.selectedEmpId = id;
                 closeModal('modalAddEmp');
@@ -5871,6 +5882,18 @@
                 countChk.checked = !!emp.countWorkedDays;
                 countChk.disabled = !CAN('employees.edit_payroll');
                 countChk.title = countChk.disabled ? 'Solo el administrador puede cambiar esta opción' : 'Cuenta los días en que el colaborador marcó asistencia (Asistencia → Días laborados)';
+            }
+            const auxBox = document.getElementById('detailEmpAuxBox'), auxChk = document.getElementById('detailEmpAux');
+            if (auxBox && auxChk) {
+                const eligible = empContractType(emp) !== 'servicios';
+                auxBox.classList.toggle('hidden', !eligible);
+                auxChk.checked = eligible && !!emp.transportAllowance;
+                auxChk.disabled = !CAN('employees.edit_payroll');
+                auxBox.title = auxChk.disabled ? 'Solo el administrador puede cambiar esta opción' : 'Solo término fijo o indefinido. No hace parte de la base de horas extras ni recargos.';
+                const info = document.getElementById('detailEmpAuxInfo');
+                const on = eligible && !!emp.transportAllowance;
+                info.classList.toggle('hidden', !on);
+                info.textContent = on ? `+ Auxilio de transporte $${appState.settings.auxTransporte2026.toLocaleString('es-CO')} (no entra en extras ni recargos)` : '';
             }
             const nightChk = document.getElementById('detailEmpNightSurcharge');
             if (nightChk) {
@@ -6375,6 +6398,18 @@
             showAppToast(chk.checked
                 ? `Se contabilizarán los días laborados de ${emp.name}. Consúltalos en Asistencia → Días laborados.`
                 : `Ya no se contabilizan los días laborados de ${emp.name}.`);
+            scheduleDataSync();
+        }
+
+        function toggleEmployeeTransport(chk) {
+            const emp = appState.employees.find(e => e.id === appState.selectedEmpId);
+            if (!emp) return;
+            if (!CAN('employees.edit_payroll') || empContractType(emp) === 'servicios') { chk.checked = !!emp.transportAllowance; return; }
+            if (chk.checked && Number(emp.salary) > 2 * appState.settings.smlmv2026
+                && !confirm(`${emp.name} devenga más de 2 salarios mínimos: por ley el auxilio de transporte es para quienes ganan hasta 2 SMMLV.\n\n¿Activarlo de todas formas?`)) { chk.checked = false; return; }
+            emp.transportAllowance = chk.checked;
+            showAppToast(chk.checked ? `Auxilio de transporte activado para ${emp.name}.` : `Auxilio de transporte desactivado para ${emp.name}.`);
+            renderEmployeesView();
             scheduleDataSync();
         }
 
@@ -10046,7 +10081,7 @@
             if (splitPreset && splitPreset.color === 'cyan') { splitPreset.color = 'vivid_yellow'; if (initial && CAN('shifts.edit')) saveShiftPresets(); }
             renderColorPalette('rosterColorPalette', 'roster-color-btn', 'selectShiftColor');
             renderColorPalette('presetColorPalette', 'preset-color-btn', 'selectPresetColor');
-            appState.employees = (data.employees || []).map(e => ({ ...e, email: e.email || '', linkedUser: e.linkedUser || null, countWorkedDays: e.countWorkedDays === true, nightSurcharge: e.nightSurcharge !== false, nightSurchargeReason: e.nightSurchargeReason || '' }));
+            appState.employees = (data.employees || []).map(e => ({ ...e, email: e.email || '', linkedUser: e.linkedUser || null, countWorkedDays: e.countWorkedDays === true, nightSurcharge: e.nightSurcharge !== false, nightSurchargeReason: e.nightSurchargeReason || '', transportAllowance: e.transportAllowance === true }));
             // En vivo: se conservan los turnos más antiguos que ya se habían traído
             // (semanas anteriores, liquidaciones pasadas) y se reemplaza el resto.
             const serverFrom = data.shiftsFrom || '0000-01-01';
