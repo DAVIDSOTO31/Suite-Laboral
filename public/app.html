@@ -6767,7 +6767,9 @@
                 acc.domPay += domPay;
                 acc.shiftsCount++;
                 if (real && real.corrected) acc.correctedDays = (acc.correctedDays || 0) + 1;
-                acc.detail.push({ date: s.date, hon, hed, hen, origin, corrected: !!(real && real.corrected), manual: !!(real && real.manual_marks) });
+                acc.detail.push({ date: s.date, hon, hed, hen, origin, corrected: !!(real && real.corrected), manual: !!(real && real.manual_marks),
+                    halfDay: real && real.half_day_mode ? { mode: real.half_day_mode, auto: real.half_day_auto, info: real.half_day_info } : null });
+                if (real && real.half_day_mode === 'pendiente') acc.halfDayPending = (acc.halfDayPending || 0) + 1;
             });
 
             // Aplica ajustes manuales guardados (si el usuario ya editó alguna celda de este colaborador)
@@ -7074,7 +7076,7 @@
                                 <span id="payrollOtTotalInput_${r.emp.id}" class="inline-block min-w-[7rem] text-right font-mono font-bold rounded-lg p-1.5 bg-emerald-50/60 border border-emerald-200 text-emerald-800">${money(r.total)}</span>
                             </td>
                             <td class="p-2.5 text-center">
-                                <button onclick="payrollOtOpenDetail(${r.emp.id})" class="text-2xs px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600"><i class="fa-solid fa-list"></i> Ver</button>
+                                <button onclick="payrollOtOpenDetail(${r.emp.id})" class="text-2xs px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600"><i class="fa-solid fa-list"></i> Ver</button>${r.halfDayPending ? `<button onclick="payrollOtOpenDetail(${r.emp.id})" title="Salida antes de media jornada: decide si se paga como extra o cuenta como día laborado" class="ml-1 text-3xs px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 font-bold"><i class="fa-solid fa-circle-half-stroke"></i> ${r.halfDayPending} por decidir</button>` : ''}
                             </td>
                         </tr>
                     `).join('');
@@ -7115,7 +7117,7 @@
                     <td class="px-3 py-2 text-center font-mono">${d.hen.toFixed(2)}h</td>
                     <td class="px-3 py-2 text-center">${d.corrected ? '<span class="px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 text-2xs font-semibold">Corregido</span>' : (d.origin === 'real' ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-2xs font-semibold">Real</span>' : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-2xs font-semibold">Estimado</span>')}${d.manual ? '<span class="block mt-0.5 px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 text-2xs font-semibold">Manual</span>' : ''}</td>
                     <td class="px-3 py-2 text-right" data-perm="attendance.mark"><button onclick="openAttendanceCorrection(${row.emp.id}, '${d.date}')" class="text-2xs font-semibold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200">Corregir</button></td>
-                </tr>`).join('') || `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Sin turnos en este periodo.</td></tr>`;
+                </tr>${d.halfDay ? `<tr><td colspan="6" class="px-3 pb-2">${halfDayBlock(row.emp.id, d.date, d.halfDay.mode, d.halfDay.auto, d.halfDay.info)}</td></tr>` : ''}`).join('') || `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Sin turnos en este periodo.</td></tr>`;
             document.getElementById('payrollOtDetailModal').classList.remove('hidden');
             document.getElementById('payrollOtDetailModal').classList.add('flex');
         }
@@ -8439,8 +8441,10 @@
                     (emps.some(r => r.offsetValue) ? `\n${emps.filter(r => r.offsetValue).length} colaborador(es) con deuda diurna descontada de sus extras nocturnas.` : '') +
                     (neg.length ? `\n${neg.length} colaborador(es) con saldo negativo de extra diurna que se trasladará al siguiente periodo.` : '');
             }
+            const halfPending = rows.reduce((a, r) => a + (r.halfDayPending || 0), 0);
             const msg = `¿Cerrar el periodo?\n\n${summary}` +
                 (pending ? `\n\n⚠ Hay ${pending} día(s) pendiente(s) por revisar que NO quedarán incluidos.` : '') +
+                (halfPending ? `\n\n⚠ Hay ${halfPending} salida(s) antes de media jornada "Por decidir": se cerrarán como día laborado (quedan debiendo el tiempo). Si alguna se debe pagar como extra, decídela antes en "Ver" de cada colaborador.` : '') +
                 `\n\nAl cerrar, estos valores quedan congelados y no se podrán corregir marcaciones de esas fechas hasta reabrir el periodo.`;
             if (!confirm(msg)) return;
             try {
@@ -10781,6 +10785,8 @@
                 rows.forEach(r => {
                     const acc = byEmp.get(Number(r.employee_id));
                     if (!acc || !r.entrada_real) return; // sin entrada registrada: no cuenta
+                    // Salida antes de media jornada pagada como horas extra: no cuenta como día laborado.
+                    if (r.half_day_mode === 'extra') { if (!acc.asExtra) acc.asExtra = []; if (!acc.asExtra.includes(r.shift_date)) acc.asExtra.push(r.shift_date); return; }
                     if (acc.dates.includes(r.shift_date)) return;
                     acc.dates.push(r.shift_date);
                     if (r.status === 'turno_finalizado') acc.complete++; else acc.incomplete++;
@@ -10795,7 +10801,7 @@
                         <td class="px-3 py-2 text-center text-base font-black text-teal-700">${a.dates.length}</td>
                         <td class="px-3 py-2 text-center">${a.complete}</td>
                         <td class="px-3 py-2 text-center ${a.incomplete ? 'text-amber-700 font-semibold' : ''}">${a.incomplete}</td>
-                        <td class="px-3 py-2 text-slate-500">${a.dates.map(fmt).join(', ') || '-'}</td>
+                        <td class="px-3 py-2 text-slate-500">${a.dates.map(fmt).join(', ') || '-'}${(a.asExtra || []).length ? `<span class="block text-3xs text-emerald-700 font-semibold mt-0.5">No cuentan (pagados como extra): ${a.asExtra.sort().map(fmt).join(', ')}</span>` : ''}</td>
                     </tr>`).join('');
                 const total = lastWorkdaysReport.reduce((s, a) => s + a.dates.length, 0);
                 foot.innerHTML = `<tr class="border-t-2 border-slate-200">
@@ -10907,6 +10913,47 @@
                 body.innerHTML = `<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">No tienes permiso para ver esta sección.</td></tr>`;
             }
         }
+        // ---- Salida antes de media jornada: pagar como extra o contar día laborado ----
+        const HALF_DAY_UI = {
+            extra: ['Pagado como extra', 'bg-emerald-100 text-emerald-800'],
+            dia: ['Contado como día laborado', 'bg-slate-200 text-slate-700'],
+            pendiente: ['Por decidir', 'bg-amber-200 text-amber-900'],
+        };
+        function halfDayHours(m) { return `${((Number(m) || 0) / 60).toFixed(2).replace('.', ',')} h`; }
+        function halfDayBlock(empId, date, mode, auto, infoRaw) {
+            let info = {}; try { info = (typeof infoRaw === 'string' ? JSON.parse(infoRaw) : infoRaw) || {}; } catch (e) { info = {}; }
+            const [label, cls] = HALF_DAY_UI[mode] || HALF_DAY_UI.pendiente;
+            const ex = (info.hed || 0) + (info.hen || 0) > 0
+                ? [info.hed ? `diurna ${halfDayHours(info.hed)}` : '', info.hen ? `nocturna ${halfDayHours(info.hen)}` : ''].filter(Boolean).join(' · ')
+                : '0 h (no alcanzó 30 min)';
+            const can = CAN('attendance.mark');
+            const btn = (m, txt, c) => `<button type="button" onclick="halfDayDecide(${Number(empId)}, '${date}', '${m}')" class="px-2 py-0.5 rounded-full border text-3xs font-bold ${c}">${txt}</button>`;
+            return `<div class="mt-1 rounded-lg border border-amber-200 bg-amber-50/70 p-1.5 space-y-1 max-w-[260px]">
+                <span class="block text-3xs font-bold text-amber-900"><i class="fa-solid fa-circle-half-stroke"></i> Salió antes de media jornada</span>
+                <span class="block text-3xs text-slate-600">Trabajó ${halfDayHours(info.trabajado)} de ${halfDayHours(info.jornada)} · como extra: ${ex}</span>
+                <span class="inline-block px-2 py-0.5 rounded-full text-3xs font-bold ${cls}">${label}</span>${Number(auto) === 1 && mode === 'extra' ? '<span class="text-3xs text-slate-500"> (automático · prestación de servicios)</span>' : ''}
+                ${can ? `<div class="flex flex-wrap gap-1">${mode !== 'extra' ? btn('extra', 'Pagar como extra', 'border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-700') : ''}${mode !== 'dia' ? btn('dia', 'Contar día laborado', 'border-slate-300 bg-white hover:bg-slate-50 text-slate-700') : ''}</div>` : ''}
+            </div>`;
+        }
+        async function halfDayDecide(empId, date, mode) {
+            const emp = appState.employees.find(e => Number(e.id) === Number(empId));
+            const who = `${emp ? emp.name : 'Colaborador'} · ${date.split('-').reverse().join('/')}`;
+            const msg = mode === 'extra'
+                ? `${who}\n\n¿Pagar como horas extra?\n\nTodo lo trabajado ese día se paga como hora extra (diurna o nocturna según la hora), NO cuenta como día laborado y no queda debiendo tiempo.`
+                : `${who}\n\n¿Contar como día laborado?\n\nCuenta como día laborado y queda debiendo el tiempo que faltó (se descuenta de las extras diurnas).`;
+            if (!confirm(msg)) return;
+            try {
+                await apiFetch('/api/attendance/half-day', { method: 'POST', body: JSON.stringify({ employeeId: empId, date, mode }) });
+                showAppToast(mode === 'extra' ? 'Listo: el día se paga como horas extra.' : 'Listo: el día cuenta como día laborado.');
+            } catch (e) { showAppToast(e.message); return; }
+            if (!document.getElementById('view-attendance').classList.contains('hidden')) { try { attendanceLoadAlerts(); } catch (e) { /* nada */ } }
+            if (!document.getElementById('view-payrollot').classList.contains('hidden')) {
+                const dm = document.getElementById('payrollOtDetailModal');
+                const wasOpen = dm && !dm.classList.contains('hidden');
+                await renderPayrollOvertimeView();
+                if (wasOpen) payrollOtOpenDetail(Number(empId));
+            }
+        }
         function alertDetailCell(r) {
             let m = {}; try { m = JSON.parse(r.metadata_json || '{}'); } catch (e) {}
             if (r.alert_type === 'marcacion_manual') {
@@ -10915,6 +10962,7 @@
             if (r.alert_type === 'inasistencia') return `<span class="text-slate-700">Sin ninguna marcación en el turno ${escapeHtml(m.turno || '')}</span>`;
             if (r.alert_type === 'etapa_extendida') return `<span class="text-slate-700">${escapeHtml(m.etapa || 'Etapa extendida')}: ${attMinutesLabel(r.diff_minutes)}</span><span class="block text-3xs text-slate-500">Puede convertir en extra la última parte del turno. Justifícala si estaba autorizada.</span>`;
             if (r.alert_type === 'entorno_diferente') return `<span class="text-slate-700">Marcó en un <strong>entorno diferente</strong> al de siempre${m.dispositivo ? ` (kiosco ${escapeHtml(m.dispositivo)})` : ''}${m.markType ? ' · ' + escapeHtml(ATTENDANCE_MARK_LABELS[m.markType] || m.markType) : ''}.</span><span class="block text-3xs text-slate-500">Revisa la foto: el fondo no se parece al lugar donde está el kiosco.</span>`;
+            if (r.alert_type === 'salida_anticipada' && r.half_day_mode) return `${attMinutesLabel(r.diff_minutes)}${halfDayBlock(r.employee_id, r.shift_date, r.half_day_mode, r.half_day_auto, r.half_day_info)}`;
             if (r.alert_type === 'salida_anticipada' && m.sinDescuento) return `${attMinutesLabel(r.diff_minutes)}<span class="block text-3xs text-slate-500">Menos de 5 min: no se descuenta de las extras.</span>`;
             if (r.alert_type === 'turno_sin_cerrar') return `<span class="text-slate-700">Marcó entrada${m.entrada ? ' a las ' + escapeHtml(m.entrada) : ''} pero no la salida (turno ${escapeHtml(m.turno || '')})</span>`;
             return attMinutesLabel(r.diff_minutes);

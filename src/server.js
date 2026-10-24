@@ -167,6 +167,7 @@ route('POST', '/api/attendance/mark', [requirePermission('attendance.mark')], (r
 route('GET', '/api/attendance/history', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listHistory(req, res, query));
 // Correccion de marcaciones de dias pasados: solo quien puede marcar manualmente (Administrador).
 route('POST', '/api/attendance/corrections', [requirePermission('attendance.mark')], (req, res) => attendance.registerCorrection(req, res));
+route('POST', '/api/attendance/half-day', [requirePermission('attendance.mark')], (req, res) => attendance.decideHalfDay(req, res));
 route('GET', '/api/attendance/day-marks', [requirePermission('attendance.mark')], (req, res, params, query) => attendance.listDayMarks(req, res, query));
 route('POST', '/api/attendance/marks/:id/void', [requirePermission('attendance.mark')], (req, res, params) => attendance.voidMark(req, res, params));
 route('GET', '/api/attendance/corrections', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listCorrections(req, res, query));

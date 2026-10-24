@@ -250,7 +250,7 @@ function recalculateFinalizedDays() {
     SELECT d.*, e.night_surcharge AS emp_night_surcharge
     FROM attendance_days d JOIN employees e ON e.id = d.employee_id
     WHERE d.status = 'turno_finalizado' AND d.scheduled_entrada IS NOT NULL AND d.scheduled_salida IS NOT NULL
-      AND COALESCE(d.corrected, 0) = 0
+      AND COALESCE(d.corrected, 0) = 0 AND d.half_day_mode IS NULL
   `).all();
   const update = db.prepare(
     "UPDATE attendance_days SET hod_min = ?, hon_min = ?, hed_min = ?, hen_min = ?, updated_at = datetime('now') WHERE id = ?"
@@ -485,6 +485,7 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
     patch.offline_marks = ((prevDay && prevDay.offline_marks) || 0) + 1;
   }
   upsertAttendanceDay(orgId, employeeId, shiftDateISO, shift, patch);
+  if (markType === 'salida') refreshHalfDay(orgId, employeeId, shiftDateISO, { fresh: true });
 
   // Alerta "Marcacion manual": visible en la pestaña Alertas, con el motivo y
   // quien la hizo (usuario administrador o el kiosco).
@@ -697,9 +698,13 @@ function listAlerts(req, res, query) {
     SELECT a.*, e.name as employee_name,
            COALESCE(m.status, 'pendiente') AS mgmt_status, m.category AS mgmt_category, m.note AS mgmt_note,
            m.attachment_name AS mgmt_attachment_name, m.managed_at AS mgmt_at, u.email AS mgmt_by, COALESCE(m.auto_marked, 0) AS mgmt_auto,
-           (SELECT COUNT(*) FROM mark_photos ph WHERE ph.organization_id = a.organization_id AND ph.employee_id = a.employee_id AND ph.shift_date = a.shift_date) AS evidence_count
+           (SELECT COUNT(*) FROM mark_photos ph WHERE ph.organization_id = a.organization_id AND ph.employee_id = a.employee_id AND ph.shift_date = a.shift_date) AS evidence_count,
+           CASE WHEN a.alert_type = 'salida_anticipada' THEN hd.half_day_mode END AS half_day_mode,
+           CASE WHEN a.alert_type = 'salida_anticipada' THEN hd.half_day_info END AS half_day_info,
+           CASE WHEN a.alert_type = 'salida_anticipada' THEN hd.half_day_auto END AS half_day_auto
     FROM attendance_alerts a
     JOIN employees e ON e.id = a.employee_id
+    LEFT JOIN attendance_days hd ON hd.employee_id = a.employee_id AND hd.shift_date = a.shift_date
     LEFT JOIN alert_management m ON m.alert_id = a.id
     LEFT JOIN users u ON u.id = m.managed_by
     WHERE a.organization_id = ? AND a.shift_date BETWEEN ? AND ?
@@ -1142,7 +1147,7 @@ function listPayrollAttendance(req, res, query) {
   const to = query.to || from;
   const rows = db.prepare(`
     SELECT employee_id, shift_date, status, hod_min, hon_min, hed_min, hen_min, retraso_min, exceso_almuerzo_min, salida_anticipada_min, corrected, manual_marks,
-           scheduled_entrada, scheduled_salida
+           scheduled_entrada, scheduled_salida, half_day_mode, half_day_info, half_day_auto
     FROM attendance_days
     WHERE organization_id = ? AND shift_date BETWEEN ? AND ? AND status = 'turno_finalizado'
   `).all(orgId, from, to);
@@ -1281,6 +1286,7 @@ async function registerCorrection(req, res) {
   `).run(final.entrada, final.inicio_almuerzo, final.fin_almuerzo, final.salida,
     shift.startTime, shift.endTime, retraso, exceso, adeudado,
     cat.hod, cat.hon, hedFinal, cat.hen, employee.id, date);
+  const half = refreshHalfDay(orgId, employee.id, date, { fresh: true });
 
   const insertCorr = db.prepare(`INSERT INTO attendance_corrections (id, organization_id, employee_id, shift_date, mark_type, original_time, corrected_time, reason, created_by, created_at)
                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-5 hours'))`);
@@ -1296,7 +1302,7 @@ async function registerCorrection(req, res) {
     resourceType: 'employee', resourceId: String(employee.id), ip: getClientIp(req),
     metadata: { colaborador: employee.name, fecha: date, cambios: changes, motivo: reason },
   });
-  sendJson(res, 200, { ok: true, changes, hours: { hod_min: cat.hod, hon_min: cat.hon, hed_min: hedFinal, hen_min: cat.hen } });
+  sendJson(res, 200, { ok: true, changes, hours: { hod_min: cat.hod, hon_min: cat.hon, hed_min: hedFinal, hen_min: cat.hen }, halfDay: half ? half.mode : null });
 }
 
 // Correccion del MISMO DIA: solo las marcaciones ya hechas. Recalcula el
@@ -1404,6 +1410,8 @@ function replayAttendanceDay(orgId, employeeId, date, marks, ctx) {
       WHERE a.employee_id = ? AND a.shift_date = ? AND a.alert_type IN (${MARK_DERIVED_ALERTS.map(() => '?').join(',')})`).all(employeeId, date, ...MARK_DERIVED_ALERTS);
   const carry = new Map();
   for (const a of prevAlerts) { if (a.status) carry.set(alertCarryKey(a), a); }
+  // Decision de "media jornada" ya tomada: se conserva si el dia sigue aplicando.
+  const prevHalf = db.prepare("SELECT half_day_mode, half_day_auto, half_day_by, half_day_at FROM attendance_days WHERE employee_id = ? AND shift_date = ? AND half_day_mode IN ('extra','dia')").get(employeeId, date);
   for (const a of prevAlerts) { db.prepare('DELETE FROM alert_management WHERE alert_id = ?').run(a.id); db.prepare('DELETE FROM attendance_alerts WHERE id = ?').run(a.id); }
   db.prepare('DELETE FROM attendance_marks WHERE employee_id = ? AND shift_date = ?').run(employeeId, date);
   db.prepare('DELETE FROM attendance_days WHERE employee_id = ? AND shift_date = ?').run(employeeId, date);
@@ -1414,6 +1422,7 @@ function replayAttendanceDay(orgId, employeeId, date, marks, ctx) {
     if (r.httpStatus !== 200) throw new Error(r.body && r.body.error ? r.body.error : 'No se pudo reprocesar el dia.');
     idMap.set(m.id, r.body.markId);
   }
+  if (prevHalf) refreshHalfDay(orgId, employeeId, date, { mode: prevHalf.half_day_mode, auto: prevHalf.half_day_auto, by: prevHalf.half_day_by, at: prevHalf.half_day_at });
   // Conserva la gestion de las alertas que siguen existiendo.
   if (carry.size) {
     const now = db.prepare(`SELECT id, alert_type, actual_time, metadata_json FROM attendance_alerts
@@ -1611,6 +1620,128 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(EARLY_TOL_FEA
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
   for (const [orgId, n] of byOrg) logAction({ organizationId: orgId, userId: null, action: 'attendance.early_leave_tolerance_recalc', resourceType: 'attendance_day', resourceId: null, ip: null, metadata: { dias: n, toleranciaMin: rules.EARLY_LEAVE_TOLERANCE_MIN } });
+}
+// ===========================================================================
+// SALIDA ANTES DE MEDIA JORNADA
+// Si el colaborador sale (con salida anticipada) sin haber trabajado al menos la
+// mitad de su jornada ordinaria de ese dia, hay dos formas de tratar el dia:
+//   - 'extra': todo lo trabajado se paga como hora extra (diurna/nocturna, nunca
+//     recargo), no cuenta como dia laborado y no queda debiendo tiempo.
+//   - 'dia':   cuenta como dia laborado y queda debiendo el tiempo (como siempre).
+// Prestacion de servicios: 'extra' automatico (se puede cambiar). Demas
+// contratos: 'pendiente' (queda como 'dia' hasta que el administrador decida).
+// Si trabajo la mitad o mas, no aplica: siempre dia laborado (sin opcion).
+// Los dias de periodos cerrados (recargos o extras) no se tocan.
+// ===========================================================================
+function dayInClosedPeriod(orgId, date) {
+  return !!db.prepare(`SELECT 1 FROM payroll_closures WHERE organization_id = ? AND status = 'cerrado'
+    AND period_start <= ? AND period_end >= ? LIMIT 1`).get(orgId, date, date);
+}
+// Jornada ordinaria, tiempo trabajado y extras posibles del dia (null si no aplica).
+function halfDayEval(day, shift) {
+  if (!shift || shift.isOffDay || !shift.startTime || !shift.endTime) return null;
+  const abs = correctedAbsMinutes({ entrada: day.entrada_real, inicio_almuerzo: day.inicio_almuerzo_real, fin_almuerzo: day.fin_almuerzo_real, salida: day.salida_real }, shift.startTime);
+  if (abs.entrada == null || abs.salida == null) return null;
+  const start = rules.timeToMinutes(shift.startTime);
+  let jornada, intervals, brk = 0;
+  if (shift.isSplit) {
+    jornada = splitLimitMinutes(shift);
+    const s1from = Math.max(abs.entrada, start);
+    const s1to = Math.max(s1from, abs.inicio_almuerzo != null ? abs.inicio_almuerzo : abs.salida);
+    const s2from = Math.max(s1to, abs.fin_almuerzo != null ? abs.fin_almuerzo : s1to);
+    const s2to = Math.max(s2from, abs.salida);
+    intervals = [[s1from, s1to], [s2from, s2to]];
+  } else {
+    const ordEnd = rules.scheduledAbsoluteMinutes(ordinaryEndClock(shift), shift.startTime);
+    jornada = ordEnd - start - (Number(shift.breakM) || 0);
+    const a = Math.max(abs.entrada, start);
+    const b = Math.max(a, abs.salida);
+    intervals = [[a, b]];
+    brk = (abs.inicio_almuerzo != null && abs.fin_almuerzo != null) ? Math.max(0, abs.fin_almuerzo - abs.inicio_almuerzo) : (Number(shift.breakM) || 0);
+  }
+  const gross = intervals.reduce((s, [a, b]) => s + Math.max(0, b - a), 0);
+  const trabajado = Math.max(0, gross - brk);
+  if (!rules.isBeforeHalfDay(trabajado, jornada)) return null;
+  const ex = rules.halfDayExtraMinutes({ intervals, breakMinutes: brk });
+  return { jornada, trabajado, hed: ex.hed, hen: ex.hen };
+}
+// Recalcula la marca de "media jornada" del dia y aplica la decision a las
+// horas guardadas. opts.fresh: las horas del dia se acaban de calcular (son las
+// normales). opts.mode: decision a aplicar ('extra' | 'dia').
+function refreshHalfDay(orgId, employeeId, date, opts = {}) {
+  const d = db.prepare('SELECT * FROM attendance_days WHERE employee_id = ? AND shift_date = ?').get(employeeId, date);
+  if (!d || d.organization_id !== orgId) return null;
+  if (dayInClosedPeriod(orgId, date)) return null;
+  let base;
+  if (!opts.fresh && d.half_day_base) { try { base = JSON.parse(d.half_day_base); } catch { base = null; } }
+  if (!base) base = { hod: d.hod_min || 0, hon: d.hon_min || 0, hed: d.hed_min || 0, hen: d.hen_min || 0, sal: d.salida_anticipada_min || 0 };
+  const shift = d.status === 'turno_finalizado' && base.sal > 0 ? getShiftForEmployeeDate(orgId, employeeId, date) : null;
+  const ev = shift ? halfDayEval(d, shift) : null;
+  const write = db.prepare(`UPDATE attendance_days SET hod_min = ?, hon_min = ?, hed_min = ?, hen_min = ?, salida_anticipada_min = ?,
+      half_day_mode = ?, half_day_base = ?, half_day_info = ?, half_day_auto = ?, half_day_by = ?, half_day_at = ?, updated_at = datetime('now') WHERE id = ?`);
+  if (!ev) {
+    if (d.half_day_mode) write.run(base.hod, base.hon, base.hed, base.hen, base.sal, null, null, null, 0, null, null, d.id);
+    return null;
+  }
+  let mode = opts.mode, auto = opts.auto != null ? (opts.auto ? 1 : 0) : 0, by = opts.by || null, at = opts.at || null;
+  if (!mode) {
+    if (d.half_day_mode === 'extra' || d.half_day_mode === 'dia') { mode = d.half_day_mode; auto = d.half_day_auto || 0; by = d.half_day_by; at = d.half_day_at; }
+    else {
+      const emp = db.prepare('SELECT contract_type FROM employees WHERE id = ?').get(employeeId);
+      if (emp && emp.contract_type === 'servicios') { mode = 'extra'; auto = 1; }
+      else mode = 'pendiente';
+    }
+  }
+  const v = mode === 'extra' ? { hod: 0, hon: 0, hed: ev.hed, hen: ev.hen, sal: 0 } : base;
+  write.run(v.hod, v.hon, v.hed, v.hen, v.sal, mode, JSON.stringify(base), JSON.stringify(ev), auto, by, at, d.id);
+  return { mode, auto, info: ev, base };
+}
+// POST /api/attendance/half-day { employeeId, date, mode: 'extra' | 'dia' }
+async function decideHalfDay(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const mode = body.mode === 'extra' || body.mode === 'dia' ? body.mode : null;
+  const date = String(body.date || '');
+  if (!mode || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: 'Datos incompletos.' });
+  const emp = db.prepare('SELECT id, name FROM employees WHERE id = ? AND organization_id = ?').get(Number(body.employeeId), orgId);
+  if (!emp) return sendJson(res, 404, { error: 'Colaborador no encontrado.' });
+  if (dayInClosedPeriod(orgId, date)) return sendJson(res, 409, { error: 'Ese dia pertenece a un periodo ya cerrado. Para cambiarlo, primero reabre el periodo.' });
+  const d = db.prepare('SELECT half_day_mode FROM attendance_days WHERE employee_id = ? AND shift_date = ? AND organization_id = ?').get(emp.id, date, orgId);
+  if (!d || !d.half_day_mode) return sendJson(res, 409, { error: 'Ese dia no tiene una salida antes de media jornada.' });
+  const before = d.half_day_mode;
+  const r = refreshHalfDay(orgId, emp.id, date, { mode, auto: 0, by: req.user.id, at: new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 19).replace('T', ' ') });
+  if (!r) return sendJson(res, 409, { error: 'Ese dia ya no tiene una salida antes de media jornada.' });
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'attendance.half_day_decision', resourceType: 'employee', resourceId: String(emp.id), ip: getClientIp(req),
+    metadata: { colaborador: emp.name, fecha: date, antes: before, decision: mode, extraDiurnaMin: r.info.hed, extraNocturnaMin: r.info.hen, trabajadoMin: r.info.trabajado, jornadaMin: r.info.jornada } });
+  live.publishAttendance(orgId, 'mark');
+  sendJson(res, 200, { ok: true, mode: r.mode, info: r.info });
+}
+// Una sola vez: aplica la regla a los turnos ya cerrados de los periodos sin
+// liquidar (despues del Dia 0 y fuera de periodos cerrados de recargos o extras).
+const HALF_DAY_FEATURE = 'salida_media_jornada_v1';
+if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(HALF_DAY_FEATURE)) {
+  const rows = db.prepare(`
+    SELECT d.organization_id, d.employee_id, d.shift_date FROM attendance_days d
+    LEFT JOIN org_settings s ON s.organization_id = d.organization_id
+    WHERE d.status = 'turno_finalizado' AND d.salida_anticipada_min > 0
+      AND (s.day_zero IS NULL OR s.day_zero = '' OR d.shift_date > s.day_zero)
+  `).all();
+  const byOrg = new Map();
+  db.exec('BEGIN');
+  try {
+    for (const r of rows) {
+      const out = refreshHalfDay(r.organization_id, r.employee_id, r.shift_date, { fresh: true });
+      if (!out) continue;
+      const c = byOrg.get(r.organization_id) || { extra: 0, pendiente: 0 };
+      c[out.mode === 'extra' ? 'extra' : 'pendiente']++;
+      byOrg.set(r.organization_id, c);
+    }
+    db.prepare("INSERT INTO app_migrations (name, applied_at) VALUES (?, datetime('now', '-5 hours'))").run(HALF_DAY_FEATURE);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  for (const [orgId, c] of byOrg) logAction({ organizationId: orgId, userId: null, action: 'attendance.half_day_recalc', resourceType: 'attendance_day', resourceId: null, ip: null, metadata: { pagadosComoExtra: c.extra, porDecidir: c.pendiente } });
 }
 function autoMarkStaleAlerts(orgId) {
   const unj = autoMarkStaleByStatus(orgId, AUTO_UNJUST_TYPES, 'injustificada', AUTO_UNJUST_NOTE, 'attendance.alerts_auto_unjustified');
@@ -3016,7 +3147,7 @@ module.exports = {
   listEmployeesToday, registerMark, listHistory, listMyHistory, listAlerts, registerCorrection, listCorrections, listFaceProfiles, enrollFaceProfile, deactivateFaceProfile, registerMarkByFace,
   listDevices, createDevice, rotateDeviceToken, deactivateDevice, deleteDevice, getDeviceAssignments, setDeviceAssignments,
   kioskEmployeesToday, kioskMark, kioskMarkByFace,
-  listPayrollAttendance,
+  listPayrollAttendance, decideHalfDay,
   todayBoard, manageAlert, getAlertAttachment, novedadesSummary,
   indicators, getDigestSettingsRoute, saveDigestSettings, sendDigestTest,
   kioskHeartbeat, listDeviceEvents, getDeviceAlertSettingsRoute, saveDeviceAlertSettings,
