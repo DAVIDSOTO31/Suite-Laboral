@@ -291,6 +291,33 @@ function applyEarlyLeaveDeduction(hed, adeudadoMinutes) {
   return hed - adeudadoMinutes; // puede quedar negativo a proposito
 }
 
+// ---------------------------------------------------------------------------
+// SALIDA ANTES DE MEDIA JORNADA: si lo trabajado es MENOS de la mitad de la
+// jornada ordinaria del dia, ese tiempo se puede pagar como horas extra
+// (diurnas o nocturnas segun la hora; nunca como recargo nocturno).
+//   - intervals: tramos trabajados [desde, hasta) en minutos absolutos
+//   - breakMinutes: almuerzo dentro de esos tramos (nunca cuenta como extra;
+//     se descuenta primero de la parte diurna)
+// La barrera de 30 minutos aplica igual.
+// ---------------------------------------------------------------------------
+const HALF_DAY_FRACTION = 0.5;
+function isBeforeHalfDay(workedMinutes, ordinaryMinutes) {
+  return ordinaryMinutes > 0 && workedMinutes < ordinaryMinutes * HALF_DAY_FRACTION;
+}
+function halfDayExtraMinutes({ intervals = [], breakMinutes = 0 }) {
+  let day = 0, night = 0;
+  for (const [a, b] of intervals) {
+    if (b <= a) continue;
+    const n = nightMinutesInInterval(a, b);
+    night += n; day += (b - a) - n;
+  }
+  let brk = Math.max(0, breakMinutes || 0);
+  const fromDay = Math.min(day, brk); day -= fromDay; brk -= fromDay;
+  night -= Math.min(night, brk);
+  if (day + night < OVERTIME_THRESHOLD_MIN) { day = 0; night = 0; }
+  return { hed: Math.round(day), hen: Math.round(night) };
+}
+
 module.exports = {
   NIGHT_START_MIN,
   NIGHT_END_MIN,
@@ -298,6 +325,9 @@ module.exports = {
   OVERTIME_THRESHOLD_MIN,
   EARLY_LEAVE_TOLERANCE_MIN,
   earlyLeaveDeductibleMinutes,
+  HALF_DAY_FRACTION,
+  isBeforeHalfDay,
+  halfDayExtraMinutes,
   MARK_SEQUENCE,
   timeToMinutes,
   formatMinutes,

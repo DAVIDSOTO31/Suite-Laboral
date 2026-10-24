@@ -151,6 +151,14 @@ function describeAudit(row, ctx = {}) {
     case 'rest_days.move': return out('Colaboradores', m.tipo === 'inicial' ? 'Saldo inicial de descansos' : 'Ajuste de descansos acumulados',
       `${m.tipo === 'inicial' ? 'Registró el saldo inicial' : 'Ajustó los descansos acumulados'} de ${val(m.colaborador)}: ${m.cantidad > 0 ? '+' : ''}${m.cantidad} descanso(s).`,
       [m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));
+    case 'attendance.half_day_decision': {
+      const MODE = { extra: 'Pagar como horas extra (no cuenta como día laborado)', dia: 'Contar como día laborado (queda debiendo el tiempo)', pendiente: 'Por decidir' };
+      const h = (x) => `${((Number(x) || 0) / 60).toFixed(2).replace('.', ',')} h`;
+      return out('Asistencia', 'Salida antes de media jornada', `Decidió cómo tratar el día ${dayName(m.fecha)} de ${val(m.colaborador)}: ${MODE[m.decision] || m.decision}.`,
+        [`Antes: ${MODE[m.antes] || m.antes || '-'}`, `Trabajó ${h(m.trabajadoMin)} de una jornada de ${h(m.jornadaMin)}`, `Como extra: diurna ${h(m.extraDiurnaMin)} · nocturna ${h(m.extraNocturnaMin)}`]);
+    }
+    case 'attendance.half_day_recalc': return out('Asistencia', 'Regla de media jornada aplicada',
+      `La suite revisó los turnos ya cerrados del periodo aún sin liquidar: ${m.pagadosComoExtra || 0} día(s) de prestación de servicios quedaron pagados como horas extra y ${m.porDecidir || 0} día(s) de otros contratos quedaron "Por decidir".`, [], 'Sistema (automático)');
     case 'attendance.early_leave_tolerance_recalc': return out('Asistencia', 'Tolerancia de salida anticipada aplicada',
       `La suite recalculó ${m.dias || 0} día(s) del periodo aún sin liquidar con salida anticipada de menos de ${m.toleranciaMin || 5} minutos: ese tiempo ya no se descuenta de las horas extras (las alertas se conservan).`, [], 'Sistema (automático)');
     case 'attendance.false_late_fixed': return out('Asistencia', 'Llegadas tarde corregidas',

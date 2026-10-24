@@ -850,6 +850,18 @@ if (!orgSetRet.includes('shift_retention_years')) db.exec('ALTER TABLE org_setti
 if (!orgSetRet.includes('shift_purge_info')) db.exec('ALTER TABLE org_settings ADD COLUMN shift_purge_info TEXT NULL');
 // Metas de los Indicadores (semaforo), en JSON. NULL = metas por defecto.
 if (!orgSetRet.includes('indicator_goals')) db.exec('ALTER TABLE org_settings ADD COLUMN indicator_goals TEXT NULL');
+// SALIDA ANTES DE MEDIA JORNADA: el dia se puede pagar como horas extra (sin
+// contar dia laborado) o contar como dia laborado (queda debiendo el tiempo).
+//  - half_day_mode: NULL (no aplica) | 'pendiente' | 'extra' | 'dia'
+//  - half_day_base: horas normales del dia (JSON) para poder volver atras
+//  - half_day_info: jornada, tiempo trabajado y extras calculadas (JSON)
+const dayColsHalf = db.prepare('PRAGMA table_info(attendance_days)').all().map(c => c.name);
+if (!dayColsHalf.includes('half_day_mode')) db.exec('ALTER TABLE attendance_days ADD COLUMN half_day_mode TEXT NULL');
+if (!dayColsHalf.includes('half_day_base')) db.exec('ALTER TABLE attendance_days ADD COLUMN half_day_base TEXT NULL');
+if (!dayColsHalf.includes('half_day_info')) db.exec('ALTER TABLE attendance_days ADD COLUMN half_day_info TEXT NULL');
+if (!dayColsHalf.includes('half_day_auto')) db.exec('ALTER TABLE attendance_days ADD COLUMN half_day_auto INTEGER NOT NULL DEFAULT 0');
+if (!dayColsHalf.includes('half_day_by')) db.exec('ALTER TABLE attendance_days ADD COLUMN half_day_by TEXT NULL');
+if (!dayColsHalf.includes('half_day_at')) db.exec('ALTER TABLE attendance_days ADD COLUMN half_day_at TEXT NULL');
 
 module.exports = {
   db,
