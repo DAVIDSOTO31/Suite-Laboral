@@ -326,6 +326,11 @@
                     <i class="fa-solid fa-users text-emerald-600 w-5"></i>
                     <span>Colaboradores & Nómina</span>
                 </a>
+                <a href="#docs" onclick="switchView('docs')" id="nav-docs" data-perm="employees.view" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
+                    <i class="fa-solid fa-folder-open text-rose-600 w-5"></i>
+                    <span class="flex-1">Documentos laborales</span>
+                    <span id="discBadge" title="Llamados de atención por revisar" class="hidden min-w-[1.25rem] h-5 px-1 rounded-full bg-rose-600 text-white text-3xs font-bold flex items-center justify-center"></span>
+                </a>
                 <a href="#orgadmin" onclick="switchView('orgadmin')" id="nav-orgadmin" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition hidden">
                     <i class="fa-solid fa-user-shield text-sky-700 w-5"></i>
                     <span>Usuarios & Seguridad</span>
@@ -784,10 +789,6 @@
                         <p class="text-xs text-slate-500">Administre el personal registrado, contratos y áreas asignadas.</p>
                     </div>
                     <div class="flex gap-2 w-full sm:w-auto">
-                        <button onclick="openDiscModal()" data-perm="employees.view" class="relative bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
-                            <i class="fa-solid fa-file-signature text-rose-600"></i> Llamados de atención
-                            <span id="discBadge" class="hidden absolute -top-2 -right-2 min-w-[1.25rem] h-5 px-1 rounded-full bg-rose-600 text-white text-3xs font-bold flex items-center justify-center"></span>
-                        </button>
                         <button onclick="openLeaveModal()" data-perm="shifts.view" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
                             <i class="fa-solid fa-mug-hot text-teal-600"></i> Descansos y vacaciones
                         </button>
@@ -907,6 +908,28 @@
                     </div>
                 </div>
 
+            </div>
+
+            <!-- MÓDULO: Documentos laborales (llamados de atención; certificados laborales) -->
+            <div id="view-docs" class="app-view hidden space-y-6">
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-folder-open text-rose-600"></i> Documentos laborales</h3>
+                    <p class="text-xs text-slate-500">Documentos que la empresa expide a sus colaboradores, con su historial.</p>
+                    <div class="flex flex-wrap gap-1 mt-3 border-b border-slate-200">
+                        <button type="button" id="docsTab_llamados" onclick="setDocsTab('llamados')" class="px-3 py-2 text-xs font-bold border-b-2 -mb-px border-rose-600 text-rose-700"><i class="fa-solid fa-file-signature"></i> Llamados de atención</button>
+                    </div>
+                </div>
+                <div id="docsSec_llamados" class="bg-white rounded-xl border border-slate-200 shadow-sm">
+                    <div class="p-4 border-b">
+                        <div class="flex flex-wrap gap-1">
+                            <button type="button" id="discTab_rev" onclick="setDiscTab('rev')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Por revisar</button>
+                            <button type="button" id="discTab_hist" onclick="setDiscTab('hist')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Historial</button>
+                            <button type="button" id="discTab_cfg" onclick="setDiscTab('cfg')" data-perm="employees.edit" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Reglas y plantillas</button>
+                        </div>
+                        <p class="text-2xs text-slate-500 mt-1.5">La suite propone un llamado cuando alguien acumula novedades <strong>injustificadas</strong> según las reglas. Nada se envía solo: tú revisas, generas (puedes editar el texto) y envías por WhatsApp. Es una comunicación de novedades con citación a descargos, no una sanción.</p>
+                    </div>
+                    <div id="discBody" class="p-4 text-xs"></div>
+                </div>
             </div>
 
             <!-- MÓDULO: Asistencia (marcaciones, historial, alertas) -->
@@ -1946,25 +1969,6 @@
                 </div>
             </div>
             <iframe id="pdfViewerFrame" title="Documento PDF" class="flex-1 w-full rounded-b-xl bg-slate-100"></iframe>
-        </div>
-    </div>
-
-    <!-- MODAL: Llamados de atención (comunicación de novedades y citación a descargos) -->
-    <div id="modalDisc" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
-        <div class="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[92vh] flex flex-col">
-            <div class="flex items-start justify-between gap-3 p-4 border-b">
-                <div>
-                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-file-signature text-rose-600"></i> Llamados de atención</h3>
-                    <div class="flex flex-wrap gap-1 mt-2">
-                        <button type="button" id="discTab_rev" onclick="setDiscTab('rev')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Por revisar</button>
-                        <button type="button" id="discTab_hist" onclick="setDiscTab('hist')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Historial</button>
-                        <button type="button" id="discTab_cfg" onclick="setDiscTab('cfg')" data-perm="employees.edit" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Reglas y plantillas</button>
-                    </div>
-                    <p class="text-2xs text-slate-500 mt-1.5">La suite propone un llamado cuando alguien acumula novedades <strong>injustificadas</strong> según las reglas. Nada se envía solo: tú revisas, generas (puedes editar el texto) y envías por WhatsApp. Es una comunicación de novedades con citación a descargos, no una sanción.</p>
-                </div>
-                <button onclick="closeModal('modalDisc')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
-            </div>
-            <div id="discBody" class="overflow-auto flex-1 p-4 text-xs"></div>
         </div>
     </div>
 
@@ -3263,11 +3267,23 @@
             if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
             return discData;
         }
+        // Los llamados ahora viven en el módulo "Documentos laborales".
         async function openDiscModal() {
-            openModal('modalDisc');
+            if (document.getElementById('view-docs').classList.contains('hidden')) { switchView('docs'); return; }
+            setDocsTab('llamados');
             document.getElementById('discBody').innerHTML = '<p class="text-center text-slate-400 py-6">Cargando…</p>';
             await loadDiscData();
             setDiscTab(discTab);
+        }
+        let docsTab = 'llamados';
+        function setDocsTab(t) {
+            docsTab = t;
+            document.querySelectorAll('[id^="docsTab_"]').forEach(b => {
+                const on = b.id === 'docsTab_' + t;
+                b.classList.toggle('border-rose-600', on); b.classList.toggle('text-rose-700', on);
+                b.classList.toggle('border-transparent', !on); b.classList.toggle('text-slate-500', !on);
+            });
+            document.querySelectorAll('[id^="docsSec_"]').forEach(s => s.classList.toggle('hidden', s.id !== 'docsSec_' + t));
         }
         function setDiscTab(t) {
             if (t === 'cfg' && !CAN('employees.edit')) t = 'rev';
@@ -3578,7 +3594,7 @@
                 const msg = `Hola ${first}, ${org} te envía una comunicación sobre: ${c.typeLabel.toLowerCase()}.\n\nÁbrela aquí: ${link}\n\nAl abrirla, pulsa "Recibido" y luego firma el documento con el dedo (no tienes que imprimir nada). Allí también puedes escribir tus descargos. El enlace vence el ${String(r.expires).split('-').reverse().join('/')}.`;
                 const url = `https://wa.me/${c.phone}?text=${encodeURIComponent(msg)}`;
                 if (w) w.location.href = url; else location.href = url;
-                await loadDiscData(); if (document.getElementById('modalDisc').classList.contains('flex')) setDiscTab('hist');
+                await loadDiscData(); if (!document.getElementById('view-docs').classList.contains('hidden')) setDiscTab('hist');
             } catch (e) { if (w) w.close(); showAppToast(e.message); }
         }
         // ---- Firma de quien firma por la empresa (dibujada o imagen) ----
@@ -9120,11 +9136,13 @@
                 mine: 'Mi horario y marcaciones',
                 orgadmin: 'Usuarios & Seguridad',
                 attendance: 'Asistencia',
-                gerencia: 'Tablero Gerencial'
+                gerencia: 'Tablero Gerencial',
+                docs: 'Documentos laborales'
             };
             document.getElementById('breadcrumbCurrent').innerText = titles[viewId] || 'Módulo';
 
             if (viewId === 'employees') { renderEmployeesView(); loadDiscData(); }
+            if (viewId === 'docs') { if (docsTab === 'llamados') openDiscModal(); else setDocsTab(docsTab); }
             if (viewId === 'shifts') {
                 loadLeaveData(); // saldo de descansos para el aviso del "Descanso acumulado"
                 // Al entrar al módulo siempre se muestra la semana actual.
@@ -9886,6 +9904,7 @@
         const notifStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
 
         function initNotificationCenter() {
+            loadDiscData(); // contador de llamados por revisar en el menú "Documentos laborales"
             if (!CAN('attendance.view_alerts')) return;
             loadNotifications();
             if (!notifTimer) notifTimer = setInterval(() => { if (document.visibilityState === 'visible') loadNotifications(); }, 30000);
@@ -10095,8 +10114,8 @@
         function openNotif(id) {
             const it = (notifData.items || []).find(x => x.id === id);
             closeNotifPanel();
-            if (it && it.type === 'llamado') { switchView('employees'); discTab = 'rev'; openDiscModal(); return; }
-            if (it && it.type === 'llamado_firmado') { switchView('employees'); discTab = 'hist'; openDiscModal(); return; }
+            if (it && it.type === 'llamado') { discTab = 'rev'; switchView('docs'); return; }
+            if (it && it.type === 'llamado_firmado') { discTab = 'hist'; switchView('docs'); return; }
             if (!it) { openAllNotifAlerts(); return; }
             switchView('attendance');
             document.getElementById('attAlertsFrom').value = it.date;
@@ -10123,8 +10142,8 @@
         // Al tocar un aviso del celular la suite abre con #alerta=<id> o #alertas.
         async function handleNotifHash(hash) {
             if (!hash) return;
-            if (hash === '#llamados-historial' && CAN('employees.view')) { history.replaceState(null, '', location.pathname + location.search); switchView('employees'); discTab = 'hist'; openDiscModal(); return; }
-            if (hash === '#llamados' && CAN('employees.view')) { history.replaceState(null, '', location.pathname + location.search); switchView('employees'); discTab = 'rev'; openDiscModal(); return; }
+            if (hash === '#llamados-historial' && CAN('employees.view')) { history.replaceState(null, '', location.pathname + location.search); discTab = 'hist'; switchView('docs'); return; }
+            if (hash === '#llamados' && CAN('employees.view')) { history.replaceState(null, '', location.pathname + location.search); discTab = 'rev'; switchView('docs'); return; }
             if (!CAN('attendance.view_alerts')) return;
             if (!hash.startsWith('#alerta=') && hash !== '#alertas') return;
             history.replaceState(null, '', location.pathname + location.search);
