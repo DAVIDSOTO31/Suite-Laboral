@@ -917,6 +917,7 @@
                     <p class="text-xs text-slate-500">Documentos que la empresa expide a sus colaboradores, con su historial.</p>
                     <div class="flex flex-wrap gap-1 mt-3 border-b border-slate-200">
                         <button type="button" id="docsTab_llamados" onclick="setDocsTab('llamados')" class="px-3 py-2 text-xs font-bold border-b-2 -mb-px border-rose-600 text-rose-700"><i class="fa-solid fa-file-signature"></i> Llamados de atención</button>
+                        <button type="button" id="docsTab_certs" onclick="setDocsTab('certs')" data-perm="employees.edit_payroll" class="px-3 py-2 text-xs font-bold border-b-2 -mb-px border-transparent text-slate-500"><i class="fa-solid fa-award"></i> Certificados laborales</button>
                     </div>
                 </div>
                 <div id="docsSec_llamados" class="bg-white rounded-xl border border-slate-200 shadow-sm">
@@ -929,6 +930,17 @@
                         <p class="text-2xs text-slate-500 mt-1.5">La suite propone un llamado cuando alguien acumula novedades <strong>injustificadas</strong> según las reglas. Nada se envía solo: tú revisas, generas (puedes editar el texto) y envías por WhatsApp. Es una comunicación de novedades con citación a descargos, no una sanción.</p>
                     </div>
                     <div id="discBody" class="p-4 text-xs"></div>
+                </div>
+                <div id="docsSec_certs" class="hidden bg-white rounded-xl border border-slate-200 shadow-sm">
+                    <div class="p-4 border-b">
+                        <div class="flex flex-wrap gap-1">
+                            <button type="button" id="certTab_new" onclick="setCertTab('new')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Generar</button>
+                            <button type="button" id="certTab_hist" onclick="setCertTab('hist')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Historial</button>
+                            <button type="button" id="certTab_cfg" onclick="setCertTab('cfg')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Plantillas</button>
+                        </div>
+                        <p class="text-2xs text-slate-500 mt-1.5">Certificación del <strong>tiempo de servicio, el cargo y el salario</strong> (numeral 7 del artículo 57 del CST). Se expide cuando el colaborador la pida, también si ya se retiró. Cada certificado lleva número consecutivo y código de verificación.</p>
+                    </div>
+                    <div id="certBody" class="p-4 text-xs"></div>
                 </div>
             </div>
 
@@ -3284,6 +3296,259 @@
                 b.classList.toggle('border-transparent', !on); b.classList.toggle('text-slate-500', !on);
             });
             document.querySelectorAll('[id^="docsSec_"]').forEach(s => s.classList.toggle('hidden', s.id !== 'docsSec_' + t));
+            if (t === 'certs') openCertificates();
+        }
+
+        // ---- Certificados laborales (solo Administrador) ----
+        let certData = null, certTab = 'new', certDraft = null;
+        async function loadCertData() {
+            try { certData = await apiFetch('/api/certificates'); } catch (e) { certData = null; showAppToast(e.message); }
+            return certData;
+        }
+        async function openCertificates() {
+            if (!CAN('employees.edit_payroll')) { setDocsTab('llamados'); return; }
+            document.getElementById('certBody').innerHTML = '<p class="text-center text-slate-400 py-6">Cargando…</p>';
+            await loadCertData();
+            setCertTab(certTab);
+        }
+        function setCertTab(t) {
+            certTab = t;
+            ['new', 'hist', 'cfg'].forEach(k => {
+                const b = document.getElementById('certTab_' + k);
+                if (b) b.className = `px-3 py-1.5 rounded-lg text-xs font-bold border ${k === t ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`;
+            });
+            renderCerts();
+        }
+        const certFmt = (d) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : '';
+        function renderCerts() {
+            const box = document.getElementById('certBody');
+            if (!certData) { box.innerHTML = '<p class="text-center text-rose-600 py-6">No se pudo cargar la información.</p>'; return; }
+            if (certTab === 'hist') {
+                const list = certData.certificates;
+                box.innerHTML = list.length ? `<div class="overflow-x-auto"><table class="w-full"><thead class="text-3xs uppercase text-slate-500 font-bold bg-slate-50"><tr>
+                    <th class="text-left px-2 py-2">No.</th><th class="text-left px-2 py-2">Colaborador</th><th class="text-left px-2 py-2">Tipo</th><th class="text-left px-2 py-2">Dirigido a</th><th class="text-left px-2 py-2">Expedido</th><th class="text-left px-2 py-2">Estado</th><th class="px-2 py-2"></th></tr></thead>
+                    <tbody class="divide-y divide-slate-100">${list.map(c => `<tr>
+                        <td class="px-2 py-2 font-mono font-bold text-slate-700 whitespace-nowrap">${escapeHtml(c.number)}</td>
+                        <td class="px-2 py-2 font-semibold text-slate-800">${escapeHtml(c.name)}<span class="block text-3xs font-normal text-slate-500">${escapeHtml(c.area || '')}</span></td>
+                        <td class="px-2 py-2">${escapeHtml(c.kindLabel)}<span class="block text-3xs text-slate-500">${c.includeSalary ? 'Con salario' : 'Sin salario'}${c.includeFunctions ? ' · con funciones' : ''}</span></td>
+                        <td class="px-2 py-2">${escapeHtml(c.addressedTo || 'A quien interese')}</td>
+                        <td class="px-2 py-2 text-3xs text-slate-500 leading-tight">${certFmt(c.issueDate)}<br>${escapeHtml(c.issuedBy)}${c.sentAt ? `<br>Enviado ${certFmt(c.sentAt)}` : ''}</td>
+                        <td class="px-2 py-2">${c.annulledAt ? `<span class="px-2 py-0.5 rounded-full text-3xs font-bold bg-rose-100 text-rose-800">Anulado</span><span class="block text-3xs text-slate-500 mt-0.5">${certFmt(c.annulledAt)} · ${escapeHtml(c.annulReason)}</span>` : '<span class="px-2 py-0.5 rounded-full text-3xs font-bold bg-emerald-100 text-emerald-800">Vigente</span>'}</td>
+                        <td class="px-2 py-2 text-right whitespace-nowrap">
+                            <button type="button" onclick="certViewPdf('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold"><i class="fa-regular fa-file-pdf"></i> Ver PDF</button>
+                            ${c.annulledAt ? '' : `<button type="button" onclick="certWhatsApp('${c.id}')" class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold"><i class="fa-brands fa-whatsapp"></i> ${c.sentAt ? 'Reenviar' : 'Enviar'}</button>
+                            <button type="button" onclick="certAnnul('${c.id}')" class="px-2 py-1 rounded bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 font-semibold">Anular</button>`}
+                        </td></tr>`).join('')}</tbody></table></div>`
+                    : '<p class="text-center text-slate-400 py-8">Aún no se han expedido certificados.</p>';
+                return;
+            }
+            if (certTab === 'cfg') {
+                const cfg = certData.config;
+                const tpl = (k, label) => `<div class="border border-slate-200 rounded-lg p-3 space-y-2">
+                    <div class="flex items-center justify-between gap-2"><p class="font-bold text-slate-800">${label}</p>${cfg.templates[k].custom ? '<span class="text-3xs font-bold text-sky-700">Plantilla propia</span>' : '<span class="text-3xs text-slate-500">Modelo sugerido</span>'}</div>
+                    <input id="certTplTitle_${k}" value="${escapeHtml(cfg.templates[k].title)}" maxlength="200" class="w-full p-2 border rounded-lg font-bold">
+                    <textarea id="certTplBody_${k}" rows="16" class="w-full p-2 border rounded-lg font-mono text-2xs leading-relaxed">${escapeHtml(cfg.templates[k].body)}</textarea>
+                    <button type="button" onclick="certRestoreTpl('${k}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold text-2xs">Restaurar modelo sugerido</button>
+                </div>`;
+                box.innerHTML = `<div class="space-y-3">
+                    <p class="text-3xs text-slate-500">Puedes pegar el modelo que ya usa la empresa. Datos que la suite llena sola: <code>{{ciudad_fecha}}</code> <code>{{dirigido_a}}</code> <code>{{empresa}}</code> <code>{{nit}}</code> <code>{{nombre}}</code> <code>{{documento}}</code> <code>{{vinculo}}</code> (desde cuándo labora, o desde y hasta si ya se retiró) <code>{{tipo_contrato}}</code> <code>{{cargo}}</code> <code>{{fecha_ingreso}}</code> <code>{{fecha_retiro}}</code> <code>{{salario}}</code> <code>{{salario_letras}}</code> <code>{{parrafo_salario}}</code> (vacío si no incluyes salario) <code>{{parrafo_funciones}}</code> (vacío si no incluyes funciones) <code>{{firmante}}</code>. La firma, quien firma y la ciudad son las mismas de <strong>Llamados → Reglas y plantillas</strong>. Valida el texto con tu asesor legal.</p>
+                    <div class="grid lg:grid-cols-2 gap-3">${tpl('laboral', 'Contrato de trabajo (término indefinido o fijo)')}${tpl('servicios', 'Prestación de servicios')}</div>
+                    <button type="button" onclick="certSaveCfg()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold">Guardar plantillas</button>
+                </div>`;
+                return;
+            }
+            // Generar
+            const emps = [...appState.employees].sort((a, b) => a.name.localeCompare(b.name));
+            const act = emps.filter(e => e.status !== 'retirado'), ret = emps.filter(e => e.status === 'retirado');
+            const opt = (e) => `<option value="${e.id}">${escapeHtml(e.name)}${e.status === 'retirado' ? ' (retirado)' : ''}</option>`;
+            const noSig = !certData.config.signerSignature;
+            box.innerHTML = `<div class="grid lg:grid-cols-[minmax(0,340px)_1fr] gap-4">
+                <div class="space-y-3">
+                    ${noSig ? '<p class="text-3xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">Aún no hay firma de la empresa: el certificado saldrá con la línea en blanco. Dibújala o súbela en Llamados → Reglas y plantillas.</p>' : ''}
+                    <label class="block"><span class="font-semibold text-slate-700">Colaborador</span>
+                        <select id="certEmp" onchange="certEmpChanged()" class="mt-1 w-full p-2 border rounded-lg bg-white"><option value="">Elige…</option>
+                            ${act.length ? `<optgroup label="Activos">${act.map(opt).join('')}</optgroup>` : ''}${ret.length ? `<optgroup label="Retirados">${ret.map(opt).join('')}</optgroup>` : ''}</select></label>
+                    <label class="block"><span class="font-semibold text-slate-700">Dirigido a</span>
+                        <input id="certTo" maxlength="150" placeholder="A quien interese" class="mt-1 w-full p-2 border rounded-lg">
+                        <span class="block text-3xs text-slate-500 mt-0.5">Déjalo vacío para "A quien interese", o escribe la entidad (ej. Bancolombia S.A.).</span></label>
+                    <label class="block"><span class="font-semibold text-slate-700">Fecha de ingreso</span>
+                        <input id="certHire" type="date" class="mt-1 w-full p-2 border rounded-lg">
+                        <span id="certHireHint" class="block text-3xs text-slate-500 mt-0.5"></span></label>
+                    <label class="flex items-center gap-2 font-semibold text-slate-700"><input id="certSalary" type="checkbox" checked class="w-4 h-4 accent-slate-800"> Incluir salario (en números y en letras)</label>
+                    <label class="flex items-center gap-2 font-semibold text-slate-700"><input id="certFun" type="checkbox" onchange="document.getElementById('certFunText').classList.toggle('hidden', !this.checked)" class="w-4 h-4 accent-slate-800"> Incluir funciones del cargo</label>
+                    <textarea id="certFunText" rows="5" placeholder="Una función por renglón" class="hidden w-full p-2 border rounded-lg"></textarea>
+                    <p id="certEmpInfo" class="text-3xs text-slate-500"></p>
+                    <button type="button" onclick="certPrepare()" class="w-full px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold">Preparar certificado</button>
+                </div>
+                <div id="certEditor" class="text-slate-400 border border-dashed border-slate-300 rounded-lg p-6 text-center">Elige el colaborador y pulsa "Preparar certificado": aquí verás el texto (lo puedes ajustar) antes de generarlo.</div>
+            </div>`;
+        }
+        function certEmpChanged() {
+            const id = Number(document.getElementById('certEmp').value);
+            const e = appState.employees.find(x => Number(x.id) === id);
+            const hire = id && certData.hireDates[id] ? certData.hireDates[id] : '';
+            document.getElementById('certHire').value = hire;
+            document.getElementById('certHireHint').textContent = !id ? '' : hire ? 'Tomada de Vacaciones (o del contrato). Puedes cambiarla solo para este certificado.' : 'No está registrada: escríbela (puedes registrarla en Descansos y vacaciones).';
+            const C = { indefinido: 'Término indefinido', fijo: 'Término fijo', servicios: 'Prestación de servicios' };
+            document.getElementById('certEmpInfo').textContent = e ? `${C[e.contractType] || 'Término indefinido'} · ${e.role || 'sin cargo'} · ${e.salary ? '$' + Math.round(e.salary).toLocaleString('es-CO') : 'sin salario'}${e.status === 'retirado' ? ' · Retirado el ' + certFmt(e.retiredAt) : ''}` : '';
+            document.getElementById('certEditor').innerHTML = 'Pulsa "Preparar certificado" para ver el texto.';
+            certDraft = null;
+        }
+        function certOpts() {
+            return { employeeId: Number(document.getElementById('certEmp').value), addressedTo: document.getElementById('certTo').value.trim(), hireDate: document.getElementById('certHire').value,
+                includeSalary: document.getElementById('certSalary').checked, includeFunctions: document.getElementById('certFun').checked, functionsText: document.getElementById('certFunText').value };
+        }
+        async function certPrepare() {
+            const o = certOpts();
+            if (!o.employeeId) { showAppToast('Elige el colaborador.'); return; }
+            if (o.includeFunctions && !o.functionsText.trim()) { showAppToast('Escribe las funciones (una por renglón) o desmarca la opción.'); return; }
+            try { certDraft = { ...(await apiFetch('/api/certificates/draft', { method: 'POST', body: JSON.stringify(o) })), opts: o }; } catch (e) { showAppToast(e.message); return; }
+            const d = certDraft;
+            document.getElementById('certEditor').className = 'space-y-2 text-slate-800';
+            document.getElementById('certEditor').innerHTML = `
+                <p class="text-3xs font-bold uppercase text-slate-500">${escapeHtml(d.kindLabel)}${d.retired ? ' · colaborador retirado' : ''}</p>
+                ${d.missing.length ? `<p class="text-2xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">Falta en la ficha: ${d.missing.join(', ')}. Complétalo en Colaboradores o ajústalo en el texto.</p>` : ''}
+                <input id="certTitle" value="${escapeHtml(d.title)}" maxlength="200" class="w-full p-2 border rounded-lg font-bold text-center">
+                <textarea id="certText" rows="20" class="w-full p-2 border rounded-lg leading-relaxed">${escapeHtml(d.body)}</textarea>
+                <p class="text-3xs text-slate-500">El número consecutivo y el código de verificación se asignan al generar.</p>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" onclick="certPreview()" class="px-3 py-2 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 font-semibold"><i class="fa-regular fa-eye"></i> Vista previa PDF</button>
+                    <button type="button" onclick="certGenerate()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold"><i class="fa-solid fa-check"></i> Generar certificado</button>
+                </div>`;
+        }
+        function certCurrentText() { return { title: document.getElementById('certTitle').value.trim(), body: document.getElementById('certText').value }; }
+        async function certPreview() {
+            if (!certDraft) return;
+            const t = certCurrentText();
+            const emp = appState.employees.find(x => Number(x.id) === certDraft.opts.employeeId) || {};
+            const r = await buildCertPdf({ number: 'CL-____-____', title: t.title, body: t.body, name: emp.name || '', issueDate: bogotaTodayISO(), verifyCode: '', kindLabel: certDraft.kindLabel }, true);
+            if (r) openPdfViewer(r.doc, r.fileName, 'Vista previa · ' + (emp.name || ''));
+        }
+        async function certGenerate() {
+            if (!certDraft) return;
+            const t = certCurrentText();
+            if (/\{\{\s*[a-z_]+\s*\}\}/.test(t.body)) { showAppToast('El texto tiene variables sin reemplazar ({{...}}).'); return; }
+            const emp = appState.employees.find(x => Number(x.id) === certDraft.opts.employeeId) || {};
+            if (!confirm(`¿Generar el certificado de ${emp.name}?\n\nSe le asigna número consecutivo y queda en el historial (si sale con un error, se puede anular).`)) return;
+            try {
+                const r = await apiFetch('/api/certificates', { method: 'POST', body: JSON.stringify({ ...certDraft.opts, title: t.title, body: t.body }) });
+                showAppToast(`Certificado ${r.certificate.number} generado.`);
+                await loadCertData(); certDraft = null; setCertTab('hist');
+                certViewPdf(r.certificate.id);
+            } catch (e) { showAppToast(e.message); }
+        }
+        async function certViewPdf(id) {
+            const c = certData.certificates.find(x => x.id === id); if (!c) return;
+            const r = await buildCertPdf(c, false);
+            if (r) openPdfViewer(r.doc, r.fileName, `${c.number} · ${c.name}${c.annulledAt ? ' · ANULADO' : ''}`);
+        }
+        async function certAnnul(id) {
+            const c = certData.certificates.find(x => x.id === id); if (!c) return;
+            const reason = (prompt(`¿Anular el certificado ${c.number} de ${c.name}?\n\nQuien lo verifique verá que fue anulado. Queda en el historial.\n\nEscribe el motivo:`) || '').trim();
+            if (!reason) return;
+            try { await apiFetch(`/api/certificates/${id}/annul`, { method: 'POST', body: JSON.stringify({ reason }) }); showAppToast('Certificado anulado.'); await loadCertData(); setCertTab('hist'); }
+            catch (e) { showAppToast(e.message); }
+        }
+        async function certWhatsApp(id) {
+            const c = certData.certificates.find(x => x.id === id); if (!c) return;
+            if (!c.phone) { showAppToast(`${c.name} no tiene celular registrado en su ficha. Agrégalo en Colaboradores.`); return; }
+            const w = window.open('about:blank', '_blank');
+            try {
+                const r = await apiFetch(`/api/certificates/${id}/link`, { method: 'POST', body: '{}' });
+                const link = `${location.origin}/certificado.html#t=${r.token}`;
+                const first = String(c.name).split(' ')[0];
+                const msg = `Hola ${first}, ${appState.orgName || 'la empresa'} te envía tu ${c.kindLabel.toLowerCase()} No. ${c.number}.\n\nÁbrela y descárgala aquí: ${link}\n\nEl enlace vence el ${String(r.expires).split('-').reverse().join('/')}.`;
+                const url = `https://wa.me/${c.phone}?text=${encodeURIComponent(msg)}`;
+                if (w) w.location.href = url; else location.href = url;
+                await loadCertData(); setCertTab('hist');
+            } catch (e) { if (w) w.close(); showAppToast(e.message); }
+        }
+        function certRestoreTpl(k) {
+            const d = certData.config.defaults[k];
+            document.getElementById('certTplTitle_' + k).value = d.title; document.getElementById('certTplBody_' + k).value = d.body;
+        }
+        async function certSaveCfg() {
+            const templates = {};
+            ['laboral', 'servicios'].forEach(k => { templates[k] = { title: document.getElementById('certTplTitle_' + k).value, body: document.getElementById('certTplBody_' + k).value }; });
+            try { await apiFetch('/api/certificates/config', { method: 'PUT', body: JSON.stringify({ templates }) }); showAppToast('Plantillas guardadas.'); await loadCertData(); setCertTab('cfg'); }
+            catch (e) { showAppToast(e.message); }
+        }
+        // PDF del certificado: carta, una hoja; logo, empresa y NIT; número; firma de la empresa; franja de verificación.
+        async function buildCertPdf(c, preview) {
+            try { await loadScriptOnce('/vendor/jspdf-2.5.1.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF)); } catch (e) { showAppToast(e.message); return null; }
+            const logo = await pdfOrgLogo();
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ unit: 'mm', format: 'letter' });
+            const M = 25, W = doc.internal.pageSize.getWidth() - 2 * M, H = doc.internal.pageSize.getHeight();
+            let y = 14;
+            const lw = logo ? pdfDrawLogo(doc, logo, M, y, 42, 20, false) : 0;
+            const tx = M + (lw ? lw + 5 : 0);
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(15, 23, 42);
+            doc.text(String(appState.orgName || ''), tx, y + 8, { maxWidth: M + W - tx - 40 });
+            if (certData && certData.config.nit) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(71, 85, 105); doc.text('NIT ' + certData.config.nit, tx, y + 13); }
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(71, 85, 105);
+            doc.text('No. ' + c.number, M + W, y + 8, { align: 'right' });
+            doc.setTextColor(0, 0, 0); doc.setDrawColor(203, 213, 225); doc.line(M, y + 24, M + W, y + 24);
+            y += 36;
+            const pars = String(c.body).replace(/\s+$/, '').split('\n');
+            let closeIdx = -1; pars.forEach((p, i) => { if (/^\s*atentamente/i.test(p)) closeIdx = i; });
+            const mainPars = closeIdx >= 0 ? pars.slice(0, closeIdx + 1) : pars;
+            const signer = closeIdx >= 0 ? pars.slice(closeIdx + 1).map(x => x.trim()).filter(Boolean) : [];
+            const measure = (fs) => {
+                const lh = fs * 0.5;
+                let h = 10;
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(fs);
+                mainPars.forEach(par => { h += par.trim() ? doc.splitTextToSize(par, W).length * lh : lh * 0.7; });
+                return h + 24 + Math.max(signer.length, 3) * lh;
+            };
+            const avail = H - 18 - y;
+            let fs = 11;
+            for (const f of [11, 10.5, 10, 9.5, 9, 8.5]) { fs = f; if (measure(f) <= avail) break; }
+            const lh = fs * 0.5;
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(fs + 2);
+            doc.text(String(c.title || ''), M + W / 2, y, { align: 'center' }); y += 10;
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(fs);
+            mainPars.forEach(par => {
+                if (!par.trim()) { y += lh * 0.7; return; }
+                const lines = doc.splitTextToSize(par, W);
+                lines.forEach((l, i) => {
+                    if (y > H - 20) { doc.addPage(); y = 25; }
+                    // Justificado (menos la última línea del párrafo y las listas).
+                    const just = i < lines.length - 1 && !/^\s*-/.test(par) && l.trim().includes(' ');
+                    doc.text(l, M, y, just ? { maxWidth: W, align: 'justify' } : undefined); y += lh;
+                });
+            });
+            y += 20;
+            if (y + Math.max(signer.length, 3) * lh > H - 16) { doc.addPage(); y = 40; }
+            const sig = certData && certData.config.signerSignature;
+            if (sig) {
+                try { const p = doc.getImageProperties(sig); const hh = 16, ww = Math.min(70, hh * p.width / p.height); doc.addImage(sig, 'PNG', M + 1, y - hh - 0.5, ww, hh); } catch (e) { /* sin imagen */ }
+            }
+            doc.setDrawColor(90); doc.line(M, y, M + 75, y);
+            let yl = y + lh;
+            signer.forEach((t, i) => { doc.setFont('helvetica', i === 0 ? 'bold' : 'normal'); doc.text(t, M, yl); yl += lh; });
+            // Franja de verificación al pie.
+            const fy = H - 12;
+            doc.setDrawColor(203, 213, 225); doc.line(M, fy - 4, M + W, fy - 4);
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139);
+            const vtxt = c.verifyCode
+                ? `Documento firmado electrónicamente (Ley 527 de 1999 y Decreto 2364 de 2012). Expedido el ${certFmt(c.issueDate)}. Verifique su autenticidad en ${location.origin}/certificado.html con el código ${c.verifyCode}.`
+                : 'Vista previa: el número consecutivo y el código de verificación se asignan al generar el certificado.';
+            doc.splitTextToSize(vtxt, W).forEach((l, i) => doc.text(l, M, fy + i * 3));
+            doc.setTextColor(0, 0, 0);
+            const mark = preview ? 'VISTA PREVIA' : (c.annulledAt ? 'ANULADO' : '');
+            if (mark) {
+                for (let pg = 1; pg <= doc.getNumberOfPages(); pg++) {
+                    doc.setPage(pg);
+                    try { doc.setGState(new doc.GState({ opacity: 0.12 })); } catch (e) { /* sin transparencia */ }
+                    doc.setFont('helvetica', 'bold'); doc.setFontSize(64); doc.setTextColor(c.annulledAt ? 190 : 120, 120, 120);
+                    doc.text(mark, doc.internal.pageSize.getWidth() / 2, H / 2, { angle: 35, align: 'center' });
+                    try { doc.setGState(new doc.GState({ opacity: 1 })); } catch (e) { /* nada */ }
+                }
+                doc.setTextColor(0, 0, 0);
+            }
+            const fileName = `${preview ? 'VISTA_PREVIA_' : ''}Certificado_${String(c.number).replace(/[^A-Za-z0-9-]/g, '')}_${String(c.name).replace(/[^A-Za-z0-9áéíóúñÁÉÍÓÚÑ]+/g, '_')}.pdf`;
+            return { doc, fileName };
         }
         function setDiscTab(t) {
             if (t === 'cfg' && !CAN('employees.edit')) t = 'rev';

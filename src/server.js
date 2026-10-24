@@ -15,6 +15,7 @@ const attendance = require('./routes/attendance.routes');
 const notifications = require('./routes/notifications.routes');
 const leave = require('./routes/leave.routes');
 const discipline = require('./routes/discipline.routes');
+const certificates = require('./routes/certificates.routes');
 const live = require('./lib/live');
 const presence = require('./lib/presence');
 
@@ -132,6 +133,15 @@ route('GET', '/api/public/comunicacion/:token', [], (req, res, params) => discip
 route('POST', '/api/public/comunicacion/:token/sign', [], (req, res, params) => discipline.publicSign(req, res, params), { auth: false });
 route('GET', '/api/discipline/:id/signature', [requirePermission('employees.view')], (req, res, params) => discipline.caseSignature(req, res, params));
 route('POST', '/api/public/comunicacion/:token/ack', [], (req, res, params) => discipline.publicAck(req, res, params), { auth: false });
+// Certificados laborales: solo el Administrador (employees.edit_payroll).
+route('GET', '/api/certificates', [requirePermission('employees.edit_payroll')], (req, res, params, query) => certificates.listCertificates(req, res, query));
+route('PUT', '/api/certificates/config', [requirePermission('employees.edit_payroll')], (req, res) => certificates.saveCertificateConfig(req, res));
+route('POST', '/api/certificates/draft', [requirePermission('employees.edit_payroll')], (req, res) => certificates.draftCertificate(req, res));
+route('POST', '/api/certificates', [requirePermission('employees.edit_payroll')], (req, res) => certificates.createCertificate(req, res));
+route('POST', '/api/certificates/:id/annul', [requirePermission('employees.edit_payroll')], (req, res, params) => certificates.annulCertificate(req, res, params));
+route('POST', '/api/certificates/:id/link', [requirePermission('employees.edit_payroll')], (req, res, params) => certificates.certificateLink(req, res, params));
+route('GET', '/api/public/certificado/verificar/:code', [], (req, res, params) => certificates.publicVerify(req, res, params), { auth: false });
+route('GET', '/api/public/certificado/:token', [], (req, res, params) => certificates.publicCertificate(req, res, params), { auth: false });
 route('GET', '/api/rest-days', [requirePermission('shifts.view')], (req, res, params, query) => leave.listRestDays(req, res, query));
 route('GET', '/api/vacations', [requirePermission('shifts.view')], (req, res, params, query) => leave.listVacations(req, res, query));
 route('POST', '/api/vacations/moves', [requirePermission('shifts.edit')], (req, res) => leave.addVacationMove(req, res));

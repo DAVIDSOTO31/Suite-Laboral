@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Certificado laboral · RR.HH</title>
+<link rel="stylesheet" href="/tw.css">
+<link href="/vendor/inter-4/inter.css" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .pre { white-space: pre-wrap; }
+  @page { size: letter; margin: 18mm 20mm; }
+  @media print { .no-print { display: none !important; } body { background: #fff !important; } #card { box-shadow: none !important; border: 0 !important; padding: 0 !important; } main { max-width: none !important; padding: 0 !important; } }
+</style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+<main class="max-w-2xl mx-auto px-4 py-6">
+  <p id="loading" class="text-center text-slate-500 text-sm py-10">Cargando…</p>
+
+  <!-- Verificación con el código -->
+  <section id="verify" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-8">
+    <h1 class="font-extrabold text-slate-800 text-lg">Verificar un certificado laboral</h1>
+    <p class="text-sm text-slate-500 mt-1">Escribe el código de verificación que aparece al pie del certificado.</p>
+    <form id="vForm" class="mt-4 flex flex-wrap gap-2">
+      <input id="vCode" autocomplete="off" maxlength="19" placeholder="XXXX-XXXX-XXXX-XXXX" class="flex-1 min-w-[220px] px-3 py-2.5 rounded-xl border border-slate-300 font-mono uppercase tracking-wider text-sm">
+      <button class="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm">Verificar</button>
+    </form>
+    <div id="vResult" class="mt-4"></div>
+  </section>
+
+  <!-- Certificado completo (enlace enviado al colaborador) -->
+  <div id="card" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-8">
+    <div id="annulled" class="hidden text-center py-8">
+      <p class="font-bold text-rose-700">Este certificado fue anulado</p>
+      <p class="text-sm text-slate-500 mt-1">Comunícate con Recursos Humanos para que te expidan uno nuevo.</p>
+    </div>
+    <div id="doc" class="hidden">
+      <div class="flex items-center gap-3 border-b border-slate-200 pb-4 mb-4">
+        <img id="logo" class="hidden h-14 w-auto max-w-[40%] object-contain" alt="">
+        <div class="flex-1"><p id="org" class="font-extrabold text-slate-800 text-lg leading-tight"></p><p id="nit" class="text-xs text-slate-500"></p></div>
+        <p id="num" class="text-xs font-bold text-slate-600 text-right"></p>
+      </div>
+      <h1 id="title" class="font-bold text-slate-900 text-base sm:text-lg text-center mb-5"></h1>
+      <div id="body" class="pre text-sm text-slate-800 leading-relaxed text-justify"></div>
+      <p id="foot" class="mt-8 pt-3 border-t border-slate-200 text-[11px] text-slate-500"></p>
+    </div>
+  </div>
+  <p id="err" class="hidden text-center text-sm text-slate-600 bg-white rounded-2xl border border-slate-200 p-8"></p>
+  <div id="actions" class="hidden no-print mt-4 text-center">
+    <button id="printBtn" type="button" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-sm">Descargar / imprimir (PDF)</button>
+    <p class="text-xs text-slate-500 mt-2">En el celular elige "Guardar como PDF" al imprimir.</p>
+  </div>
+</main>
+<script>
+(function () {
+  var qs = new URLSearchParams(location.search);
+  var $ = function (id) { return document.getElementById(id); };
+  var fmt = function (iso) { return String(iso || '').slice(0, 10).split('-').reverse().join('/'); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  function show(id) { $('loading').classList.add('hidden'); $(id).classList.remove('hidden'); }
+  function verify(code) {
+    var clean = String(code || '').toUpperCase().replace(/[^0-9A-F]/g, '');
+    $('vCode').value = clean.replace(/(.{4})(?=.)/g, '$1-');
+    if (clean.length !== 16) { $('vResult').innerHTML = '<p class="text-sm text-rose-700 font-semibold">El código tiene 16 caracteres (letras A-F y números).</p>'; return; }
+    $('vResult').innerHTML = '<p class="text-sm text-slate-400">Consultando…</p>';
+    fetch('/api/public/certificado/verificar/' + clean).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (x) {
+      var j = x.j;
+      if (!x.ok) { $('vResult').innerHTML = '<div class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 font-semibold">' + esc(j.error || 'No se pudo verificar.') + '</div>'; return; }
+      var head = j.valid
+        ? '<p class="font-extrabold text-emerald-700 text-base">✔ Certificado auténtico y vigente</p>'
+        : '<p class="font-extrabold text-rose-700 text-base">✖ Este certificado fue ANULADO' + (j.annulledAt ? ' el ' + fmt(j.annulledAt) : '') + '</p>';
+      $('vResult').innerHTML = '<div class="rounded-xl border ' + (j.valid ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50') + ' p-4 text-sm space-y-1">' + head +
+        '<p><strong>Empresa:</strong> ' + esc(j.org) + (j.nit ? ' · NIT ' + esc(j.nit) : '') + '</p>' +
+        '<p><strong>' + esc(j.kindLabel) + ' No.</strong> ' + esc(j.number) + ' · expedido el ' + fmt(j.issueDate) + '</p>' +
+        '<p><strong>Colaborador:</strong> ' + esc(j.name) + ' · ' + esc(j.document) + '</p>' +
+        '<p class="text-xs text-slate-500 pt-1">Por protección de datos personales (Ley 1581 de 2012) aquí solo se muestra la información necesaria para comprobar que el documento es auténtico.</p></div>';
+    }).catch(function () { $('vResult').innerHTML = '<p class="text-sm text-rose-700">Sin conexión. Intenta de nuevo.</p>'; });
+  }
+  $('vForm').addEventListener('submit', function (e) { e.preventDefault(); verify($('vCode').value); });
+  $('printBtn').addEventListener('click', function () { window.print(); });
+
+  var hm = location.hash.match(/[#&]t=([^&]+)/);
+  var token = hm ? decodeURIComponent(hm[1]) : qs.get('t');
+  if (!token) { show('verify'); if (qs.get('c')) verify(qs.get('c')); return; }
+  fetch('/api/public/certificado/' + encodeURIComponent(token)).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (x) {
+    var j = x.j;
+    if (!x.ok) { $('err').textContent = j.error || 'No se pudo abrir el certificado.'; show('err'); return; }
+    show('card');
+    if (j.annulled) { $('annulled').classList.remove('hidden'); return; }
+    $('doc').classList.remove('hidden');
+    if (j.logo) { $('logo').src = j.logo; $('logo').classList.remove('hidden'); }
+    $('org').textContent = j.org || ''; $('nit').textContent = j.nit ? 'NIT ' + j.nit : '';
+    $('num').textContent = 'No. ' + (j.number || '');
+    $('title').textContent = j.title || '';
+    // La firma de la empresa va encima del nombre de quien firma (después de "Atentamente,").
+    var parts = String(j.body || '').split(/(\n\s*Atentamente,?\s*\n)/i);
+    var html = esc(parts[0]);
+    if (parts.length >= 3) {
+      html += esc(parts[1]) + (j.signature ? '<img src="' + esc(j.signature) + '" alt="Firma" class="h-16 w-auto my-1">' : '\n\n') + '<strong>' + esc(parts.slice(2).join('').replace(/^\s+/, '').split('\n')[0]) + '</strong>\n' + esc(parts.slice(2).join('').replace(/^\s+/, '').split('\n').slice(1).join('\n'));
+    }
+    $('body').innerHTML = html;
+    $('foot').textContent = 'Expedido el ' + fmt(j.issueDate) + ' · Documento firmado electrónicamente (Ley 527 de 1999 y Decreto 2364 de 2012). Verifique su autenticidad en ' + location.origin + '/certificado.html con el código ' + (j.verifyCode || '') + '.';
+    $('actions').classList.remove('hidden');
+  }).catch(function () { $('err').textContent = 'Sin conexión. Intenta de nuevo.'; show('err'); });
+})();
+</script>
+</body>
+</html>
