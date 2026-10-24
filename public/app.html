@@ -5829,8 +5829,8 @@
                                 <td data-rc-emp="${emp.id}" data-rc-date="${d.dateISO}" class="p-1 border-r border-slate-200 text-center align-middle relative">
                                     ${rosterLockBtn(emp.id, d.dateISO)}
                                     <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="${a.label}: sin marcación este día${shift.note ? ' · Nota: ' + escapeHtml(shift.note) : ''}. Clic para cambiar" class="px-1 py-1 rounded-md border ${theme.bg} cursor-pointer transition-all hover:scale-105 shadow-xs flex flex-col items-center justify-center">
-                                        <div class="font-extrabold text-3xs uppercase leading-tight">
-                                            <span>${a.label}</span>
+                                        <div class="font-extrabold text-3xs uppercase leading-tight w-full overflow-hidden">
+                                            <span class="roster-fit block">${a.label}</span>
                                         </div>
                                         ${shift.note ? `<span class="text-4xs px-1 rounded bg-white text-slate-900 border border-slate-500 shadow-sm font-bold line-clamp-1 break-all leading-tight mt-0.5"><i class="fa-solid fa-note-sticky"></i> ${escapeHtml(shift.note)}</span>` : ''}
                                     </div>
@@ -5839,8 +5839,8 @@
                         } else {
                             return `
                                 <td data-rc-emp="${emp.id}" data-rc-date="${d.dateISO}" class="p-1 border-r border-slate-200 text-center align-middle">
-                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="Día de descanso (día libre). Clic para asignar turno o cambiar estado" class="px-1 py-1 rounded-md border border-rose-300 bg-rose-100 hover:bg-rose-200 text-rose-700 cursor-pointer transition-all hover:scale-105 shadow-xs text-center font-extrabold text-3xs uppercase leading-tight">
-                                        Descanso
+                                    <div onclick="handleRosterCellClick(${emp.id}, '${d.dateISO}', '${emp.name}', '${d.fullName} ${d.displayDate}')" title="Día de descanso (día libre). Clic para asignar turno o cambiar estado" class="px-1 py-1 rounded-md border border-rose-300 bg-rose-100 hover:bg-rose-200 text-rose-700 cursor-pointer transition-all hover:scale-105 shadow-xs text-center font-extrabold text-3xs uppercase leading-tight overflow-hidden">
+                                        <span class="roster-fit block">Descanso</span>
                                     </div>
                                 </td>
                             `;
@@ -5883,7 +5883,28 @@
             });
 
             renderRosterFooter(weekDays, dailyCoverageCounters);
+            requestAnimationFrame(() => fitRosterLabels(tbody));
         }
+
+        // Etiquetas de novedades del cuadro (Integración, Descanso acumulado...):
+        // la letra se reduce sola hasta que el nombre quepa en la casilla (máximo
+        // 2 renglones). Se vuelve a ajustar si cambia el tamaño de la pantalla.
+        function fitRosterLabels(root) {
+            (root || document).querySelectorAll('.roster-fit').forEach(el => {
+                el.style.removeProperty('font-size');
+                el.style.removeProperty('word-break');
+                if (!el.clientWidth) return; // no visible: se ajusta al mostrarse
+                const cs = getComputedStyle(el);
+                let size = parseFloat(cs.fontSize) || 11;
+                const ratio = (parseFloat(cs.lineHeight) || size * 1.25) / size;
+                const tooBig = () => el.scrollWidth > el.clientWidth + 0.5 || el.scrollHeight > size * ratio * 2 + 1;
+                let guard = 0;
+                while (tooBig() && size > 7 && guard++ < 40) { size -= 0.5; el.style.setProperty('font-size', size + 'px', 'important'); }
+                if (tooBig()) el.style.wordBreak = 'break-all'; // último recurso: parte la palabra
+            });
+        }
+        let rosterFitTimer = null;
+        window.addEventListener('resize', () => { clearTimeout(rosterFitTimer); rosterFitTimer = setTimeout(() => fitRosterLabels(document.getElementById('rosterTableBody')), 150); });
 
         function renderRosterFooter(weekDays, dailyCoverageCounters) {
             const tfoot = document.getElementById('rosterTableFoot');
@@ -10517,6 +10538,7 @@
                     + ' #rosterImgWrap tbody td:first-child span { font-size: 15px !important; }'
                     : '');
                 document.head.appendChild(pdfFixStyle);
+                fitRosterLabels(wrap); // las etiquetas de novedades también caben en el PDF/imagen
                 // Imagen: tamaño pensado para WhatsApp HD (máx. 4096 px por el lado
                 // más largo): así WhatsApp HD no la vuelve a reducir. Las imágenes
                 // pequeñas salen con más resolución (hasta 3x).
