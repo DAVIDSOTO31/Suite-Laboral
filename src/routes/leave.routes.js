@@ -209,8 +209,22 @@ CREATE TABLE IF NOT EXISTS vacation_moves (
 );
 CREATE INDEX IF NOT EXISTS idx_vacation_moves_emp ON vacation_moves(organization_id, employee_id);
 `);
+// Saldo inicial con desglose (oct 2026): periodos anteriores (manual) + dias
+// causados en un periodo que la suite calcula sola (desde / hasta) - dias ya
+// disfrutados por fuera de la suite. Un saldo inicial se puede rehacer: el
+// anterior queda anulado (voided_at) y no cuenta.
+{
+  const vc = db.prepare('PRAGMA table_info(vacation_moves)').all().map(c => c.name);
+  for (const [c, t] of [['prev_days', 'REAL'], ['calc_from', 'TEXT'], ['calc_to', 'TEXT'], ['calc_days', 'REAL'], ['taken_before', 'REAL'], ['voided_at', 'TEXT'], ['voided_by', 'TEXT']]) {
+    if (!vc.includes(c)) db.exec(`ALTER TABLE vacation_moves ADD COLUMN ${c} ${t}`);
+  }
+}
 const VAC_KEY = 'vacaciones';
 const VAC_PER_YEAR = 15;
+// Las Vacaciones del cuadro de turnos se descuentan solo desde el dia en que se
+// activo el control de vacaciones en la suite (23/10/2026). Lo anterior se
+// registra en el saldo inicial ("ya disfrutados").
+const VAC_ROSTER_FROM = '2026-10-23';
 function isBusinessDayCO(dateISO) { return weekdayISO(dateISO) !== 0 && !isHolidayCO(dateISO); }
 // Dias entre dos fechas en año comercial de 360 dias (meses de 30), contando
 // ambos extremos: del 1 de enero al 31 de diciembre = 360.
@@ -240,14 +254,15 @@ function computeVacations(orgId) {
   }
   const moves = new Map();
   for (const m of db.prepare(`SELECT m.*, u.email AS by_email FROM vacation_moves m LEFT JOIN users u ON u.id = m.created_by
-    WHERE m.organization_id = ? ORDER BY m.created_at`).all(orgId)) {
+    WHERE m.organization_id = ? AND m.voided_at IS NULL ORDER BY m.created_at`).all(orgId)) {
     const k = Number(m.employee_id);
     if (!moves.has(k)) moves.set(k, []);
-    moves.get(k).push({ id: m.id, date: m.move_date, qty: m.qty, kind: m.kind, note: m.note || '', by: m.by_email || '', at: m.created_at });
+    moves.get(k).push({ id: m.id, date: m.move_date, qty: m.qty, kind: m.kind, note: m.note || '', by: m.by_email || '', at: m.created_at,
+      prev: m.prev_days, calcFrom: m.calc_from || null, calcTo: m.calc_to || null, calcDays: m.calc_days, takenBefore: m.taken_before });
   }
   const thisMonth = today.slice(5, 7);
   return {
-    since, today, vacKey: VAC_KEY, perYear: VAC_PER_YEAR,
+    since, today, vacKey: VAC_KEY, perYear: VAC_PER_YEAR, rosterFrom: VAC_ROSTER_FROM,
     employees: employees.map(e => {
       const id = Number(e.id);
       const mv = moves.get(id) || [];
@@ -261,13 +276,19 @@ function computeVacations(orgId) {
       const inicialMv = current.find(m => m.kind === 'inicial') || null;
       const initial = inicialMv ? inicialMv.qty : 0;
       const adjust = round2(current.filter(m => m.kind === 'ajuste').reduce((a, m) => a + m.qty, 0));
-      // Causacion: con saldo inicial, desde el dia siguiente al Dia 0; sin el,
-      // desde la fecha de ingreso (o el contrato nuevo).
-      let accrualFrom = start;
-      if (start && inicialMv && since > start) accrualFrom = since;
-      const usageFrom = start ? (inicialMv && since > start ? since : start) : since;
-      const accrued = start ? round2(days360(accrualFrom, today) * VAC_PER_YEAR / 360) : 0;
-      const days = [...(vac.get(id) || [])].filter(d => d >= usageFrom).sort();
+      // Causacion: con saldo inicial calculado (desde/hasta), desde el dia
+      // siguiente al "hasta" y las vacaciones del cuadro desde el "desde"; con un
+      // saldo inicial del formato anterior, desde el dia siguiente al Dia 0; sin
+      // saldo inicial, desde la fecha de ingreso (o el contrato nuevo).
+      let accrualFrom = start, usageFrom = start || since;
+      if (inicialMv && inicialMv.calcTo) {
+        accrualFrom = addDaysISO(inicialMv.calcTo, 1);
+        usageFrom = inicialMv.calcFrom || accrualFrom;
+      } else if (start && inicialMv && since > start) { accrualFrom = since; usageFrom = since; }
+      const accrued = (start || (inicialMv && inicialMv.calcTo)) ? round2(days360(accrualFrom, today) * VAC_PER_YEAR / 360) : 0;
+      if (usageFrom < VAC_ROSTER_FROM) usageFrom = VAC_ROSTER_FROM;
+      const allVac = [...(vac.get(id) || [])].filter(d => d >= VAC_ROSTER_FROM).sort();
+      const days = allVac.filter(d => d >= usageFrom);
       const business = days.filter(isBusinessDayCO);
       const taken = business.filter(d => d <= today).length;
       const scheduled = business.filter(d => d > today).length;
@@ -275,7 +296,8 @@ function computeVacations(orgId) {
       const years = start ? Math.floor(days360(start, today) / 360) : 0;
       return {
         id, name: e.name, department: e.department || '', contractType: e.contract_type || 'indefinido',
-        hireDate, start, usageFrom, restarted: !!(reinicio && start === reinicio.date), needsInitial: !!(start && start < since && !inicialMv),
+        hireDate, start, usageFrom, accrualFrom, initialLegacy: !!(inicialMv && !inicialMv.calcTo && inicialMv.prev == null),
+        initialMove: inicialMv, rosterBusinessDays: allVac.filter(isBusinessDayCO), restarted: !!(reinicio && start === reinicio.date), needsInitial: !!(start && start < since && !inicialMv),
         initial, accrued, adjust, taken, scheduled, available, years,
         anniversaryThisMonth: !!(start && years >= 0 && start.slice(5, 7) === thisMonth && start.slice(0, 4) < today.slice(0, 4)),
         twoPeriods: available >= 2 * VAC_PER_YEAR,
@@ -330,4 +352,49 @@ async function addVacationMove(req, res) {
   sendJson(res, 200, { ok: true, id });
 }
 
-module.exports = { listRestDays, addRestDayMove, computeRestDays, listVacations, addVacationMove, computeVacations };
+// POST /api/vacations/initial { employeeId, prevDays, calcFrom?, calcTo?, takenBefore?, note? }
+// Registra (o rehace) el saldo inicial: periodos anteriores + dias causados
+// del periodo desde/hasta (calculados por la suite) - dias ya disfrutados por
+// fuera de la suite. Si ya habia un saldo inicial, queda anulado.
+function vacInitialCalcDays(from, to) { return round2(days360(from, to) * VAC_PER_YEAR / 360); }
+async function saveVacationInitial(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const emp = db.prepare('SELECT id, name, contract_type FROM employees WHERE id = ? AND organization_id = ?').get(Number(body.employeeId), orgId);
+  if (!emp) return sendJson(res, 404, { error: 'Colaborador no encontrado.' });
+  if (!ELIGIBLE.has(emp.contract_type || 'indefinido')) return sendJson(res, 400, { error: 'Las vacaciones se llevan solo para contratos a término fijo o indefinido.' });
+  const today = todayISOInBogota();
+  const half = (v) => Math.round(Number(v || 0) * 2) / 2;
+  const prev = half(body.prevDays), taken = half(body.takenBefore);
+  if (!Number.isFinite(prev) || prev < 0 || prev > 150) return sendJson(res, 400, { error: 'Los días de periodos anteriores deben estar entre 0 y 150.' });
+  if (!Number.isFinite(taken) || taken < 0 || taken > 150) return sendJson(res, 400, { error: 'Los días ya disfrutados deben estar entre 0 y 150.' });
+  const okDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) ? String(d) : null;
+  const from = okDate(body.calcFrom), to = okDate(body.calcTo);
+  if ((body.calcFrom || body.calcTo) && (!from || !to)) return sendJson(res, 400, { error: 'Indica las dos fechas del periodo a calcular (desde y hasta).' });
+  if (from && from > to) return sendJson(res, 400, { error: 'La fecha "desde" no puede ser posterior a la fecha "hasta".' });
+  if (to && to > today) return sendJson(res, 400, { error: 'La fecha "hasta" no puede ser futura.' });
+  const st = computeVacations(orgId).employees.find(x => x.id === Number(emp.id));
+  if (from && st && st.start && from < st.start) return sendJson(res, 400, { error: `La fecha "desde" no puede ser anterior al ingreso (${st.start.split('-').reverse().join('/')}).` });
+  if (!from && prev === 0) return sendJson(res, 400, { error: 'Escribe los días de periodos anteriores o indica el periodo a calcular.' });
+  const calcDays = from ? vacInitialCalcDays(from, to) : 0;
+  const qty = round2(prev + calcDays - taken);
+  const note = String(body.note || '').trim().slice(0, 300);
+  const before = st && st.initialMove ? st.initialMove : null;
+  const id = uid('vac');
+  db.exec('BEGIN');
+  try {
+    if (before) db.prepare("UPDATE vacation_moves SET voided_at = datetime('now', '-5 hours'), voided_by = ? WHERE id = ? AND organization_id = ?").run(req.user.id, before.id, orgId);
+    db.prepare(`INSERT INTO vacation_moves (id, organization_id, employee_id, move_date, qty, kind, note, created_by, prev_days, calc_from, calc_to, calc_days, taken_before)
+                VALUES (?, ?, ?, ?, ?, 'inicial', ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, orgId, emp.id, to || addDaysISO(restSince(orgId), -1), qty, note || null, req.user.id, prev, from, to, calcDays, taken);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'vacations.initial', resourceType: 'employee', resourceId: String(emp.id), ip: getClientIp(req),
+    metadata: { colaborador: emp.name, total: qty, anteriores: prev, desde: from, hasta: to, causados: calcDays, disfrutados: taken, motivo: note || null,
+      antes: before ? { total: before.qty, anteriores: before.prev, desde: before.calcFrom, hasta: before.calcTo, causados: before.calcDays, disfrutados: before.takenBefore } : null } });
+  sendJson(res, 200, { ok: true, id, total: qty, calcDays });
+}
+
+module.exports = { listRestDays, addRestDayMove, computeRestDays, listVacations, addVacationMove, computeVacations, saveVacationInitial };
