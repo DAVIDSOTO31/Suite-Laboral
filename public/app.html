@@ -1509,19 +1509,6 @@
                             <label class="text-3xs uppercase font-bold text-slate-400 block mb-1">Periodo hasta</label>
                             <input type="date" id="payrollOtEndDate" onchange="document.getElementById('payrollOtPeriodType').value='custom'; renderPayrollOvertimeView()" class="text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500">
                         </div>
-                        <div>
-                            <label class="text-3xs uppercase font-bold text-slate-400 block mb-1">Buscar colaborador</label>
-                            <div class="relative">
-                                <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-2xs"></i>
-                                <input type="search" id="payrollOtSearch" oninput="renderPayrollOtTableAndKpis()" placeholder="Nombre o documento" autocomplete="off" class="text-xs p-2 pl-7 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 w-48">
-                            </div>
-                        </div>
-                        <div>
-                            <label class="text-3xs uppercase font-bold text-slate-400 block mb-1">Área / Departamento</label>
-                            <select id="payrollOtDeptFilter" onchange="renderPayrollOvertimeView()" class="text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 min-w-[160px]">
-                                <option value="_ALL_">Todas las áreas</option>
-                            </select>
-                        </div>
                         <button onclick="setPayrollOtCurrentPeriod()" class="text-xs font-semibold px-3 py-2 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition flex items-center gap-1.5">
                             <i class="fa-solid fa-calendar-days"></i> Quincena actual
                         </button>
@@ -1548,6 +1535,16 @@
                 </div>
 
                 <div id="payrollOtFocusBar" class="hidden text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-300 rounded-lg px-3 py-2"></div>
+                <!-- Filtros de la tabla: buscar colaborador y área -->
+                <div class="flex flex-wrap items-center gap-2 -mb-1">
+                    <div class="relative">
+                        <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-2xs"></i>
+                        <input type="search" id="payrollOtSearch" oninput="renderPayrollOtTableAndKpis()" placeholder="Buscar colaborador" title="Nombre o documento" autocomplete="off" class="text-xs py-1.5 pl-7 pr-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 w-52">
+                    </div>
+                    <select id="payrollOtDeptFilter" onchange="renderPayrollOvertimeView()" title="Área / Departamento" class="text-xs py-1.5 px-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 w-48">
+                        <option value="_ALL_">Todas las áreas</option>
+                    </select>
+                </div>
                 <!-- Tabla consolidada por colaborador -->
                 <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto custom-scrollbar">
                     <table class="w-full text-left text-xs min-w-[560px]">
