@@ -132,8 +132,8 @@ function getOrgData(req, res, query) {
   const settingsRow = db.prepare('SELECT * FROM org_settings WHERE organization_id = ?').get(orgId);
   const departments = db.prepare('SELECT id, name, icon FROM departments WHERE organization_id = ? ORDER BY position ASC').all(orgId);
   const presetRows = db.prepare('SELECT data_json FROM shift_presets WHERE organization_id = ?').all(orgId);
-  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status, retired_at, retire_reason, retire_detail, contract_type, contract_start, contract_end FROM employees WHERE organization_id = ?').all(orgId)
-    .map(({ night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status, retired_at, retire_reason, retire_detail, contract_type, contract_start, contract_end, ...e }) => ({ ...e, contractType: CONTRACT_TYPES.includes(contract_type) ? contract_type : 'indefinido', contractStart: contract_start || '', contractEnd: contract_end || '', email: email || '', phoneCountry: phone_country || '+57', phoneNumber: phone_number || '', nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '', countWorkedDays: count_worked_days === 1, documentType: document_type || 'CC', documentNumber: document_number || '',
+  let employees = db.prepare('SELECT id, name, role, department, department_id as departmentId, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status, retired_at, retire_reason, retire_detail, contract_type, contract_start, contract_end, transport_allowance FROM employees WHERE organization_id = ?').all(orgId)
+    .map(({ night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status, retired_at, retire_reason, retire_detail, contract_type, contract_start, contract_end, transport_allowance, ...e }) => ({ ...e, transportAllowance: transport_allowance === 1 && contract_type !== 'servicios', contractType: CONTRACT_TYPES.includes(contract_type) ? contract_type : 'indefinido', contractStart: contract_start || '', contractEnd: contract_end || '', email: email || '', phoneCountry: phone_country || '+57', phoneNumber: phone_number || '', nightSurcharge: night_surcharge !== 0, nightSurchargeReason: night_surcharge_reason || '', countWorkedDays: count_worked_days === 1, documentType: document_type || 'CC', documentNumber: document_number || '',
       status: status === 'retirado' ? 'retirado' : 'activo', retiredAt: retired_at || null, retireReason: retire_reason || null, retireDetail: retire_detail || null }));
   // Usuario de la suite vinculado a cada colaborador (solo para quien gestiona usuarios).
   if (can(req, 'users.view')) {
@@ -337,7 +337,7 @@ async function syncEmployeesAndShifts(req, res) {
     // Los empleados se ACTUALIZAN (no se borran y recrean) para no arrastrar en
     // cascada su historial de asistencia ni su perfil biometrico.
     const existing = new Map(
-      db.prepare('SELECT id, name, role, department, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status, contract_type, contract_start, contract_end FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
+      db.prepare('SELECT id, name, role, department, salary, night_surcharge, night_surcharge_reason, email, count_worked_days, document_type, document_number, phone_country, phone_number, status, contract_type, contract_start, contract_end, transport_allowance FROM employees WHERE organization_id = ?').all(orgId).map(r => [Number(r.id), r])
     );
     const incomingIds = new Set(body.employees.map(e => Number(e.id)));
     const toDelete = [...existing.keys()].filter(id => !incomingIds.has(id));
@@ -461,6 +461,17 @@ async function syncEmployeesAndShifts(req, res) {
       if (!prev || contract.type !== prevContract.type || contract.start !== prevContract.start || contract.end !== prevContract.end) {
         db.prepare('UPDATE employees SET contract_type = ?, contract_start = ?, contract_end = ? WHERE id = ? AND organization_id = ?')
           .run(contract.type, contract.start, contract.end, e.id, orgId);
+      }
+      // Auxilio de transporte (solo término fijo o indefinido; lo cambia quien maneja la nómina).
+      const prevAux = prev ? (prev.transport_allowance === 1 ? 1 : 0) : 0;
+      let aux = prevAux;
+      if (canPayroll && e.transportAllowance !== undefined) aux = e.transportAllowance === true ? 1 : 0;
+      else if (!canPayroll && e.transportAllowance !== undefined && (e.transportAllowance === true ? 1 : 0) !== prevAux) payrollIgnored = true;
+      if (contract.type === 'servicios') aux = 0;
+      if (!prev || aux !== prevAux) {
+        db.prepare('UPDATE employees SET transport_allowance = ? WHERE id = ? AND organization_id = ?').run(aux, e.id, orgId);
+        if (prev || aux) logAction({ organizationId: orgId, userId: req.user.id, action: 'employee.transport_allowance_changed', resourceType: 'employee', resourceId: String(e.id), ip: getClientIp(req),
+          metadata: { employeeName: e.name, recibe: !!aux } });
       }
       // Auditoria: que se creo o que cambio exactamente en la ficha.
       if (!prev) {

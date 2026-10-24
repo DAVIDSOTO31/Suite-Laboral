@@ -832,6 +832,21 @@ const empContractCols = db.prepare('PRAGMA table_info(employees)').all().map(c =
 if (!empContractCols.includes('contract_type')) db.exec('ALTER TABLE employees ADD COLUMN contract_type TEXT NULL');
 if (!empContractCols.includes('contract_start')) db.exec('ALTER TABLE employees ADD COLUMN contract_start TEXT NULL');
 if (!empContractCols.includes('contract_end')) db.exec('ALTER TABLE employees ADD COLUMN contract_end TEXT NULL');
+// AUXILIO DE TRANSPORTE (oct 2026): 1 = lo recibe. Solo contratos a término fijo
+// o indefinido; por ley, para quien devenga hasta 2 salarios mínimos. NO hace
+// parte de la base de horas extras ni recargos (solo se informa en la ficha y
+// en los certificados laborales). Valor 2026: $249.095 (Decreto 1470 de 2025).
+if (!empContractCols.includes('transport_allowance')) db.exec('ALTER TABLE employees ADD COLUMN transport_allowance INTEGER NOT NULL DEFAULT 0');
+const TRANSPORT_ALLOWANCE = { 2026: 249095 };
+const SMLMV = { 2026: 1750905 };
+// Una sola vez: se activa a los colaboradores ya creados (término fijo o
+// indefinido) que devengan hasta 2 salarios mínimos.
+db.exec("CREATE TABLE IF NOT EXISTS app_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))");
+if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get('auxilio_transporte_2026_v1')) {
+  db.prepare(`UPDATE employees SET transport_allowance = 1
+              WHERE COALESCE(contract_type, 'indefinido') IN ('indefinido', 'fijo') AND COALESCE(salary, 0) <= ?`).run(2 * SMLMV[2026]);
+  db.prepare('INSERT INTO app_migrations (name) VALUES (?)').run('auxilio_transporte_2026_v1');
+}
 
 // Version de los datos de colaboradores y turnos de cada organizacion: evita
 // que una pestana con datos viejos (u otro usuario editando al tiempo)
@@ -871,4 +886,6 @@ module.exports = {
   getOrgRoleByName,
   seedDemoDataForOrg,
   PERMISSIONS,
+  TRANSPORT_ALLOWANCE,
+  SMLMV,
 };
