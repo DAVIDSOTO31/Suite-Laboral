@@ -132,7 +132,7 @@ function getConfig(orgId) {
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 function longDate(iso) { if (!iso) return ''; const [y, m, d] = String(iso).split('-').map(Number); return `${d} de ${MESES[m - 1]} de ${y}`; }
 function money(n) { return '$' + Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
-// Numero en letras (pesos colombianos): 1750905 -> "UN MILLÓN SETECIENTOS CINCUENTA MIL NOVECIENTOS CINCO PESOS M/CTE"
+// Numero en letras (pesos colombianos): 1750905 -> "UN MILLÓN SETECIENTOS CINCUENTA MIL NOVECIENTOS CINCO PESOS COP"
 const U = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez', 'once', 'doce', 'trece', 'catorce', 'quince',
   'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve', 'veinte', 'veintiuno', 'veintidós', 'veintitrés', 'veinticuatro', 'veinticinco', 'veintiséis', 'veintisiete', 'veintiocho', 'veintinueve'];
 const DEC = ['', '', '', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
@@ -161,7 +161,7 @@ function pesosEnLetras(n) {
   const v = Math.round(Number(n) || 0);
   const w = apocope(numberToWords(v));
   const de = v >= 1e6 && v % 1e6 === 0 ? ' de' : ''; // "dos millones de pesos"
-  return `${w}${de} pesos m/cte`.toUpperCase();
+  return `${w}${de} pesos COP`.toUpperCase();
 }
 const DOC_NAMES = { CC: 'cédula de ciudadanía', CE: 'cédula de extranjería', PPT: 'Permiso por Protección Temporal', PA: 'pasaporte', TI: 'tarjeta de identidad' };
 function docPhrase(emp) {
