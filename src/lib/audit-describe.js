@@ -140,6 +140,14 @@ function describeAudit(row, ctx = {}) {
     case 'discipline.received': return out('Colaboradores', 'Llamado de atención recibido', `El colaborador abrió la comunicación (${val(m.tipo)}) y confirmó que la recibió.`, [], 'Colaborador (enlace)');
     case 'discipline.signed': return out('Colaboradores', 'Llamado de atención firmado', `${val(m.colaborador)} firmó electrónicamente la comunicación (${val(m.tipo)}).`, [], 'Colaborador (enlace)');
     case 'discipline.descargos': return out('Colaboradores', 'Descargos recibidos', `El colaborador envió sus descargos a la comunicación (${val(m.tipo)}).`, [], 'Colaborador (enlace)');
+    case 'certificate.issue': return out('Documentos laborales', 'Certificado laboral expedido',
+      `Expidió el certificado ${val(m.numero)} (${val(m.tipo)}) de ${val(m.colaborador)}.`,
+      [`Dirigido a: ${m.dirigidoA || 'A quien interese'}`, m.conSalario ? 'Incluye salario' : 'Sin salario', m.conFunciones ? 'Incluye funciones' : null].filter(Boolean));
+    case 'certificate.annul': return out('Documentos laborales', 'Certificado laboral anulado',
+      `Anuló el certificado ${val(m.numero)} de ${val(m.colaborador)}.`, [m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));
+    case 'certificate.send': return out('Documentos laborales', 'Certificado laboral enviado',
+      `Envió por WhatsApp el certificado ${val(m.numero)} a ${val(m.colaborador)} (el enlace vence el ${dayName(m.vence)}).`);
+    case 'certificate.config': return out('Configuración', 'Plantillas de certificados laborales', 'Cambió las plantillas de los certificados laborales.');
     case 'discipline.config': return out('Configuración', 'Reglas de llamados de atención', 'Cambió las reglas o las plantillas de los llamados de atención.');
     case 'vacations.initial': {
       const d = (x) => x ? String(x).split('-').reverse().join('/') : '';
