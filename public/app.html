@@ -1510,6 +1510,13 @@
                             <input type="date" id="payrollOtEndDate" onchange="document.getElementById('payrollOtPeriodType').value='custom'; renderPayrollOvertimeView()" class="text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500">
                         </div>
                         <div>
+                            <label class="text-3xs uppercase font-bold text-slate-400 block mb-1">Buscar colaborador</label>
+                            <div class="relative">
+                                <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-2xs"></i>
+                                <input type="search" id="payrollOtSearch" oninput="renderPayrollOtTableAndKpis()" placeholder="Nombre o documento" autocomplete="off" class="text-xs p-2 pl-7 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 w-48">
+                            </div>
+                        </div>
+                        <div>
                             <label class="text-3xs uppercase font-bold text-slate-400 block mb-1">Área / Departamento</label>
                             <select id="payrollOtDeptFilter" onchange="renderPayrollOvertimeView()" class="text-xs p-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 min-w-[160px]">
                                 <option value="_ALL_">Todas las áreas</option>
@@ -1876,6 +1883,20 @@
     </div>
 
     <!-- MODAL: Detalle de las correcciones de un día (Historial) -->
+    <!-- MODAL: Salida antes de media jornada (desde el Historial) -->
+    <div id="modalHalfDay" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl max-w-sm w-full p-5 shadow-2xl space-y-3 border border-slate-200">
+            <div class="flex justify-between items-start border-b pb-3">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-circle-half-stroke text-amber-600"></i> Media jornada</h3>
+                    <p class="text-xs text-slate-500 mt-0.5" id="halfDaySub">-</p>
+                </div>
+                <button onclick="closeModal('modalHalfDay')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div id="halfDayBody" class="text-xs"></div>
+        </div>
+    </div>
+
     <div id="modalCorrDetail" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
         <div class="bg-white rounded-xl max-w-md w-full p-5 shadow-2xl space-y-3 border border-slate-200 max-h-[92vh] overflow-y-auto">
             <div class="flex justify-between items-start border-b pb-3">
@@ -7036,13 +7057,17 @@
                     const ord = rosterEmployeeOrder();
                     const at = (r) => (ord.has(Number(r.emp.id)) ? ord.get(Number(r.emp.id)) : 1e9);
                     const fx = payrollOtFocus ? PAYROLL_FOCUS[payrollOtFocus] : null;
-                    const shown = fx ? rows.filter(fx.has).sort((a, b) => fx.sort(a, b) || at(a) - at(b)) : [...rows].sort((a, b) => at(a) - at(b) || a.emp.name.localeCompare(b.emp.name));
+                    const shownAll = fx ? rows.filter(fx.has).sort((a, b) => fx.sort(a, b) || at(a) - at(b)) : [...rows].sort((a, b) => at(a) - at(b) || a.emp.name.localeCompare(b.emp.name));
+                    // Buscar colaborador: solo filtra la tabla (los totales del periodo no cambian).
+                    const nrm = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+                    const q = nrm(document.getElementById('payrollOtSearch')?.value).trim();
+                    const shown = q ? shownAll.filter(r => nrm(r.emp.name).includes(q) || String(r.emp.documentNumber || '').includes(q)) : shownAll;
                     const fbar = document.getElementById('payrollOtFocusBar');
                     if (fbar) {
                         fbar.classList.toggle('hidden', !fx);
                         fbar.innerHTML = fx ? `<i class="fa-solid fa-filter"></i> Mostrando: <strong>${fx.label}</strong> (${shown.length} colab.) <button type="button" onclick="setPayrollOtFocus(null)" class="ml-2 px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-white font-bold">Ver todos</button>` : '';
                     }
-                    tbody.innerHTML = shown.length === 0 ? `<tr><td colspan="${domOn ? 7 : 6}" class="p-6 text-center text-slate-400 text-xs">Ningún colaborador tiene ${fx ? fx.label.toLowerCase() : 'novedades'} en este periodo.</td></tr>` : shown.map(r => `
+                    tbody.innerHTML = shown.length === 0 ? `<tr><td colspan="${domOn ? 7 : 6}" class="p-6 text-center text-slate-400 text-xs">${q ? 'Ningún colaborador coincide con la búsqueda.' : `Ningún colaborador tiene ${fx ? fx.label.toLowerCase() : 'novedades'} en este periodo.`}</td></tr>` : shown.map(r => `
                         <tr class="hover:bg-slate-50">
                             <td class="p-2.5 font-bold text-slate-800">${r.emp.name}
                                 ${pendingByEmp[r.emp.id] ? `<span class="block mt-0.5 text-3xs font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 w-fit" title="Días sin marcación cerrada: no incluidos en el valor">${pendingByEmp[r.emp.id]} día(s) pendiente(s)</span>` : ''}
@@ -10856,7 +10881,7 @@
                         <td class="px-3 py-2">${attRecargoCell(r)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.hed_min)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.hen_min)}</td>
-                        <td class="px-3 py-2">${attStatusBadge(r.status, r.is_split)}${r.corrected ? `<button type="button" onclick="showDayCorrections(${r.employee_id}, '${r.shift_date}', ${r.is_split ? 'true' : 'false'})" title="Ver qué se corrigió" class="block mt-0.5 px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white text-3xs font-bold"><i class="fa-solid fa-pen"></i> Corregido</button>` : ''}${r.voided_count ? `<button type="button" onclick="openVoidMark(${r.employee_id}, '${r.shift_date}', true)" title="Ver la marcación anulada" class="block mt-0.5 px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-800 text-white text-3xs font-bold"><i class="fa-solid fa-ban"></i> Anulada (${r.voided_count})</button>` : ''}${r.manual_marks ? `<span class="block mt-0.5 text-3xs font-bold text-violet-700" title="Ver motivo en la pestaña Alertas"><i class="fa-solid fa-hand-pointer"></i> Manual (${r.manual_marks})</span>` : ''}${r.offline_marks ? `<span class="block mt-0.5 text-3xs font-bold text-amber-700" title="Marcada en el kiosco sin internet y enviada después, con su hora real"><i class="fa-solid fa-wifi"></i> Sin conexión (${r.offline_marks})</span>` : ''}</td>
+                        <td class="px-3 py-2">${attStatusBadge(r.status, r.is_split)}${r.corrected ? `<button type="button" onclick="showDayCorrections(${r.employee_id}, '${r.shift_date}', ${r.is_split ? 'true' : 'false'})" title="Ver qué se corrigió" class="block mt-0.5 px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white text-3xs font-bold"><i class="fa-solid fa-pen"></i> Corregido</button>` : ''}${r.half_day_mode ? halfDayHistoryBadge(r) : ''}${r.voided_count ? `<button type="button" onclick="openVoidMark(${r.employee_id}, '${r.shift_date}', true)" title="Ver la marcación anulada" class="block mt-0.5 px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-800 text-white text-3xs font-bold"><i class="fa-solid fa-ban"></i> Anulada (${r.voided_count})</button>` : ''}${r.manual_marks ? `<span class="block mt-0.5 text-3xs font-bold text-violet-700" title="Ver motivo en la pestaña Alertas"><i class="fa-solid fa-hand-pointer"></i> Manual (${r.manual_marks})</span>` : ''}${r.offline_marks ? `<span class="block mt-0.5 text-3xs font-bold text-amber-700" title="Marcada en el kiosco sin internet y enviada después, con su hora real"><i class="fa-solid fa-wifi"></i> Sin conexión (${r.offline_marks})</span>` : ''}</td>
                         <td class="px-3 py-2 text-right" data-perm="attendance.mark">${(r.shift_date < bogotaTodayISO() || (r.shift_date === bogotaTodayISO() && r.entrada_real)) ? `<button onclick="openAttendanceCorrection(${r.employee_id}, '${r.shift_date}')" class="text-2xs font-semibold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200">Corregir</button>` : ''}${(r.entrada_real || r.inicio_almuerzo_real || r.fin_almuerzo_real || r.salida_real) && !r.corrected ? `<button onclick="openVoidMark(${r.employee_id}, '${r.shift_date}')" title="El kiosco le puso una marcación que no era suya" class="mt-1 block ml-auto text-2xs font-semibold px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200">Anular</button>` : ''}</td>
                     </tr>`).join('') || `<tr><td colspan="15" class="px-3 py-6 text-center text-slate-400">${document.getElementById('attHistoryOnlyNovelty')?.checked ? 'Sin días con novedad en este rango de fechas.' : 'Sin marcaciones en este rango de fechas.'}</td></tr>`;
 
@@ -10935,6 +10960,24 @@
                 ${can ? `<div class="flex flex-wrap gap-1">${mode !== 'extra' ? btn('extra', 'Pagar como extra', 'border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-700') : ''}${mode !== 'dia' ? btn('dia', 'Contar día laborado', 'border-slate-300 bg-white hover:bg-slate-50 text-slate-700') : ''}</div>` : ''}
             </div>`;
         }
+        // Historial: etiqueta "Media jornada · …" que abre el detalle y la decisión.
+        const HALF_DAY_HIST = {
+            extra: ['pagado como extra', 'bg-emerald-600 hover:bg-emerald-700 text-white'],
+            dia: ['día laborado', 'bg-slate-600 hover:bg-slate-700 text-white'],
+            pendiente: ['por decidir', 'bg-amber-400 hover:bg-amber-500 text-amber-950'],
+        };
+        let halfDayHistRows = {};
+        function halfDayHistoryBadge(r) {
+            const [txt, cls] = HALF_DAY_HIST[r.half_day_mode] || HALF_DAY_HIST.pendiente;
+            halfDayHistRows[`${r.employee_id}|${r.shift_date}`] = r;
+            return `<button type="button" onclick="openHalfDayFromHistory(${Number(r.employee_id)}, '${r.shift_date}')" title="Salió antes de media jornada: ver o cambiar la decisión" class="block mt-0.5 px-1.5 py-0.5 rounded ${cls} text-3xs font-bold text-left leading-tight"><i class="fa-solid fa-circle-half-stroke"></i> Media jornada · ${txt}</button>`;
+        }
+        function openHalfDayFromHistory(empId, date) {
+            const r = halfDayHistRows[`${empId}|${date}`]; if (!r) return;
+            document.getElementById('halfDaySub').textContent = `${r.employee_name} · ${date.split('-').reverse().join('/')}`;
+            document.getElementById('halfDayBody').innerHTML = halfDayBlock(empId, date, r.half_day_mode, r.half_day_auto, r.half_day_info).replace('max-w-[260px]', '');
+            openModal('modalHalfDay');
+        }
         async function halfDayDecide(empId, date, mode) {
             const emp = appState.employees.find(e => Number(e.id) === Number(empId));
             const who = `${emp ? emp.name : 'Colaborador'} · ${date.split('-').reverse().join('/')}`;
@@ -10946,7 +10989,10 @@
                 await apiFetch('/api/attendance/half-day', { method: 'POST', body: JSON.stringify({ employeeId: empId, date, mode }) });
                 showAppToast(mode === 'extra' ? 'Listo: el día se paga como horas extra.' : 'Listo: el día cuenta como día laborado.');
             } catch (e) { showAppToast(e.message); return; }
-            if (!document.getElementById('view-attendance').classList.contains('hidden')) { try { attendanceLoadAlerts(); } catch (e) { /* nada */ } }
+            closeModal('modalHalfDay');
+            if (!document.getElementById('view-attendance').classList.contains('hidden')) {
+                try { if (!document.getElementById('attSubtab-history')?.classList.contains('hidden')) attendanceLoadHistory(); else attendanceLoadAlerts(); } catch (e) { /* nada */ }
+            }
             if (!document.getElementById('view-payrollot').classList.contains('hidden')) {
                 const dm = document.getElementById('payrollOtDetailModal');
                 const wasOpen = dm && !dm.classList.contains('hidden');
