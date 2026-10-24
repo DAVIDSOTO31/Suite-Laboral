@@ -3812,12 +3812,91 @@
             e.moves.forEach(m => {
                 if (m.kind === 'ingreso') list.push({ date: m.date, qty: 0, text: `Fecha de ingreso: ${fmtD(m.date)}`, by: m.by, info: true });
                 else if (m.kind === 'reinicio') list.push({ date: m.date, qty: 0, text: `Contrato nuevo: el conteo se reinicia desde el ${fmtD(m.date)}${m.note ? ' · ' + m.note : ''}`, by: m.by, info: true, reset: true });
-                else list.push({ date: m.date, qty: m.qty, text: m.kind === 'inicial' ? 'Saldo inicial (días disponibles)' : `Ajuste: ${m.note}`, by: m.by });
+                else if (m.kind === 'inicial') list.push({ date: m.date, qty: m.qty, by: m.by, text: m.prev != null
+                    ? `Saldo inicial: periodos anteriores ${fmtDays(m.prev)}${m.calcFrom ? ` + causadas del ${fmtD(m.calcFrom)} al ${fmtD(m.calcTo)} ${fmtDays(m.calcDays)}` : ''}${m.takenBefore ? ` − ya disfrutadas ${fmtDays(m.takenBefore)}` : ''}${m.note ? ' · ' + m.note : ''}`
+                    : 'Saldo inicial (días disponibles)' });
+                else list.push({ date: m.date, qty: m.qty, text: `Ajuste: ${m.note}`, by: m.by });
             });
-            if (e.start) list.push({ date: vacData.today, qty: e.accrued, text: `Causadas desde el ${fmtD(e.usageFrom && e.initial ? e.usageFrom : e.start)} hasta hoy (15 días hábiles por año)`, accrual: true });
+            if (e.start || (e.initialMove && e.initialMove.calcTo)) list.push({ date: vacData.today, qty: e.accrued, text: `Causadas desde el ${fmtD(e.accrualFrom)} hasta hoy (15 días hábiles por año)`, accrual: true });
             vacBlocks(e).forEach(b => list.push({ date: b.from, qty: -b.biz, text: `Vacaciones ${fmtD(b.from)}${b.to !== b.from ? ' al ' + fmtD(b.to) : ''}${b.from > vacData.today ? ' (programadas)' : ''} · ${b.biz} día(s) hábil(es)` }));
             list.sort((a, b) => (a.reset ? -1 : 0) - (b.reset ? -1 : 0) || (a.accrual ? 1 : 0) - (b.accrual ? 1 : 0) || a.date.localeCompare(b.date));
             return list;
+        }
+        // ---- Saldo inicial de vacaciones: periodos anteriores + periodo calculado - ya disfrutadas ----
+        function vacDays360(from, to) {
+            if (!from || !to || to < from) return 0;
+            const [y1, m1, d1r] = from.split('-').map(Number), [y2, m2, d2r] = to.split('-').map(Number);
+            return (y2 - y1) * 360 + (m2 - m1) * 30 + (Math.min(d2r, 30) - Math.min(d1r, 30)) + 1;
+        }
+        function vacCalcDays(from, to) { return Math.round(vacDays360(from, to) * (vacData.perYear || 15) / 360 * 100) / 100; }
+        // Último aniversario de la fecha de ingreso (inicio del periodo en curso).
+        function vacLastAnniversary(start, ref) {
+            if (!start) return '';
+            let y = Number(ref.slice(0, 4));
+            let d = `${y}-${start.slice(5)}`;
+            if (d > ref) d = `${y - 1}-${start.slice(5)}`;
+            return d < start ? start : d;
+        }
+        function vacInitBoxHtml(e) {
+            const m = e.initialMove && e.initialMove.prev != null ? e.initialMove : null;
+            const to = (m && m.calcTo) || vacData.today;
+            const from = (m && m.calcFrom) || vacLastAnniversary(e.start, to);
+            const inp = 'p-1.5 border rounded-lg text-xs bg-white';
+            return `<div id="vacInitBox" data-emp="${e.id}" class="hidden space-y-2 rounded-lg border border-amber-200 bg-amber-50/60 p-2.5">
+                <label class="block text-2xs font-bold text-slate-700">1. Periodos anteriores <span class="font-normal text-slate-500">(días pendientes de periodos ya cumplidos)</span>
+                    <input id="vacInitPrev" type="number" step="0.5" min="0" value="${m ? m.prev : 0}" oninput="vacInitCalc()" class="mt-0.5 block w-24 ${inp}"></label>
+                <div class="text-2xs font-bold text-slate-700">2. Periodo en curso <span class="font-normal text-slate-500">(la suite calcula los días a favor)</span>
+                    <div class="flex flex-wrap items-center gap-1.5 mt-0.5 font-normal">
+                        <input id="vacInitFrom" type="date" value="${from}" max="${vacData.today}" oninput="vacInitCalc()" class="${inp}" title="Desde">
+                        <span class="text-slate-500">al</span>
+                        <input id="vacInitTo" type="date" value="${to}" max="${vacData.today}" oninput="vacInitCalc()" class="${inp}" title="Hasta (hoy por defecto)">
+                    </div>
+                    <span id="vacInitCalcTxt" class="block mt-0.5 font-normal text-emerald-800"></span>
+                </div>
+                <label class="block text-2xs font-bold text-slate-700">3. Días ya disfrutados de este periodo <span class="font-normal text-slate-500">(por fuera de la suite)</span>
+                    <input id="vacInitTaken" type="number" step="0.5" min="0" value="${m && m.takenBefore ? m.takenBefore : 0}" oninput="vacInitCalc()" class="mt-0.5 block w-24 ${inp}"></label>
+                <p id="vacInitRoster" class="text-3xs text-sky-800"></p>
+                <p id="vacInitTotal" class="text-xs font-bold text-slate-900 border-t border-amber-200 pt-1.5"></p>
+            </div>`;
+        }
+        function vacInitCalc() {
+            const box = document.getElementById('vacInitBox'); if (!box) return;
+            const e = vacData.employees.find(x => x.id === Number(box.dataset.emp)); if (!e) return;
+            const prev = Math.max(0, Number(document.getElementById('vacInitPrev').value) || 0);
+            const taken = Math.max(0, Number(document.getElementById('vacInitTaken').value) || 0);
+            const from = document.getElementById('vacInitFrom').value, to = document.getElementById('vacInitTo').value;
+            const ok = from && to && from <= to;
+            const calc = ok ? vacCalcDays(from, to) : 0;
+            document.getElementById('vacInitCalcTxt').innerHTML = ok
+                ? `Del ${fmtD(from)} al ${fmtD(to)}: ${vacDays360(from, to)} días → <strong>${fmtDays(calc)} día(s) a favor</strong>. Desde el ${fmtD(addDaysToISO(to, 1))} la suite sigue causando sola.`
+                : (from || to ? '<span class="text-rose-700">Revisa las fechas: "desde" debe ser anterior a "hasta".</span>' : 'Sin periodo: la suite causa desde el día siguiente al Día 0.');
+            const rf = ok ? (from > vacData.rosterFrom ? from : vacData.rosterFrom) : vacData.rosterFrom;
+            const nRoster = (e.rosterBusinessDays || []).filter(d => d >= rf).length;
+            document.getElementById('vacInitRoster').innerHTML = nRoster
+                ? `<i class="fa-solid fa-circle-info"></i> En el cuadro de turnos hay <strong>${nRoster} día(s) hábil(es)</strong> de vacaciones desde el ${fmtD(rf)}: se descuentan solos, <strong>no</strong> los escribas en el punto 3.`
+                : `<i class="fa-solid fa-circle-info"></i> Las vacaciones del cuadro de turnos se descuentan solas desde el ${fmtD(rf)}.`;
+            const total = Math.round((prev + calc - taken) * 100) / 100;
+            document.getElementById('vacInitTotal').innerHTML = `Saldo inicial: ${fmtDays(prev)}${ok ? ` + ${fmtDays(calc)}` : ''}${taken ? ` − ${fmtDays(taken)}` : ''} = <span class="${total < 0 ? 'text-rose-700' : 'text-amber-800'}">${fmtDays(total)} día(s)</span>`;
+        }
+        async function saveVacInitial(empId) {
+            const msg = document.getElementById('vacMoveMsg');
+            const show = (t) => { msg.textContent = t; msg.classList.remove('hidden'); };
+            const e = vacData.employees.find(x => x.id === Number(empId)); if (!e) return;
+            const from = document.getElementById('vacInitFrom').value, to = document.getElementById('vacInitTo').value;
+            const body = { employeeId: empId, prevDays: Number(document.getElementById('vacInitPrev').value) || 0,
+                calcFrom: from || null, calcTo: to || null, takenBefore: Number(document.getElementById('vacInitTaken').value) || 0,
+                note: document.getElementById('vacMoveNote').value.trim() };
+            if ((from && !to) || (!from && to)) return show('Indica las dos fechas del periodo (desde y hasta), o deja ambas vacías.');
+            if (from && to && from > to) return show('La fecha "desde" debe ser anterior a "hasta".');
+            const calc = from && to ? vacCalcDays(from, to) : 0;
+            const total = Math.round((body.prevDays + calc - body.takenBefore) * 100) / 100;
+            if (e.initialMove && !confirm(`¿Rehacer el saldo inicial de ${e.name}?\n\nAntes: ${fmtDays(e.initialMove.qty)} día(s)\nNuevo: ${fmtDays(total)} día(s)\n\nEl anterior queda anulado (se guarda en la auditoría).`)) return;
+            try {
+                await apiFetch('/api/vacations/initial', { method: 'POST', body: JSON.stringify(body) });
+                showAppToast(e.initialMove ? 'Saldo inicial rehecho.' : 'Saldo inicial registrado.');
+                await loadLeaveData(true);
+                renderLeaveTable();
+            } catch (err) { show(err.message); }
         }
         function renderVacTable() {
             const body = document.getElementById('leaveTableBody');
@@ -3831,7 +3910,7 @@
                 <th class="text-center px-2 py-2 bg-amber-50 text-amber-800">Disponibles</th>
                 <th class="px-3 py-2"></th></tr>`;
             if (!vacData) { body.innerHTML = '<tr><td colspan="9" class="px-3 py-6 text-center text-rose-600">No se pudo cargar la información.</td></tr>'; return; }
-            document.getElementById('leaveHelp').innerHTML = `Término indefinido y fijo: <strong>15 días hábiles por año</strong>, causados día a día desde la fecha de ingreso. Al asignar <strong>Vacaciones</strong> en el cuadro de turnos solo descuentan los días hábiles (lunes a sábado; <strong>no</strong> domingos ni festivos). Saldo inicial: días disponibles al ${fmtD(addDaysToISO(vacData.since, -1))}.`;
+            document.getElementById('leaveHelp').innerHTML = `Término indefinido y fijo: <strong>15 días hábiles por año</strong>, causados día a día desde la fecha de ingreso. Al asignar <strong>Vacaciones</strong> en el cuadro de turnos solo descuentan los días hábiles (lunes a sábado; <strong>no</strong> domingos ni festivos). Saldo inicial: periodos anteriores + periodo en curso (la suite lo calcula) − lo ya disfrutado por fuera de la suite. Las vacaciones del cuadro se descuentan desde el ${fmtD(vacData.rosterFrom)}.`;
             const rows = leaveRows();
             const canEdit = CAN('shifts.edit');
             const num = (n, sign) => n ? `${sign && n > 0 ? '+' : ''}${fmtDays(n)}` : '<span class="text-slate-300">0</span>';
@@ -3841,6 +3920,7 @@
                 const flags = [
                     !e.start ? '<span class="block text-3xs font-bold text-amber-700">Falta la fecha de ingreso</span>' : '',
                     e.needsInitial ? '<span class="block text-3xs font-bold text-amber-700">Falta el saldo inicial</span>' : '',
+                    e.initialLegacy ? '<span class="block text-3xs font-bold text-amber-700">Saldo inicial del formato anterior: rehazlo</span>' : '',
                     e.twoPeriods ? '<span class="block text-3xs font-bold text-rose-700">2 periodos o más: programarle vacaciones</span>' : '',
                     e.anniversaryThisMonth ? `<span class="block text-3xs font-bold text-sky-700">Cumple ${e.years} año(s) este mes</span>` : '',
                 ].join('');
@@ -3866,7 +3946,7 @@
                             <p class="text-3xs font-bold uppercase text-slate-500">Registrar</p>
                             <select id="vacMoveKind" onchange="vacMoveKindChanged()" class="w-full p-2 border rounded-lg bg-white text-xs">
                                 <option value="ingreso">Fecha de ingreso</option>
-                                ${e.moves.some(m => m.kind === 'inicial') ? '' : '<option value="inicial">Saldo inicial (días disponibles)</option>'}
+                                <option value="inicial">${e.initialMove ? 'Rehacer saldo inicial' : 'Saldo inicial'}</option>
                                 <option value="ajuste">Ajuste (+/−)</option>
                                 ${e.contractType === 'fijo' ? '<option value="reinicio">Contrato nuevo (reinicia el conteo)</option>' : ''}
                             </select>
@@ -3874,6 +3954,7 @@
                                 <input id="vacMoveDate" type="date" value="${e.hireDate || ''}" max="${vacData.today}" class="p-2 border rounded-lg text-xs" title="Fecha">
                                 <input id="vacMoveQty" type="number" step="0.5" value="1" class="hidden w-24 p-2 border rounded-lg text-xs" title="Días hábiles (negativo para restar; se permite medio día)">
                             </div>
+                            ${vacInitBoxHtml(e)}
                             <input id="vacMoveNote" maxlength="300" placeholder="Motivo / nota" class="w-full p-2 border rounded-lg text-xs">
                             <p id="vacMoveHint" class="text-3xs text-slate-500"></p>
                             <p id="vacMoveMsg" class="hidden text-2xs font-semibold text-rose-600"></p>
@@ -3888,11 +3969,13 @@
             if (!k) return;
             const kind = k.value;
             document.getElementById('vacMoveDate').classList.toggle('hidden', !(kind === 'ingreso' || kind === 'reinicio'));
-            document.getElementById('vacMoveQty').classList.toggle('hidden', !(kind === 'inicial' || kind === 'ajuste'));
+            document.getElementById('vacMoveQty').classList.toggle('hidden', kind !== 'ajuste');
+            document.getElementById('vacInitBox')?.classList.toggle('hidden', kind !== 'inicial');
+            if (kind === 'inicial') vacInitCalc();
             document.getElementById('vacMoveNote').placeholder = kind === 'ajuste' ? 'Motivo del ajuste (obligatorio)' : 'Nota (opcional)';
             document.getElementById('vacMoveHint').textContent = {
                 ingreso: 'Fecha en que empezó a trabajar. Desde ahí se causan las vacaciones.',
-                inicial: `Días hábiles de vacaciones que tenía disponibles al ${fmtD(addDaysToISO(vacData.since, -1))} (lo anterior a la suite). Se registra una sola vez.`,
+                inicial: 'Lo anterior a la suite. Si lo rehaces, el saldo inicial anterior queda anulado (queda en la auditoría).',
                 ajuste: 'Suma o resta días (ej. vacaciones tomadas antes y no registradas en el cuadro). Se permite medio día.',
                 reinicio: 'Úsalo solo si el contrato anterior terminó y se liquidó (vacaciones pagadas) y firmó uno nuevo. Una prórroga NO reinicia el conteo.',
             }[kind] || '';
@@ -3901,6 +3984,7 @@
             const msg = document.getElementById('vacMoveMsg');
             const show = (t) => { msg.textContent = t; msg.classList.remove('hidden'); };
             const kind = document.getElementById('vacMoveKind').value;
+            if (kind === 'inicial') return saveVacInitial(empId);
             const date = document.getElementById('vacMoveDate').value;
             const qty = Number(document.getElementById('vacMoveQty').value);
             const note = document.getElementById('vacMoveNote').value.trim();

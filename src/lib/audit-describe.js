@@ -141,6 +141,14 @@ function describeAudit(row, ctx = {}) {
     case 'discipline.signed': return out('Colaboradores', 'Llamado de atención firmado', `${val(m.colaborador)} firmó electrónicamente la comunicación (${val(m.tipo)}).`, [], 'Colaborador (enlace)');
     case 'discipline.descargos': return out('Colaboradores', 'Descargos recibidos', `El colaborador envió sus descargos a la comunicación (${val(m.tipo)}).`, [], 'Colaborador (enlace)');
     case 'discipline.config': return out('Configuración', 'Reglas de llamados de atención', 'Cambió las reglas o las plantillas de los llamados de atención.');
+    case 'vacations.initial': {
+      const d = (x) => x ? String(x).split('-').reverse().join('/') : '';
+      const n = (x) => String(Math.round((Number(x) || 0) * 100) / 100).replace('.', ',');
+      const desc = (s) => [`Periodos anteriores: ${n(s.anteriores)}`, s.desde ? `Causados del ${d(s.desde)} al ${d(s.hasta)}: ${n(s.causados)}` : null, s.disfrutados ? `Ya disfrutados (fuera de la suite): −${n(s.disfrutados)}` : null].filter(Boolean).join(' · ');
+      return out('Colaboradores', m.antes ? 'Saldo inicial de vacaciones rehecho' : 'Saldo inicial de vacaciones',
+        `${m.antes ? 'Rehízo' : 'Registró'} el saldo inicial de vacaciones de ${val(m.colaborador)}: ${n(m.total)} día(s) hábil(es).`,
+        [desc(m), m.antes ? `Antes: ${n(m.antes.total)} día(s)${m.antes.anteriores != null ? ' (' + desc(m.antes) + ')' : ''}` : null, m.motivo ? `Nota: ${m.motivo}` : null].filter(Boolean));
+    }
     case 'vacations.move': {
       const T = { ingreso: 'Fecha de ingreso (vacaciones)', inicial: 'Saldo inicial de vacaciones', ajuste: 'Ajuste de vacaciones', reinicio: 'Contrato nuevo: vacaciones reiniciadas' };
       const txt = m.tipo === 'ingreso' ? `Registró la fecha de ingreso de ${val(m.colaborador)}: ${dayName(m.fecha)}.`
