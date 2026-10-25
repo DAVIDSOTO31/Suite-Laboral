@@ -174,6 +174,8 @@ function describeAudit(row, ctx = {}) {
       return out('Asistencia', 'Salida antes de media jornada', `Decidió cómo tratar el día ${dayName(m.fecha)} de ${val(m.colaborador)}: ${MODE[m.decision] || m.decision}.`,
         [`Antes: ${MODE[m.antes] || m.antes || '-'}`, `Trabajó ${h(m.trabajadoMin)} de una jornada de ${h(m.jornadaMin)}`, `Como extra: diurna ${h(m.extraDiurnaMin)} · nocturna ${h(m.extraNocturnaMin)}`]);
     }
+    case 'attendance.split_stage2_recalc': return out('Asistencia', 'Turno partido: etapa 2 recalculada',
+      `La suite recalculó ${m.dias || 0} turno(s) partido(s) del periodo aún sin liquidar: los minutos antes de la hora programada de inicio de la etapa 2 ya no cuentan (ni jornada ni extra).`, m.detalle || [], 'Sistema (automático)');
     case 'attendance.half_day_recalc': return out('Asistencia', 'Regla de media jornada aplicada',
       `La suite revisó los turnos ya cerrados del periodo aún sin liquidar: ${m.pagadosComoExtra || 0} día(s) de prestación de servicios quedaron pagados como horas extra y ${m.porDecidir || 0} día(s) de otros contratos quedaron "Por decidir".`, [], 'Sistema (automático)');
     case 'attendance.early_leave_tolerance_recalc': return out('Asistencia', 'Tolerancia de salida anticipada aplicada',
