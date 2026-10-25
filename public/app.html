@@ -3621,7 +3621,9 @@
                 <div class="grid sm:grid-cols-3 gap-3 mb-2">
                     <label class="block"><span class="font-semibold text-slate-700">Quién firma (siempre el mismo)</span><input id="discSigner" value="${escapeHtml(cfg.signer)}" maxlength="120" placeholder="${escapeHtml(cfg.adminName ? 'Si lo dejas vacío: ' + cfg.adminName : 'Nombre de quien firma')}" class="mt-1 w-full p-2 border rounded-lg"></label>
                     <label class="block"><span class="font-semibold text-slate-700">Cargo de quien firma <span class="font-normal text-slate-400">(opcional)</span></span><input id="discSignerRole" value="${escapeHtml(cfg.signerRole || '')}" maxlength="120" placeholder="Ej. Administrador(a)" class="mt-1 w-full p-2 border rounded-lg"></label>
-                    <label class="block"><span class="font-semibold text-slate-700">Ciudad (para la fecha del documento)</span><input id="discCity" value="${escapeHtml(cfg.city)}" maxlength="60" placeholder="Ej. Medellín" class="mt-1 w-full p-2 border rounded-lg"></label>
+                    ${cfg.orgLocation
+                        ? `<div class="block"><span class="font-semibold text-slate-700">Ciudad de los documentos</span><p class="mt-1 p-2 border rounded-lg bg-slate-50 text-slate-700">${escapeHtml(cfg.orgLocation)}</p><span class="block text-3xs text-slate-500 mt-0.5">Es la ubicación registrada de la organización (la cambia el Super Admin).</span><input id="discCity" type="hidden" value="${escapeHtml(cfg.city)}"></div>`
+                        : `<label class="block"><span class="font-semibold text-slate-700">Ciudad (para la fecha del documento)</span><input id="discCity" value="${escapeHtml(cfg.city)}" maxlength="60" placeholder="Ej. Medellín" class="mt-1 w-full p-2 border rounded-lg"></label>`}
                 </div>
                 <div class="border border-slate-200 rounded-lg p-3 mb-3">
                     <p class="font-semibold text-slate-700">Firma de quien firma por la empresa <span class="font-normal text-slate-400">(sale estampada en el PDF; así no hay que imprimir)</span></p>

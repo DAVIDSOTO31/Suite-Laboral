@@ -6,6 +6,7 @@ const { logAction } = require('../lib/audit');
 const { randomToken, sha256Hex, hashPassword } = require('../lib/crypto');
 const { sendMail } = require('../lib/mailer');
 const { describeAudit } = require('../lib/audit-describe');
+const { DEPARTAMENTOS } = require('../lib/org-location');
 const { todayISOInBogota, addDaysISO } = require('../lib/bogota-time');
 const live = require('../lib/live');
 const presence = require('../lib/presence');
@@ -69,17 +70,21 @@ async function createOrganization(req, res) {
   if (!nit) return sendJson(res, 400, { error: 'El NIT es obligatorio.' });
   if (!phone) return sendJson(res, 400, { error: 'El numero de telefono es obligatorio.' });
   if (!contactEmail) return sendJson(res, 400, { error: 'El correo electronico es obligatorio.' });
+  const state = String(body.state || '').trim();
+  const city = state === 'Bogotá D.C.' ? 'Bogotá D.C.' : String(body.city || '').trim().slice(0, 80);
+  if (!DEPARTAMENTOS.includes(state)) return sendJson(res, 400, { error: 'Elige el departamento de la organizacion.' });
+  if (!city) return sendJson(res, 400, { error: 'La ciudad es obligatoria.' });
   const slug = body.slug ? slugify(body.slug) : slugify(name);
   if (db.prepare('SELECT id FROM organizations WHERE slug = ?').get(slug)) {
     return sendJson(res, 409, { error: 'Ya existe una organizacion con ese identificador (slug).' });
   }
   const id = uid('org');
-  db.prepare(`INSERT INTO organizations (id, name, slug, status, settings_json, nit, phone, contact_email) VALUES (?, ?, ?, 'active', ?, ?, ?, ?)`)
-    .run(id, name, slug, JSON.stringify(body.settings || {}), nit, phone, contactEmail);
+  db.prepare(`INSERT INTO organizations (id, name, slug, status, settings_json, nit, phone, contact_email, city, state) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`)
+    .run(id, name, slug, JSON.stringify(body.settings || {}), nit, phone, contactEmail, city, state);
   db.prepare('INSERT INTO org_settings (organization_id, org_name) VALUES (?, ?)').run(id, name);
   createDefaultRolesForOrg(id);
-  logAction({ organizationId: id, userId: req.user.id, action: 'organization.create', resourceType: 'organization', resourceId: id, ip: getClientIp(req), metadata: { name, nit } });
-  sendJson(res, 201, { organization: { id, name, slug, status: 'active', nit, phone, contactEmail } });
+  logAction({ organizationId: id, userId: req.user.id, action: 'organization.create', resourceType: 'organization', resourceId: id, ip: getClientIp(req), metadata: { name, nit, ciudad: city, departamento: state } });
+  sendJson(res, 201, { organization: { id, name, slug, status: 'active', nit, phone, contactEmail, city, state } });
 }
 
 async function updateOrganization(req, res, params) {
@@ -87,10 +92,27 @@ async function updateOrganization(req, res, params) {
   if (!org) return sendJson(res, 404, { error: 'Organizacion no encontrada.' });
   let body;
   try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
-  const name = body.name != null ? String(body.name).trim() : org.name;
+  // Edicion desde el panel: nombre, NIT, telefono, correo, ciudad y departamento (todos obligatorios).
+  const val = (k, cur) => (body[k] != null ? String(body[k]).trim() : (cur || ''));
+  const name = val('name', org.name), nit = val('nit', org.nit), phone = val('phone', org.phone), contactEmail = val('contactEmail', org.contact_email);
+  const state = val('state', org.state);
+  const city = state === 'Bogotá D.C.' ? 'Bogotá D.C.' : val('city', org.city).slice(0, 80);
+  if (!name) return sendJson(res, 400, { error: 'El nombre de la organizacion es obligatorio.' });
+  if (!nit) return sendJson(res, 400, { error: 'El NIT es obligatorio.' });
+  if (!phone) return sendJson(res, 400, { error: 'El numero de telefono es obligatorio.' });
+  if (!contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) return sendJson(res, 400, { error: 'Escribe un correo electronico valido.' });
+  if (!DEPARTAMENTOS.includes(state)) return sendJson(res, 400, { error: 'Elige el departamento de la organizacion.' });
+  if (!city) return sendJson(res, 400, { error: 'La ciudad es obligatoria.' });
   const settings = body.settings != null ? JSON.stringify(body.settings) : org.settings_json;
-  db.prepare(`UPDATE organizations SET name = ?, settings_json = ?, updated_at = datetime('now') WHERE id = ?`).run(name, settings, org.id);
-  logAction({ organizationId: org.id, userId: req.user.id, action: 'organization.update', resourceType: 'organization', resourceId: org.id, ip: getClientIp(req), metadata: { name } });
+  const cambios = [];
+  const chk = (campo, a, b) => { if (String(a || '') !== String(b || '')) cambios.push(`${campo}: ${a || '(vacío)'} → ${b}`); };
+  chk('Nombre', org.name, name); chk('NIT', org.nit, nit); chk('Teléfono', org.phone, phone); chk('Correo', org.contact_email, contactEmail);
+  chk('Ciudad', org.city, city); chk('Departamento', org.state, state);
+  db.prepare(`UPDATE organizations SET name = ?, nit = ?, phone = ?, contact_email = ?, city = ?, state = ?, settings_json = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(name, nit, phone, contactEmail, city, state, settings, org.id);
+  // El nombre que ven la suite y los documentos de la organizacion.
+  if (name !== org.name) db.prepare('UPDATE org_settings SET org_name = ? WHERE organization_id = ?').run(name, org.id);
+  logAction({ organizationId: org.id, userId: req.user.id, action: 'organization.update', resourceType: 'organization', resourceId: org.id, ip: getClientIp(req), metadata: { name, cambios } });
   sendJson(res, 200, { ok: true });
 }
 
