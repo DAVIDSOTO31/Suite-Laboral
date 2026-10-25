@@ -22,6 +22,7 @@ const { sendJson, readBody, getClientIp } = require('../lib/http');
 const { logAction } = require('../lib/audit');
 const { randomToken, sha256Hex } = require('../lib/crypto');
 const { todayISOInBogota, addDaysISO } = require('../lib/bogota-time');
+const { orgLocation } = require('../lib/org-location');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS discipline_cases (
@@ -238,7 +239,8 @@ function docVars(orgId, c, emp) {
   const fecha = longDate(today);
   return {
     empresa: st.org_name || 'La empresa',
-    ciudad_fecha: (cfg.city ? cfg.city + ', ' : '') + fecha.charAt(0).toUpperCase() + fecha.slice(1),
+    // Ubicacion de la organizacion (Super Admin); si no esta registrada, la ciudad escrita en Reglas y plantillas.
+    ciudad_fecha: ((orgLocation(orgId) || cfg.city) ? (orgLocation(orgId) || cfg.city) + ', ' : '') + fecha.charAt(0).toUpperCase() + fecha.slice(1),
     nombre: emp.name, documento: `${emp.document_type || 'C.C.'} ${emp.document_number || ''}`.trim(),
     cargo: emp.role || '-', area: emp.department || '-',
     novedades: alerts.map(noveltyLine).join('\n'), cantidad: String(alerts.length),
@@ -283,7 +285,7 @@ function listCases(req, res, query) {
       if (c.status === 'propuesto') { o.novedades = caseAlerts(c).map(noveltyLine); }
       return o;
     }),
-    config: { rules: cfg.rules, templates: cfg.templates, signer: cfg.signer, signerRole: cfg.signerRole, signerSignature: cfg.signerSignature, adminName: orgAdminName(orgId), city: cfg.city, nit: orgNit(orgId), defaults: { rules: DEFAULT_RULES, templates: DEFAULT_TEMPLATES } },
+    config: { rules: cfg.rules, templates: cfg.templates, signer: cfg.signer, signerRole: cfg.signerRole, signerSignature: cfg.signerSignature, adminName: orgAdminName(orgId), city: cfg.city, orgLocation: orgLocation(orgId), nit: orgNit(orgId), defaults: { rules: DEFAULT_RULES, templates: DEFAULT_TEMPLATES } },
     typeLabels: TYPE_LABEL, descargosDays: DESCARGOS_DAYS, linkDays: LINK_DAYS,
   });
 }

@@ -20,6 +20,7 @@ const { sendJson, readBody, getClientIp } = require('../lib/http');
 const { logAction } = require('../lib/audit');
 const { randomToken, sha256Hex } = require('../lib/crypto');
 const { todayISOInBogota, addDaysISO } = require('../lib/bogota-time');
+const { orgLocation } = require('../lib/org-location');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS work_certificates (
@@ -235,7 +236,7 @@ function buildVars(orgId, emp, opts) {
   return {
     kind, retired,
     vars: {
-      ciudad_fecha: (sc.city ? sc.city + ', ' : '') + longDate(today),
+      ciudad_fecha: ((orgLocation(orgId) || sc.city) ? (orgLocation(orgId) || sc.city) + ', ' : '') + longDate(today),
       dirigido_a: addressed && !/^a quien (pueda )?interes/i.test(addressed) ? `Señores\n${addressed}` : 'A QUIEN INTERESE',
       empresa: orgName(orgId) || 'La empresa',
       nit: orgNit(orgId) || '(sin NIT registrado)',
@@ -299,7 +300,7 @@ function listCertificates(req, res, query) {
   sendJson(res, 200, {
     certificates: rows.map(c => certOut(c, emps.get(Number(c.employee_id)))),
     hireDates,
-    config: { templates: cfg.templates, defaults: DEFAULT_TEMPLATES, nit: orgNit(orgId), city: sc.city, signer: sc.signer || orgAdminName(orgId), signerRole: sc.signerRole, signerSignature: sc.signerSignature },
+    config: { templates: cfg.templates, defaults: DEFAULT_TEMPLATES, nit: orgNit(orgId), city: orgLocation(orgId) || sc.city, signer: sc.signer || orgAdminName(orgId), signerRole: sc.signerRole, signerSignature: sc.signerSignature },
   });
 }
 

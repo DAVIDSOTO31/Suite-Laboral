@@ -151,15 +151,25 @@
 <!-- Org Modal -->
 <div id="orgModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
   <div class="bg-white rounded-xl p-5 w-full max-w-md">
-    <h3 class="font-semibold mb-3">Nueva organizacion</h3>
+    <h3 id="orgModalTitle" class="font-semibold mb-3">Nueva organizacion</h3>
+    <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre</label>
     <input id="orgNameInput" placeholder="Nombre de la organizacion" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-3">
+    <label class="block text-xs font-semibold text-slate-600 mb-1">NIT</label>
     <input id="orgNitInput" placeholder="NIT" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-3">
+    <label class="block text-xs font-semibold text-slate-600 mb-1">Teléfono</label>
     <input id="orgPhoneInput" type="tel" placeholder="Numero de telefono" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-3">
+    <label class="block text-xs font-semibold text-slate-600 mb-1">Correo electrónico</label>
     <input id="orgEmailInput" type="email" placeholder="Correo electronico" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm mb-3">
+    <div class="grid grid-cols-2 gap-2 mb-1">
+      <label class="block text-xs font-semibold text-slate-600 -mb-1">Departamento</label><label class="block text-xs font-semibold text-slate-600 -mb-1">Ciudad</label>
+      <select id="orgStateInput" onchange="onOrgStateChange()" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"></select>
+      <input id="orgCityInput" placeholder="Ciudad" maxlength="80" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm">
+    </div>
+    <p class="text-xs text-slate-500 mb-3">La ciudad y el departamento salen en la fecha de los documentos de la organización (llamados de atención, certificados laborales…).</p>
     <div id="orgModalMsg" class="hidden text-sm text-rose-600 mb-2"></div>
     <div class="flex justify-end gap-2">
       <button onclick="closeModal('orgModal')" class="px-3 py-2 rounded-lg bg-slate-100 text-sm">Cancelar</button>
-      <button onclick="submitOrg()" class="px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold">Crear</button>
+      <button id="orgModalSubmit" onclick="submitOrg()" class="px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold">Crear</button>
     </div>
   </div>
 </div>
@@ -169,7 +179,8 @@
   <div class="bg-white rounded-xl p-5 w-full max-w-md">
     <h3 class="font-semibold mb-3">Detalle de la organizacion</h3>
     <div id="orgDetailContent" class="space-y-2 text-sm"></div>
-    <div class="flex justify-end mt-4">
+    <div class="flex justify-end gap-2 mt-4">
+      <button id="orgDetailEditBtn" class="px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold">Editar</button>
       <button onclick="closeModal('orgDetailModal')" class="px-3 py-2 rounded-lg bg-slate-100 text-sm">Cerrar</button>
     </div>
   </div>
@@ -338,7 +349,7 @@ async function loadOrgs() {
   const tbody = document.getElementById('orgsTableBody');
   tbody.innerHTML = d.organizations.map(o => `
     <tr class="border-t border-slate-100">
-      <td class="px-4 py-2 font-medium">${esc(o.name)}</td>
+      <td class="px-4 py-2 font-medium">${esc(o.name)}<span class="block text-xs font-normal ${o.city ? 'text-slate-500' : 'text-amber-700 font-semibold'}">${o.city ? esc(o.city) + (o.state && o.state !== o.city ? ', ' + esc(o.state) : '') : 'Falta la ciudad'}</span></td>
       <td class="px-4 py-2 text-slate-500">${esc(o.slug)}</td>
       <td class="px-4 py-2">${o.userCount}</td>
       <td class="px-4 py-2">${badge(o.status)}</td>
@@ -346,6 +357,7 @@ async function loadOrgs() {
       <td class="px-4 py-2 text-slate-500">${(o.created_at || '').split(' ')[0]}</td>
       <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
         <button onclick="viewOrg('${o.id}')" class="text-xs px-2 py-1 rounded bg-sky-50 text-sky-700 hover:bg-sky-100">Ver</button>
+        <button onclick="editOrg('${o.id}')" class="text-xs px-2 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100">Editar</button>
         <button onclick="toggleOrg('${o.id}')" class="text-xs px-2 py-1 rounded bg-slate-100 hover:bg-slate-200">${o.status === 'active' ? 'Desactivar' : 'Activar'}</button>
         <button onclick="deleteOrg('${o.id}')" class="text-xs px-2 py-1 rounded bg-rose-50 text-rose-600 hover:bg-rose-100">Eliminar</button>
       </td>
@@ -399,10 +411,12 @@ async function viewOrg(id) {
     <p><span class="text-slate-500">NIT:</span> ${esc(o.nit || '-')}</p>
     <p><span class="text-slate-500">Telefono:</span> ${esc(o.phone || '-')}</p>
     <p><span class="text-slate-500">Correo:</span> ${esc(o.contact_email || '-')}</p>
+    <p><span class="text-slate-500">Ciudad:</span> ${o.city ? esc(o.city) + (o.state && o.state !== o.city ? ', ' + esc(o.state) : '') : '<span class="text-amber-700 font-semibold">Sin registrar: edítala para que salga en los documentos</span>'}</p>
     <p><span class="text-slate-500">Identificador (slug):</span> ${esc(o.slug)}</p>
     <p><span class="text-slate-500">Estado:</span> ${badge(o.status)}</p>
     <p><span class="text-slate-500">Creada:</span> ${(o.created_at || '').split(' ')[0]}</p>
   `;
+  document.getElementById('orgDetailEditBtn').onclick = () => { closeModal('orgDetailModal'); editOrg(o.id, o); };
   openModal('orgDetailModal');
 }
 // Eliminar organización: solo si ya está desactivada y escribiendo su nombre exacto.
@@ -449,12 +463,41 @@ async function confirmDeleteOrg() {
   } catch (e) { msg.textContent = e.message; msg.classList.remove('hidden'); }
 }
 
-function openOrgModal() {
-  document.getElementById('orgNameInput').value = '';
-  document.getElementById('orgNitInput').value = '';
-  document.getElementById('orgPhoneInput').value = '';
-  document.getElementById('orgEmailInput').value = '';
+// Departamentos de Colombia (la ciudad se escribe).
+const DEPARTAMENTOS = ['Amazonas','Antioquia','Arauca','Atlántico','Bogotá D.C.','Bolívar','Boyacá','Caldas','Caquetá','Casanare','Cauca','Cesar','Chocó','Córdoba','Cundinamarca','Guainía','Guaviare','Huila','La Guajira','Magdalena','Meta','Nariño','Norte de Santander','Putumayo','Quindío','Risaralda','San Andrés y Providencia','Santander','Sucre','Tolima','Valle del Cauca','Vaupés','Vichada'];
+let EDIT_ORG_ID = null;
+function fillOrgForm(o) {
+  const sel = document.getElementById('orgStateInput');
+  sel.innerHTML = '<option value="">Departamento…</option>' + DEPARTAMENTOS.map(d => `<option>${d}</option>`).join('');
+  document.getElementById('orgNameInput').value = o ? o.name || '' : '';
+  document.getElementById('orgNitInput').value = o ? o.nit || '' : '';
+  document.getElementById('orgPhoneInput').value = o ? o.phone || '' : '';
+  document.getElementById('orgEmailInput').value = o ? o.contact_email || '' : '';
+  sel.value = o && DEPARTAMENTOS.includes(o.state) ? o.state : '';
+  document.getElementById('orgCityInput').value = o ? o.city || '' : '';
+  onOrgStateChange();
   document.getElementById('orgModalMsg').classList.add('hidden');
+}
+function onOrgStateChange() {
+  const bog = document.getElementById('orgStateInput').value === 'Bogotá D.C.';
+  const city = document.getElementById('orgCityInput');
+  if (bog) city.value = 'Bogotá D.C.';
+  city.disabled = bog;
+}
+function openOrgModal() {
+  EDIT_ORG_ID = null;
+  fillOrgForm(null);
+  document.getElementById('orgModalTitle').textContent = 'Nueva organizacion';
+  document.getElementById('orgModalSubmit').textContent = 'Crear';
+  openModal('orgModal');
+}
+async function editOrg(id, data) {
+  let o = data;
+  if (!o) { try { o = (await api(`/api/superadmin/organizations/${id}`)).organization; } catch (e) { alert(e.message); return; } }
+  EDIT_ORG_ID = id;
+  fillOrgForm(o);
+  document.getElementById('orgModalTitle').textContent = 'Editar organizacion';
+  document.getElementById('orgModalSubmit').textContent = 'Guardar cambios';
   openModal('orgModal');
 }
 async function submitOrg() {
@@ -462,10 +505,13 @@ async function submitOrg() {
   const nit = document.getElementById('orgNitInput').value.trim();
   const phone = document.getElementById('orgPhoneInput').value.trim();
   const contactEmail = document.getElementById('orgEmailInput').value.trim();
+  const state = document.getElementById('orgStateInput').value;
+  const city = document.getElementById('orgCityInput').value.trim();
   const msg = document.getElementById('orgModalMsg');
-  if (!name || !nit || !phone || !contactEmail) { msg.textContent = 'Todos los campos son obligatorios.'; msg.classList.remove('hidden'); return; }
+  if (!name || !nit || !phone || !contactEmail || !state || !city) { msg.textContent = 'Todos los campos son obligatorios (incluidos el departamento y la ciudad).'; msg.classList.remove('hidden'); return; }
   try {
-    await api('/api/superadmin/organizations', { method: 'POST', body: JSON.stringify({ name, nit, phone, contactEmail }) });
+    if (EDIT_ORG_ID) await api(`/api/superadmin/organizations/${EDIT_ORG_ID}`, { method: 'PUT', body: JSON.stringify({ name, nit, phone, contactEmail, state, city }) });
+    else await api('/api/superadmin/organizations', { method: 'POST', body: JSON.stringify({ name, nit, phone, contactEmail, state, city }) });
     closeModal('orgModal'); loadOrgs(); loadDashboard();
   } catch (e) { msg.textContent = e.message; msg.classList.remove('hidden'); }
 }
