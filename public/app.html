@@ -1298,6 +1298,16 @@
                             <button onclick="attendanceLoadWorkdays()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
                             <button onclick="exportWorkdaysXLSX()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel</button>
                         </div>
+                        <!-- Filtros de la tabla: buscar colaborador y área -->
+                        <div class="flex flex-wrap items-center gap-2 mb-2">
+                            <div class="relative">
+                                <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-2xs"></i>
+                                <input type="search" id="attWorkdaysSearch" oninput="renderWorkdaysTable()" placeholder="Buscar colaborador" title="Nombre o documento" autocomplete="off" class="text-xs py-1.5 pl-7 pr-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 w-52">
+                            </div>
+                            <select id="attWorkdaysArea" onchange="renderWorkdaysTable()" title="Área" class="text-xs py-1.5 px-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 w-48">
+                                <option value="">Todas las áreas</option>
+                            </select>
+                        </div>
                         <div class="overflow-x-auto att-sticky-head border border-slate-200 rounded-lg">
                             <table class="w-full text-xs">
                                 <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr>
@@ -11242,8 +11252,34 @@
                 });
                 lastWorkdaysReport = [...byEmp.values()].sort((a, b) => a.emp.name.localeCompare(b.emp.name));
                 lastWorkdaysReport.forEach(a => a.dates.sort());
+                renderWorkdaysTable();
+            } catch (e) {
+                body.innerHTML = `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">${escapeHtml(e.message)}</td></tr>`;
+            }
+        }
+        // Filtros de Días laborados (buscar colaborador y área): filtran la tabla, los totales y el Excel.
+        function workdaysShown() {
+            const nrm = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+            const q = nrm(document.getElementById('attWorkdaysSearch')?.value).trim();
+            const area = document.getElementById('attWorkdaysArea')?.value || '';
+            return lastWorkdaysReport.filter(a => (!area || (a.emp.department || '') === area)
+                && (!q || nrm(a.emp.name).includes(q) || String(a.emp.documentNumber || '').includes(q)));
+        }
+        function renderWorkdaysTable() {
+            const body = document.getElementById('attWorkdaysBody');
+            const foot = document.getElementById('attWorkdaysFoot');
+            const sel = document.getElementById('attWorkdaysArea');
+            if (sel) {
+                const cur = sel.value;
+                const areas = [...new Set(appState.departments.map(d => d.name).concat(lastWorkdaysReport.map(a => a.emp.department).filter(Boolean)))];
+                sel.innerHTML = '<option value="">Todas las áreas</option>' + areas.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+                sel.value = areas.includes(cur) ? cur : '';
+            }
+            if (!lastWorkdaysReport.length) return;
+            const list = workdaysShown();
+            {
                 const fmt = (iso) => { const [y, m, d] = iso.split('-'); return `${d}/${m}`; };
-                body.innerHTML = lastWorkdaysReport.map(a => `
+                body.innerHTML = list.map(a => `
                     <tr class="border-t border-slate-100 align-top">
                         <td class="px-3 py-2 font-semibold">${escapeHtml(a.emp.name)}</td>
                         <td class="px-3 py-2 text-slate-500">${escapeHtml(a.emp.department || '-')}</td>
@@ -11251,16 +11287,14 @@
                         <td class="px-3 py-2 text-center">${a.complete}</td>
                         <td class="px-3 py-2 text-center ${a.incomplete ? 'text-amber-700 font-semibold' : ''}">${a.incomplete}</td>
                         <td class="px-3 py-2 text-slate-500">${a.dates.map(fmt).join(', ') || '-'}${(a.asExtra || []).length ? `<span class="block text-3xs text-emerald-700 font-semibold mt-0.5">No cuentan (pagados como extra): ${a.asExtra.sort().map(fmt).join(', ')}</span>` : ''}</td>
-                    </tr>`).join('');
-                const total = lastWorkdaysReport.reduce((s, a) => s + a.dates.length, 0);
+                    </tr>`).join('') || '<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Ningún colaborador coincide con el filtro.</td></tr>';
+                const total = list.reduce((s, a) => s + a.dates.length, 0);
                 foot.innerHTML = `<tr class="border-t-2 border-slate-200">
-                    <td class="px-3 py-2 uppercase text-2xs text-slate-500" colspan="2">Total (${lastWorkdaysReport.length} colaborador${lastWorkdaysReport.length === 1 ? '' : 'es'})</td>
+                    <td class="px-3 py-2 uppercase text-2xs text-slate-500" colspan="2">Total (${list.length} colaborador${list.length === 1 ? '' : 'es'})</td>
                     <td class="px-3 py-2 text-center text-teal-700">${total}</td>
-                    <td class="px-3 py-2 text-center">${lastWorkdaysReport.reduce((s, a) => s + a.complete, 0)}</td>
-                    <td class="px-3 py-2 text-center">${lastWorkdaysReport.reduce((s, a) => s + a.incomplete, 0)}</td>
+                    <td class="px-3 py-2 text-center">${list.reduce((s, a) => s + a.complete, 0)}</td>
+                    <td class="px-3 py-2 text-center">${list.reduce((s, a) => s + a.incomplete, 0)}</td>
                     <td></td></tr>`;
-            } catch (e) {
-                body.innerHTML = `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">${escapeHtml(e.message)}</td></tr>`;
             }
         }
         async function exportWorkdaysXLSX() {
@@ -11268,7 +11302,7 @@
             const from = document.getElementById('attWorkdaysFrom').value;
             const to = document.getElementById('attWorkdaysTo').value;
             const dm = (iso) => { const [y, m, d] = iso.split('-'); return `${d}/${m}`; }; // solo día/mes (el periodo ya está en el nombre del archivo)
-            const rows = lastWorkdaysReport.map(a => [a.emp.name, docLabel(a.emp), a.emp.department || '', a.dates.length, a.complete, a.incomplete, a.dates.map(dm).join(', ')]);
+            const rows = workdaysShown().map(a => [a.emp.name, docLabel(a.emp), a.emp.department || '', a.dates.length, a.complete, a.incomplete, a.dates.map(dm).join(', ')]);
             try {
                 await downloadXLSX(`Dias_laborados_${from}_al_${to}.xlsx`,
                     ['Colaborador', 'Documento', 'Área', 'Días laborados', 'Jornada completa', 'Marcación incompleta', 'Fechas (día/mes)'], rows, 'Días laborados');
