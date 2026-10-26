@@ -3256,17 +3256,30 @@
                 document.getElementById('rosterModalSubtitle').closest('.border-b').insertAdjacentElement('afterend', banner);
             }
             const t = shiftLockTime(empId, dateISO);
-            banner.innerHTML = locked ? `<i class="fa-solid fa-lock"></i> <strong>Ya marcó su entrada${t ? ' a las ' + t : ''}.</strong> ${isSplit ? 'Como es turno partido, puedes ajustar las demás horas (o pasarlo a turno normal), pero no la hora de entrada.' : 'El horario de este día ya no se puede cambiar; solo puedes editar la nota del día.'}` : '';
+            // Turno normal ya iniciado: si aún no marcó la salida, se puede cambiar la
+            // hora de salida, el límite de horas o el almuerzo (con motivo); la entrada no.
+            const closed = shiftClosed.has(`${Number(empId)}|${dateISO}`);
+            const endMode = locked && !isSplit && !closed;
+            banner.innerHTML = !locked ? '' : isSplit
+                ? `<i class="fa-solid fa-lock"></i> <strong>Ya marcó su entrada${t ? ' a las ' + t : ''}.</strong> Como es turno partido, puedes ajustar las demás horas (o pasarlo a turno normal), pero no la hora de entrada.`
+                : closed
+                    ? `<i class="fa-solid fa-lock"></i> <strong>Ya marcó su entrada${t ? ' a las ' + t : ''} y su salida.</strong> El horario de este día ya no se puede cambiar; solo puedes editar la nota del día. Para ajustar las horas usa "Corregir" en el Historial.`
+                    : `<i class="fa-solid fa-lock"></i> <strong>Ya marcó su entrada${t ? ' a las ' + t : ''}.</strong> La entrada no cambia, pero puedes ajustar la <strong>hora de salida</strong>, el <strong>límite de horas</strong> o el <strong>almuerzo</strong> (ej. pasar su jornada de 8 a 7 horas).
+                       <label class="block mt-1.5 font-semibold">Motivo del cambio (obligatorio)
+                       <input id="rosterLockReason" maxlength="300" placeholder="Ej. se le cambió la jornada a 7 horas por necesidad del servicio" class="mt-1 w-full p-1.5 border rounded-lg bg-white font-normal text-xs"></label>`;
             banner.classList.toggle('hidden', !locked);
-            const fullLock = locked && !isSplit;
+            const fullLock = locked && !isSplit && !endMode;
             ['rosterAssignEnd', 'rosterAssignBreak', 'rosterAssignLimit', 'rosterAssignIsSplit', 'rosterAssignSplitOut', 'rosterAssignSplitIn', 'rosterAssignIsSunday', 'rosterAssignIsOvernight'].forEach(id => {
-                const el = document.getElementById(id); if (el) { el.disabled = fullLock || (id === 'rosterAssignBreak' && isSplit && document.getElementById('rosterAssignIsSplit').checked); }
+                const el = document.getElementById(id);
+                if (!el) return;
+                const endEditable = ['rosterAssignEnd', 'rosterAssignBreak', 'rosterAssignLimit'].includes(id);
+                el.disabled = fullLock || (endMode && !endEditable) || (id === 'rosterAssignBreak' && isSplit && document.getElementById('rosterAssignIsSplit').checked);
             });
             const st = document.getElementById('rosterAssignStart'); st.disabled = locked;
             st.classList.toggle('bg-slate-100', locked);
             ['modalRosterPresetList', 'rosterAssignRepeatDays'].forEach(id => { const el = document.getElementById(id); if (el) el.closest('div.space-y-2, div:not([id])').classList.toggle('hidden', locked); });
             modal.querySelectorAll('button[onclick="markRosterDayAsOff()"]').forEach(b => b.classList.toggle('hidden', locked));
-            modal.dataset.locked = locked ? (isSplit ? 'split' : 'full') : '';
+            modal.dataset.locked = locked ? (isSplit ? 'split' : endMode ? 'end' : 'full') : '';
         }
 
         // Chips "Repetir en otros días de esta semana" de la ficha de asignación.
@@ -4625,6 +4638,7 @@
         // conservando la hora de entrada. La nota del día sí se puede cambiar.
         // -----------------------------------------------------------------
         let shiftLocks = new Map();   // 'empId|fecha' -> hora de la entrada
+        let shiftClosed = new Set();  // 'empId|fecha' de turnos que ya marcaron la salida
         let shiftLocksFetchedAt = 0, shiftLocksLoading = null;
         function isShiftLocked(empId, dateISO) {
             if (!shiftLocks.has(`${Number(empId)}|${dateISO}`)) return false;
@@ -4648,6 +4662,7 @@
                 try {
                     const r = await apiFetch(`/api/org/shift-locks?from=${from}&to=${to}`);
                     const next = new Map((r.locks || []).map(l => [`${Number(l.empId)}|${l.date}`, l.entradaAt]));
+                    shiftClosed = new Set((r.locks || []).filter(l => l.salidaAt).map(l => `${Number(l.empId)}|${l.date}`));
                     const changed = next.size !== shiftLocks.size || [...next.keys()].some(k => !shiftLocks.has(k));
                     shiftLocks = next;
                     if (changed) renderWeeklyRoster();
@@ -4919,7 +4934,8 @@
                 return;
             }
             const brushNote = rosterBrushNote();
-            if (isShiftLocked(empId, dateISO) && appState.quickBrushMode !== 'note') { lockedToast(empId, dateISO); return; }
+            // Día ya iniciado: se abre su ficha (ahí se puede cambiar la salida, el límite o la nota).
+            if (isShiftLocked(empId, dateISO) && appState.quickBrushMode !== 'note') { openRosterQuickAssignModal(empId, dateISO, empName, dateFormatted); return; }
 
             if (appState.quickBrushMode === 'note') {
                 const sh = appState.shifts.find(s => s.empId === empId && s.date === dateISO);
@@ -5205,6 +5221,17 @@
                 if (prevSh) document.getElementById('rosterAssignStart').value = prevSh.startTime; // la entrada no cambia
                 rosterRepeatDates = new Set();
             }
+            let lockReason = '';
+            if (lockMode === 'end') {
+                const prevSh = appState.shifts.find(s => s.empId === empId && s.date === dateISO);
+                if (prevSh) document.getElementById('rosterAssignStart').value = prevSh.startTime; // la entrada no cambia
+                document.getElementById('rosterAssignIsSplit').checked = false;
+                rosterRepeatDates = new Set();
+                const same = prevSh && ['rosterAssignEnd', 'rosterAssignBreak', 'rosterAssignLimit'].every((id, i) => String(document.getElementById(id).value) === String([prevSh.endTime, prevSh.breakM, prevSh.limit][i]));
+                lockReason = (document.getElementById('rosterLockReason')?.value || '').trim();
+                if (!same && lockReason.length < 5) { showAppToast('Escribe el motivo del cambio (mínimo 5 caracteres).'); document.getElementById('rosterLockReason')?.focus(); return; }
+                if (same) lockReason = '';
+            }
             const start = document.getElementById('rosterAssignStart').value;
             const end = document.getElementById('rosterAssignEnd').value;
             const breakM = parseFloat(document.getElementById('rosterAssignBreak').value) || 0;
@@ -5242,6 +5269,7 @@
             };
             if (note) newShift.note = note;
             if (isSplit) Object.assign(newShift, { isSplit: true, splitOut, splitIn });
+            if (lockReason) newShift.lockReason = lockReason; // el servidor lo exige para cambiar un día ya iniciado (no se guarda en el turno)
             appState.shifts.push(newShift);
 
             // Repetir en otros días marcados de la misma semana (respeta
@@ -5264,10 +5292,12 @@
             saveLastRosterConfig({ startTime: start, endTime: end, ordinaryEnd: info ? info.ordinaryEnd : null, breakM: breakFinal, limit, color: selectedModalColorKey, isSplit, splitOut, splitIn });
 
             closeModal('modalRosterQuickAssign');
-            showAppToast(repeated ? `Turno asignado a ${emp.name} en ${repeated + 1} días${skipped ? ` (${skipped} día(s) con ausencia no se tocaron)` : ''}.` : `Turno asignado a ${emp.name}.`);
+            showAppToast(lockReason ? `Horario de hoy cambiado para ${emp.name}: salida ${end}, ${limit} h. Queda en la auditoría.`
+                : repeated ? `Turno asignado a ${emp.name} en ${repeated + 1} días${skipped ? ` (${skipped} día(s) con ausencia no se tocaron)` : ''}.` : `Turno asignado a ${emp.name}.`);
 
             renderWeeklyRoster();
             renderSelectedEmployeeLedger();
+            if (lockReason) flushDataSync().catch(() => { /* se reintenta */ }).finally(() => { delete newShift.lockReason; });
         }
 
         function markRosterDayAsOff() {

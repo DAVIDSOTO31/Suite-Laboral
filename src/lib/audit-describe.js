@@ -174,6 +174,9 @@ function describeAudit(row, ctx = {}) {
       return out('Asistencia', 'Salida antes de media jornada', `Decidió cómo tratar el día ${dayName(m.fecha)} de ${val(m.colaborador)}: ${MODE[m.decision] || m.decision}.`,
         [`Antes: ${MODE[m.antes] || m.antes || '-'}`, `Trabajó ${h(m.trabajadoMin)} de una jornada de ${h(m.jornadaMin)}`, `Como extra: diurna ${h(m.extraDiurnaMin)} · nocturna ${h(m.extraNocturnaMin)}`]);
     }
+    case 'shift.started_changed': return out('Turnos', 'Horario cambiado en un día ya iniciado',
+      `Cambió el horario de ${val(m.colaborador)} del ${dayName(m.fecha)} cuando ya había marcado su entrada.`,
+      [`Antes: ${m.antes}`, `Ahora: ${m.despues}`, m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));
     case 'attendance.split_stage1_recalc': return out('Asistencia', 'Turno partido: fin de la etapa 1 recalculado',
       `La suite recalculó ${m.dias || 0} turno(s) partido(s) del periodo aún sin liquidar: si la etapa 1 se pasó menos de 30 minutos de su hora de fin, se toma la hora programada.`, m.detalle || [], 'Sistema (automático)');
     case 'attendance.split_stage2_recalc': return out('Asistencia', 'Turno partido: etapa 2 recalculada',
