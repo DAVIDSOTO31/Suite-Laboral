@@ -1551,7 +1551,7 @@ function listCorrections(req, res, query) {
 const NO_SHOW_TOLERANCE_MIN = 15;   // minutos despues de la entrada para mostrar "No ha llegado"
 const OPEN_SHIFT_GRACE_MIN = 60;    // tablero Hoy: minutos despues de la salida programada para mostrar "Sin marcar salida"
 const OPEN_SHIFT_ALERT_MIN = 300;   // alerta "Turno sin cerrar": 5 horas despues de la salida programada (margen para que marque)
-const ABSENCE_LABELS = { vacaciones: 'Vacaciones', incapacidad: 'Incapacidad', sin_horario: 'Sin horario' };
+const ABSENCE_LABELS = { vacaciones: 'Vacaciones', incapacidad: 'Incapacidad', sin_horario: 'Sin horario', otro_motivo: 'Otro motivo' };
 
 // Fecha desde la cual se generan las alertas automaticas nuevas (el dia en
 // que se instala esta version), para no crear alertas sobre el pasado.

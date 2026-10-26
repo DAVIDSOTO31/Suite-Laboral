@@ -1957,7 +1957,7 @@
             <input type="hidden" id="justifyEmp"><input type="hidden" id="justifyDate">
             <p class="text-xs font-semibold text-slate-700">¿Por qué no vino?</p>
             <div id="justifyTypes" class="grid grid-cols-2 gap-1.5 text-xs"></div>
-            <p class="text-3xs text-slate-500">¿Otro motivo (permiso, calamidad doméstica…)? Créalo una vez como inasistencia en el cuadro de turnos y aparecerá aquí.</p>
+            <p class="text-3xs text-slate-500">¿Un motivo que se repite (permiso, calamidad doméstica…)? Créalo una vez como inasistencia en el cuadro de turnos y aparecerá aquí como opción propia.</p>
             <label class="block text-xs"><span class="font-semibold text-slate-700">Nota <span class="font-normal text-slate-400">(opcional)</span></span>
                 <input id="justifyNote" maxlength="120" placeholder="Ej. avisó por WhatsApp a las 7:30" class="mt-1 w-full p-2 border rounded-lg"></label>
             <p class="text-3xs text-slate-500">Queda registrado en el cuadro de turnos de ese día (lo puedes cambiar allí). La persona sale de "No han llegado" y no se genera la alerta "No se presentó" (si ya existía, se quita sola).</p>
@@ -3082,13 +3082,16 @@
             vacaciones:  { label: 'Vacaciones',  color: 'yellow', icon: 'fa-umbrella-beach' },
             incapacidad: { label: 'Incapacidad', color: 'orange', icon: 'fa-briefcase-medical' },
             sin_horario: { label: 'Sin Horario', color: 'gray',   icon: 'fa-user-slash' },
+            // "Otro motivo": solo se asigna desde "Justificar" del tablero Hoy (con su nota);
+            // no aparece en la paleta del cuadro. Cuenta para el ausentismo.
+            otro_motivo: { label: 'Otro motivo', color: 'stone', icon: 'fa-circle-question', hidden: true },
         };
 
         // Inasistencias personalizadas (ej. Compensatorio, Licencia, Calamidad):
         // cada organización crea las suyas. Se guardan junto a los turnos
         // predeterminados con kind:'absence' y funcionan igual que vacaciones:
         // día sin horario de trabajo, sin marcación y sin horas.
-        const BUILTIN_ABSENCE_KEYS = ['vacaciones', 'incapacidad', 'sin_horario'];
+        const BUILTIN_ABSENCE_KEYS = ['vacaciones', 'incapacidad', 'sin_horario', 'otro_motivo'];
         const ABSENCE_COLOR_CHOICES = ['amber', 'lime', 'teal', 'cyan', 'blue', 'violet', 'pink', 'stone', 'slate', 'green'];
         function syncCustomAbsenceTypes() {
             Object.keys(ABSENCE_TYPES).forEach(k => { if (!BUILTIN_ABSENCE_KEYS.includes(k)) delete ABSENCE_TYPES[k]; });
@@ -12597,7 +12600,8 @@
             document.getElementById('justifyTypes').innerHTML = types.map(([k, a]) => {
                 const th = SHIFT_COLOR_THEMES[a.color] || SHIFT_COLOR_THEMES.stone;
                 return `<label class="flex items-center gap-2 px-2 py-1.5 rounded-lg border ${th.bg} cursor-pointer"><input type="radio" name="justifyType" value="${k}" class="w-4 h-4"> <span class="font-bold uppercase text-3xs leading-tight">${escapeHtml(a.label)}</span></label>`;
-            }).join('') + `<label class="flex items-center gap-2 px-2 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 cursor-pointer col-span-2"><input type="radio" name="justifyType" value="__off" class="w-4 h-4"> <span class="font-bold text-3xs leading-tight">DESCANSO <span class="font-normal normal-case">(el turno estaba mal programado)</span></span></label>`;
+            }).join('') + `<label class="flex items-center gap-2 px-2 py-1.5 rounded-lg border border-stone-400 bg-stone-200 text-stone-900 cursor-pointer col-span-2"><input type="radio" name="justifyType" value="otro_motivo" class="w-4 h-4"> <span class="font-bold text-3xs leading-tight">OTRO MOTIVO <span class="font-normal normal-case">(escríbelo en la nota)</span></span></label>`
+                + `<label class="flex items-center gap-2 px-2 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 cursor-pointer col-span-2"><input type="radio" name="justifyType" value="__off" class="w-4 h-4"> <span class="font-bold text-3xs leading-tight">DESCANSO <span class="font-normal normal-case">(el turno estaba mal programado)</span></span></label>`;
             openModal('modalJustify');
             if (!shiftsLoaded(dateISO)) { try { await ensureShiftsLoaded(dateISO); } catch (e) { /* sin conexion */ } }
             try { await loadLeaveData(); } catch (e) { /* sin saldos: no se avisa */ }

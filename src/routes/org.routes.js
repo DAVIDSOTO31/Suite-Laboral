@@ -93,7 +93,7 @@ function isDatePublished(pubs, date) {
   return pubs.some(p => p.from <= date && date <= p.to);
 }
 // Texto legible de un turno (para el historial y los correos).
-const ABSENCE_LABELS = { vacaciones: 'Vacaciones', incapacidad: 'Incapacidad', sin_horario: 'Sin horario' };
+const ABSENCE_LABELS = { vacaciones: 'Vacaciones', incapacidad: 'Incapacidad', sin_horario: 'Sin horario', otro_motivo: 'Otro motivo' };
 function shiftSummary(sh) {
   if (!sh) return 'Descanso';
   if (sh.absenceType) return ABSENCE_LABELS[sh.absenceType] || sh.shiftTitle || 'Inasistencia';
