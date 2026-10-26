@@ -3992,7 +3992,8 @@
         function vacAvailableNow(empId) {
             if (!vacData) return null;
             const e = vacData.employees.find(x => Number(x.id) === Number(empId));
-            if (!e) return null;
+            if (!e || !e.tracking) return null; // sin saldo inicial: aún no se descuentan
+
             const k = vacData.vacKey, from = e.usageFrom || vacData.since, loaded = appState.shiftsLoadedFrom || from;
             const srv = new Set(e.businessDays);
             let av = e.available;
@@ -4251,7 +4252,7 @@
                 <th class="text-center px-2 py-2 bg-amber-50 text-amber-800">Disponibles</th>
                 <th class="px-3 py-2"></th></tr>`;
             if (!vacData) { body.innerHTML = '<tr><td colspan="9" class="px-3 py-6 text-center text-rose-600">No se pudo cargar la información.</td></tr>'; return; }
-            document.getElementById('leaveHelp').innerHTML = `Término indefinido y fijo: <strong>15 días hábiles por año</strong>, causados día a día desde la fecha de ingreso. Al asignar <strong>Vacaciones</strong> en el cuadro de turnos solo descuentan los días hábiles (lunes a sábado; <strong>no</strong> domingos ni festivos). Saldo inicial: periodos anteriores + periodo en curso (la suite lo calcula) − lo ya disfrutado por fuera de la suite. Las vacaciones del cuadro se descuentan desde el ${fmtD(vacData.rosterFrom)}.`;
+            document.getElementById('leaveHelp').innerHTML = `Término indefinido y fijo: <strong>15 días hábiles por año</strong>, causados día a día desde la fecha de ingreso. Al asignar <strong>Vacaciones</strong> en el cuadro de turnos solo descuentan los días hábiles (lunes a sábado; <strong>no</strong> domingos ni festivos). Saldo inicial: periodos anteriores + periodo en curso (la suite lo calcula) − lo ya disfrutado por fuera de la suite. Las vacaciones del cuadro se descuentan <strong>solo cuando el colaborador tiene su saldo inicial registrado</strong> (desde el ${fmtD(vacData.rosterFrom)}).`;
             const rows = leaveRows();
             const canEdit = CAN('shifts.edit');
             const num = (n, sign) => n ? `${sign && n > 0 ? '+' : ''}${fmtDays(n)}` : '<span class="text-slate-300">0</span>';
@@ -4261,6 +4262,7 @@
                 const flags = [
                     !e.start ? '<span class="block text-3xs font-bold text-amber-700">Falta la fecha de ingreso</span>' : '',
                     e.needsInitial ? '<span class="block text-3xs font-bold text-amber-700">Falta el saldo inicial</span>' : '',
+                    !e.tracking && e.pendingRosterDays ? `<span class="block text-3xs font-semibold text-slate-500">Sin saldo inicial: ${e.pendingRosterDays} día(s) de vacaciones del cuadro aún no se descuentan</span>` : '',
                     e.initialLegacy ? '<span class="block text-3xs font-bold text-amber-700">Saldo inicial del formato anterior: rehazlo</span>' : '',
                     e.twoPeriods ? '<span class="block text-3xs font-bold text-rose-700">2 periodos o más: programarle vacaciones</span>' : '',
                     e.anniversaryThisMonth ? `<span class="block text-3xs font-bold text-sky-700">Cumple ${e.years} año(s) este mes</span>` : '',

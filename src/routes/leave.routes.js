@@ -288,7 +288,12 @@ function computeVacations(orgId) {
       const accrued = (start || (inicialMv && inicialMv.calcTo)) ? round2(days360(accrualFrom, today) * VAC_PER_YEAR / 360) : 0;
       if (usageFrom < VAC_ROSTER_FROM) usageFrom = VAC_ROSTER_FROM;
       const allVac = [...(vac.get(id) || [])].filter(d => d >= VAC_ROSTER_FROM).sort();
-      const days = allVac.filter(d => d >= usageFrom);
+      // Las Vacaciones del cuadro solo se descuentan cuando el colaborador ya tiene
+      // su saldo inicial registrado (asi una empresa puede no usar la funcion, o
+      // organizar primero los saldos, sin que se desordene nada).
+      const tracking = !!inicialMv;
+      const pendingRosterDays = tracking ? 0 : allVac.filter(d => d >= usageFrom).filter(isBusinessDayCO).length;
+      const days = tracking ? allVac.filter(d => d >= usageFrom) : [];
       const business = days.filter(isBusinessDayCO);
       const taken = business.filter(d => d <= today).length;
       const scheduled = business.filter(d => d > today).length;
@@ -297,7 +302,7 @@ function computeVacations(orgId) {
       return {
         id, name: e.name, department: e.department || '', contractType: e.contract_type || 'indefinido',
         hireDate, start, usageFrom, accrualFrom, initialLegacy: !!(inicialMv && !inicialMv.calcTo && inicialMv.prev == null),
-        initialMove: inicialMv, rosterBusinessDays: allVac.filter(isBusinessDayCO), restarted: !!(reinicio && start === reinicio.date), needsInitial: !!(start && start < since && !inicialMv),
+        initialMove: inicialMv, tracking, pendingRosterDays, rosterBusinessDays: allVac.filter(isBusinessDayCO), restarted: !!(reinicio && start === reinicio.date), needsInitial: !!(start && start < since && !inicialMv),
         initial, accrued, adjust, taken, scheduled, available, years,
         anniversaryThisMonth: !!(start && years >= 0 && start.slice(5, 7) === thisMonth && start.slice(0, 4) < today.slice(0, 4)),
         twoPeriods: available >= 2 * VAC_PER_YEAR,
