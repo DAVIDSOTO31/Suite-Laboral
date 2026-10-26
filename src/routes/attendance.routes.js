@@ -237,6 +237,7 @@ function computeSplitDayHours(employeeId, shiftDateISO, shift, salidaAbsMin, nig
     stage1End: o1 == null ? prog(shift.splitOut, start) : o1,
     stage2Start: i2 == null ? prog(shift.splitIn, start) : i2,
     scheduledStage2Min: shift.splitIn ? prog(shift.splitIn, start) : null,
+    scheduledStage1EndMin: shift.splitOut ? prog(shift.splitOut, start) : null,
     stage2End: o2 == null ? prog(shift.endTime, start) : o2,
     limitMinutes: splitLimitMinutes(shift),
     nightSurchargeEnabled: nightEnabled !== 0,
@@ -376,12 +377,13 @@ function performMark(orgId, employeeId, userId, method, ip, manualReason, opts =
     patch.inicio_almuerzo_real = actualClock;
     patch.status = 'en_almuerzo';
     statusLabel = 'en_almuerzo';
-    // Turno partido: la etapa 1 se alargo mas de 15 min. Ese tiempo puede
-    // convertir en extra la ultima parte de la etapa 2: alerta para revisarlo.
+    // Turno partido: la etapa 1 se alargo 30 min o mas. Ese tiempo cuenta como
+    // jornada y convierte en extra la ultima parte de la etapa 2: alerta para
+    // revisarlo. Menos de 30 min no cuentan (se toma la hora programada).
     if (shift.isSplit && shift.splitOut) {
       const progAbs = rules.scheduledAbsoluteMinutes(shift.splitOut, shift.startTime);
       const diff = actualAbsMin - progAbs;
-      if (progAbs != null && diff > STAGE_EXTENDED_TOLERANCE_MIN) {
+      if (progAbs != null && diff >= rules.OVERTIME_THRESHOLD_MIN) {
         insertAlert(orgId, employeeId, shiftDateISO, 'etapa_extendida', shift.splitOut, actualClock, diff, {
           employeeName: employee.name, etapa: 'Terminó la etapa 1 después de lo programado',
         });
@@ -1252,6 +1254,7 @@ async function registerCorrection(req, res) {
         stage2Start: abs.fin_almuerzo, stage2End: abs.salida,
         limitMinutes: splitLimitMinutes(shift), nightSurchargeEnabled: nightEnabled !== 0,
         scheduledStage2Min: shift.splitIn ? rules.scheduledAbsoluteMinutes(shift.splitIn, shift.startTime) : null,
+        scheduledStage1EndMin: shift.splitOut ? rules.scheduledAbsoluteMinutes(shift.splitOut, shift.startTime) : null,
       })
     : rules.categorizeWorkedMinutes({
         scheduledEntradaMin, scheduledSalidaMin,
@@ -1641,7 +1644,10 @@ function halfDayEval(day, shift) {
   if (shift.isSplit) {
     jornada = splitLimitMinutes(shift);
     const s1from = Math.max(abs.entrada, start);
-    const s1to = Math.max(s1from, abs.inicio_almuerzo != null ? abs.inicio_almuerzo : abs.salida);
+    let s1end = abs.inicio_almuerzo != null ? abs.inicio_almuerzo : abs.salida;
+    const s1prog = shift.splitOut ? rules.scheduledAbsoluteMinutes(shift.splitOut, shift.startTime) : null;
+    if (abs.inicio_almuerzo != null && s1prog != null && s1end > s1prog && s1end - s1prog < rules.OVERTIME_THRESHOLD_MIN) s1end = s1prog;
+    const s1to = Math.max(s1from, s1end);
     const s2prog = shift.splitIn ? rules.scheduledAbsoluteMinutes(shift.splitIn, shift.startTime) : null;
     const s2from = Math.max(s1to, abs.fin_almuerzo != null ? abs.fin_almuerzo : s1to, s2prog == null ? -Infinity : s2prog);
     const s2to = Math.max(s2from, abs.salida);
@@ -1738,11 +1744,12 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(HALF_DAY_FEAT
   } catch (e) { db.exec('ROLLBACK'); throw e; }
   for (const [orgId, c] of byOrg) logAction({ organizationId: orgId, userId: null, action: 'attendance.half_day_recalc', resourceType: 'attendance_day', resourceId: null, ip: null, metadata: { pagadosComoExtra: c.extra, porDecidir: c.pendiente } });
 }
-// Una sola vez: los turnos partidos ya cerrados de los periodos sin liquidar
-// (despues del Dia 0 y fuera de periodos cerrados) se recalculan con la regla
-// nueva: los minutos antes del inicio programado de la etapa 2 no cuentan.
-const SPLIT_STAGE2_FEATURE = 'turno_partido_etapa2_programada_v1';
-if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(SPLIT_STAGE2_FEATURE)) {
+// Recalculo unico de los turnos partidos ya cerrados de los periodos sin
+// liquidar (despues del Dia 0 y fuera de periodos cerrados) cuando cambia una
+// regla del turno partido. Solo se tocan los dias cuyo resultado cambia y queda
+// el detalle en la auditoria.
+function recalcSplitDaysOnce(feature, auditAction) {
+  if (db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(feature)) return;
   const days = db.prepare(`
     SELECT d.*, e.night_surcharge, e.name AS emp_name FROM attendance_days d
     JOIN employees e ON e.id = d.employee_id
@@ -1751,6 +1758,7 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(SPLIT_STAGE2_
   `).all();
   const upd = db.prepare("UPDATE attendance_days SET hod_min = ?, hon_min = ?, hed_min = ?, hen_min = ?, salida_anticipada_min = ?, updated_at = datetime('now') WHERE id = ?");
   const byOrg = new Map();
+  const h = (m) => (m / 60).toFixed(2).replace('.', ',');
   db.exec('BEGIN');
   try {
     for (const d of days) {
@@ -1764,6 +1772,7 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(SPLIT_STAGE2_
         scheduledEntradaMin: rules.timeToMinutes(shift.startTime), stage1Start: abs.entrada, stage1End: abs.inicio_almuerzo,
         stage2Start: abs.fin_almuerzo, stage2End: abs.salida, limitMinutes: splitLimitMinutes(shift), nightSurchargeEnabled: nightEnabled !== 0,
         scheduledStage2Min: rules.scheduledAbsoluteMinutes(shift.splitIn, shift.startTime),
+        scheduledStage1EndMin: shift.splitOut ? rules.scheduledAbsoluteMinutes(shift.splitOut, shift.startTime) : null,
       });
       let adeudado = rules.classifySalida(rules.scheduledAbsoluteMinutes(ordinaryEndClock(shift), shift.startTime), abs.salida).adeudadoMinutes;
       adeudado = rules.earlyLeaveDeductibleMinutes(Math.min(adeudado, Math.max(0, splitLimitMinutes(shift) - cat.worked)));
@@ -1774,14 +1783,18 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(SPLIT_STAGE2_
       upd.run(cat.hod, cat.hon, hed, cat.hen, adeudado, d.id);
       refreshHalfDay(d.organization_id, d.employee_id, d.shift_date, { fresh: true });
       const list = byOrg.get(d.organization_id) || [];
-      list.push(`${d.emp_name} ${d.shift_date.split('-').reverse().join('/')}: horas extra ${((base.hed + base.hen) / 60).toFixed(2).replace('.', ',')} → ${((hed + cat.hen) / 60).toFixed(2).replace('.', ',')} h`);
+      list.push(`${d.emp_name} ${d.shift_date.split('-').reverse().join('/')}: recargo nocturno ${h(base.hon)} → ${h(cat.hon)} h · horas extra ${h(base.hed + base.hen)} → ${h(hed + cat.hen)} h`);
       byOrg.set(d.organization_id, list);
     }
-    db.prepare("INSERT INTO app_migrations (name, applied_at) VALUES (?, datetime('now', '-5 hours'))").run(SPLIT_STAGE2_FEATURE);
+    db.prepare("INSERT INTO app_migrations (name, applied_at) VALUES (?, datetime('now', '-5 hours'))").run(feature);
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
-  for (const [orgId, list] of byOrg) logAction({ organizationId: orgId, userId: null, action: 'attendance.split_stage2_recalc', resourceType: 'attendance_day', resourceId: null, ip: null, metadata: { dias: list.length, detalle: list.slice(0, 30) } });
+  for (const [orgId, list] of byOrg) logAction({ organizationId: orgId, userId: null, action: auditAction, resourceType: 'attendance_day', resourceId: null, ip: null, metadata: { dias: list.length, detalle: list.slice(0, 30) } });
 }
+// Etapa 2: los minutos antes de su inicio programado no cuentan.
+recalcSplitDaysOnce('turno_partido_etapa2_programada_v1', 'attendance.split_stage2_recalc');
+// Etapa 1: si se pasa menos de 30 min, se toma la hora programada de fin.
+recalcSplitDaysOnce('turno_partido_etapa1_barrera30_v1', 'attendance.split_stage1_recalc');
 function autoMarkStaleAlerts(orgId) {
   const unj = autoMarkStaleByStatus(orgId, AUTO_UNJUST_TYPES, 'injustificada', AUTO_UNJUST_NOTE, 'attendance.alerts_auto_unjustified');
   const just = autoMarkStaleByStatus(orgId, AUTO_JUST_TYPES, 'justificada', AUTO_JUST_NOTE, 'attendance.alerts_auto_justified');

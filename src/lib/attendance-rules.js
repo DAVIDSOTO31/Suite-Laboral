@@ -251,15 +251,20 @@ function categorizeWorkedMinutes({
 // ser tiempo extra. Lo trabajado antes de la entrada programada no se computa,
 // ni en la etapa 1 ni en la etapa 2 (si regresa antes de la hora programada de
 // inicio de la etapa 2, esos minutos no cuentan: ni jornada ni extra).
+// Fin de la etapa 1: si se pasa MENOS de 30 minutos de la hora programada, se
+// toma la hora programada (esos minutos no cuentan); desde 30 minutos, todo ese
+// tiempo cuenta como jornada y la ultima parte de la etapa 2 pasa a extra.
 // La barrera de 30 minutos aplica igual. Todos los valores en minutos
 // absolutos desde la medianoche del dia del turno.
 // ---------------------------------------------------------------------------
 function categorizeSplitWorkedMinutes({
   scheduledEntradaMin, stage1Start, stage1End, stage2Start, stage2End,
-  limitMinutes = 480, nightSurchargeEnabled = true, scheduledStage2Min = null,
+  limitMinutes = 480, nightSurchargeEnabled = true, scheduledStage2Min = null, scheduledStage1EndMin = null,
 }) {
   const s1from = Math.max(stage1Start, scheduledEntradaMin);
-  const s1to = Math.max(s1from, stage1End);
+  let s1end = stage1End;
+  if (scheduledStage1EndMin != null && s1end > scheduledStage1EndMin && s1end - scheduledStage1EndMin < OVERTIME_THRESHOLD_MIN) s1end = scheduledStage1EndMin;
+  const s1to = Math.max(s1from, s1end);
   const s2from = Math.max(s1to, stage2Start, scheduledStage2Min == null ? -Infinity : scheduledStage2Min);
   const s2to = Math.max(s2from, stage2End);
   let remaining = Math.max(0, limitMinutes);
