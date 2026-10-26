@@ -7091,6 +7091,23 @@
             const startDate = startInput.value;
             const endDate = endInput.value;
             const deptFilter = document.getElementById('payrollOtDeptFilter')?.value || '_ALL_';
+            const calc = await computePayrollOt(startDate, endDate, deptFilter);
+            appState._payrollOtPending = { days: calc.pendingDays, upcoming: calc.upcomingDays, includeEstimates: calc.includeEstimates, confirmedAbsences: calc.confirmedAbsences };
+            appState._payrollOtAdjHistory = calc.adjHistory;
+            appState._payrollOtOpenMissing = calc.openNotIncluded;
+            // Guardamos el cálculo vigente para reutilizarlo en las ediciones en vivo y la exportación CSV
+            appState._payrollOtCache = {
+                rows: calc.rows, startDate, endDate,
+                closures: { recargos: calc.closedRecargos, extras: calc.closedExtras, all: calc.closureInfo.closures || [], previousExtras: calc.closureInfo.previousExtras, recargosInfo: calc.closureInfo.recargos || null },
+            };
+
+            renderPayrollOtTableAndKpis();
+        }
+
+        // Cálculo de la Liquidación de extras y recargos para un periodo (sin pintar nada):
+        // lo usan la pantalla de Liquidación y el indicador "Extras y recargos" del
+        // Tablero Gerencial, para que ambos den siempre el mismo valor.
+        async function computePayrollOt(startDate, endDate, deptFilter = '_ALL_') {
             // Periodo anterior a la ventana de turnos cargada: se traen esos turnos.
             if (startDate && !shiftsLoaded(startDate)) {
                 try { await ensureShiftsLoaded(startDate); } catch (e) { showAppToast('No se pudieron cargar los turnos del periodo: ' + e.message); }
@@ -7252,10 +7269,6 @@
             });
 
             // Aplica ajustes manuales guardados (si el usuario ya editó alguna celda de este colaborador)
-            appState._payrollOtCache = { rows: [], startDate, endDate };
-            appState._payrollOtPending = { days: pendingDays, upcoming: upcomingDays, includeEstimates, confirmedAbsences };
-            appState._payrollOtOpenMissing = [];
-            appState._payrollOtAdjHistory = adjHistory;
             const edits = adjByEmp;
 
             let rows = Object.values(byEmp).map(r => {
@@ -7396,15 +7409,7 @@
             }
             rows.forEach(r => { r.total = r.honPay + r.hedPay + r.henPay + (r.domPay || 0); });
             rows.sort((a, b) => a.emp.name.localeCompare(b.emp.name));
-            appState._payrollOtOpenMissing = openNotIncluded;
-
-            // Guardamos el cálculo vigente para reutilizarlo en las ediciones en vivo y la exportación CSV
-            appState._payrollOtCache = {
-                rows, startDate, endDate,
-                closures: { recargos: closedRecargos, extras: closedExtras, all: closureInfo.closures || [], previousExtras: closureInfo.previousExtras, recargosInfo: closureInfo.recargos || null },
-            };
-
-            renderPayrollOtTableAndKpis();
+            return { rows, closureInfo, closedRecargos, closedExtras, pendingDays, upcomingDays, includeEstimates, confirmedAbsences, adjHistory, openNotIncluded };
         }
 
         // Repinta la tabla y los KPIs a partir de appState._payrollOtCache.rows (sin recalcular desde los turnos),
@@ -11913,6 +11918,21 @@
             document.getElementById('indTo').value = to;
         }
         // quiet = actualización en vivo (sin el aviso "Calculando…").
+        // Totales de la Liquidación para el indicador "Extras y recargos".
+        function indLiqSummary(calc) {
+            const rows = (calc && calc.rows) || [];
+            const sum = (f) => rows.reduce((a, r) => a + (Number(f(r)) || 0), 0);
+            const debt = rows.filter(r => (r.carryOut || 0) < 0);
+            return {
+                rows,
+                honH: sum(r => r.hon), honPay: sum(r => r.honPay),
+                domH: sum(r => r.domHours), domPay: sum(r => r.domPay),
+                hedH: sum(r => r.hed), hedPay: sum(r => r.hedPay),
+                henH: sum(r => r.hen), henPay: sum(r => r.henPay), offsetValue: sum(r => r.offsetValue),
+                total: sum(r => r.total),
+                debtH: debt.reduce((a, r) => a + r.carryOut, 0), debtCount: debt.length,
+            };
+        }
         async function attendanceLoadIndicators(initial, quiet) {
             const fromEl = document.getElementById('indFrom'), toEl = document.getElementById('indTo');
             if (!fromEl.value || !toEl.value) indApplyPreset();
@@ -11922,6 +11942,13 @@
                 const qs = new URLSearchParams({ from: fromEl.value, to: toEl.value });
                 if (area) qs.set('area', area);
                 const d = await apiFetch(`/api/attendance/indicators?${qs.toString()}`);
+                // "Extras y recargos": lo que la empresa debe pagar, con el MISMO cálculo de la Liquidación.
+                if (CAN('reports.view')) {
+                    try {
+                        const [cur, prev] = await Promise.all([computePayrollOt(d.from, d.to, area || '_ALL_'), computePayrollOt(d.prevFrom, d.prevTo, area || '_ALL_')]);
+                        d.liq = indLiqSummary(cur); d.liqPrev = indLiqSummary(prev);
+                    } catch (e) { d.liq = null; }
+                }
                 lastIndicators = d;
                 const sel = document.getElementById('indArea');
                 sel.innerHTML = '<option value="">Todas las áreas</option>' + d.areasAll.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
@@ -11953,7 +11980,7 @@
             const card = (title, icon, value, sub, delta) => {
                 const key = cardKeys[cardIdx++];
                 const sel = indSelectedCard === key;
-                const ev = indGoalEval(key, t, d);
+                const ev = indGoalEval(key, key === 'costo' && d.liq ? { ...t, costoTotal: d.liq.total } : t, d);
                 const stc = ev.st ? IND_ST[ev.st] : null;
                 return `
                 <button type="button" onclick="toggleIndCard('${key}')" aria-expanded="${sel}" title="Clic para ver el detalle" class="text-left border rounded-lg p-3 bg-white transition hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-sky-400 ${stc ? 'border-t-4 ' + stc.bar : ''} ${sel ? 'border-sky-500 ring-2 ring-sky-500 shadow-md' : 'border-slate-200'}">
@@ -11975,8 +12002,18 @@
                 card('Tiempo perdido', 'fa-hourglass-half', minsFmt(t.minutosPerdidos),
                     `≈ <strong>${pdfMoney(t.costoPerdido)}</strong> · retrasos ${minsFmt(t.minutosRetraso)} + exceso de almuerzo ${minsFmt(t.minutosAlmuerzo || 0)} (tiempo no recuperable)`,
                     indDelta(t.minutosPerdidos, p.minutosPerdidos, 'down', minsFmt, ' min')),
-                // Extras y recargos: una sola tarjeta (costo total + desglose en $ y horas + horas extra netas).
-                card('Extras y recargos', 'fa-sack-dollar', `<span class="${(t.costoTotal || 0) < 0 ? 'text-rose-700' : ''}">${moneyS(t.costoTotal)}</span>`,
+                // Extras y recargos: lo que la empresa debe pagar, igual que la Liquidación del mismo periodo.
+                d.liq ? card('Extras y recargos', 'fa-sack-dollar', moneyS(d.liq.total),
+                    `<span class="grid grid-cols-1 gap-0.5 mt-1 text-slate-600">
+                        <span class="flex justify-between gap-2"><span>Recargo nocturno <span class="text-slate-400">${fmtHorasDec(d.liq.honH * 60)}</span></span><strong class="text-slate-700">${moneyS(d.liq.honPay)}</strong></span>
+                        ${d.liq.domPay ? `<span class="flex justify-between gap-2"><span>Dominical / festivo <span class="text-slate-400">${fmtHorasDec(d.liq.domH * 60)}</span></span><strong class="text-slate-700">${moneyS(d.liq.domPay)}</strong></span>` : ''}
+                        <span class="flex justify-between gap-2"><span>Extras diurnas a pagar <span class="text-slate-400">${fmtHorasDec(d.liq.hedH * 60)}</span></span><strong class="text-slate-700">${moneyS(d.liq.hedPay)}</strong></span>
+                        <span class="flex justify-between gap-2"><span>Extras nocturnas <span class="text-slate-400">${fmtHorasDec(d.liq.henH * 60)}</span>${d.liq.offsetValue ? `<span class="block text-3xs text-rose-700">Incluye descuento por deuda diurna −${pdfMoney(d.liq.offsetValue)}</span>` : ''}</span><strong class="text-slate-700">${moneyS(d.liq.henPay)}</strong></span>
+                        ${d.liq.debtCount ? `<span class="flex justify-between gap-2 border-t border-slate-200 pt-1 mt-0.5"><span class="text-rose-700">Pendiente por compensar <span class="text-slate-400">(${d.liq.debtCount} colab.; no se paga)</span></span><strong class="whitespace-nowrap text-rose-700">${fmtHorasDec(d.liq.debtH * 60)}</strong></span>` : ''}
+                        <span class="text-3xs text-slate-400 mt-0.5">Mismo cálculo de Liquidación de extras y recargos para este periodo.</span>
+                    </span>`,
+                    indDelta(d.liq.total, d.liqPrev ? d.liqPrev.total : null, 'down', moneyS, '$'))
+                : card('Extras y recargos', 'fa-sack-dollar', `<span class="${(t.costoTotal || 0) < 0 ? 'text-rose-700' : ''}">${moneyS(t.costoTotal)}</span>`,
                     `<span class="grid grid-cols-1 gap-0.5 mt-1 text-slate-600">
                         <span class="flex justify-between gap-2"><span>Recargo nocturno <span class="text-slate-400">${fmtHorasDec(t.recargoNocturnoMin)}</span></span><strong class="text-slate-700">${moneyS(t.costoRecargo)}</strong></span>
                         <span class="flex justify-between gap-2"><span>Extras diurnas netas <span class="text-slate-400">${fmtHorasDec(t.extraDiurnaMin)}</span></span><strong class="${(t.costoExtraDiurna || 0) < 0 ? 'text-rose-700' : 'text-slate-700'}">${moneyS(t.costoExtraDiurna)}</strong></span>
@@ -12052,7 +12089,16 @@
                     head: ['Colaborador', 'Área', 'Días', 'Retrasos', 'Exceso de almuerzo', 'Total', 'Costo aprox.'], rows: (det.perdido || []).map(r => [who(r), escapeHtml(r.area), r.dias, fmtMins(r.retraso), fmtMins(r.almuerzo), `<strong>${fmtMins(r.total)}</strong>`, pdfMoney(r.costo)]) },
                 extras: { title: 'Horas extra por colaborador', hint: 'Netas = extras generadas menos el tiempo descontado por salidas anticipadas (lo que realmente paga la empresa). Solo días con turno cerrado.',
                     head: ['Colaborador', 'Área', 'Generadas', 'Salidas anticipadas', 'Diurnas netas', 'Nocturnas', 'Netas', 'Valor aprox.'], rows: (det.extras || []).map(r => [who(r), escapeHtml(r.area), fmtHorasDec(r.generada), r.salida ? `<span class="text-rose-700">− ${fmtHorasDec(r.salida)}</span>` : '-', `<span class="${r.diurna < 0 ? 'text-rose-700' : ''}">${fmtHorasDec(r.diurna)}</span>`, fmtHorasDec(r.nocturna), `<strong class="${r.neto < 0 ? 'text-rose-700' : ''}">${fmtHorasDec(r.neto)}</strong>`, pdfMoney(r.valor || 0)]) },
-                costo: { title: 'Extras y recargos por colaborador', hint: 'Con marcaciones reales, solo días con turno cerrado. Recargo nocturno al 35 %, extra diurna al 125 % y extra nocturna al 175 % del valor hora (salario ÷ divisor mensual). A las extras diurnas ya se les restaron las salidas anticipadas: si el saldo queda negativo se muestra en rojo y resta del total.',
+                costo: d.liq ? { title: 'Extras y recargos por colaborador (a pagar)', hint: 'Mismo cálculo de Liquidación de extras y recargos: a cada colaborador se le paga su saldo a favor; si en extras diurnas queda debiendo, esa deuda se descuenta de sus extras nocturnas y lo que falte queda pendiente por compensar en el siguiente periodo (no se paga ni se resta a otros). Incluye saldos iniciales del Día 0 y periodos ya cerrados con sus valores aprobados.',
+                    head: ['Colaborador', 'Área', 'Recargo nocturno', 'Extras diurnas a pagar', 'Extras nocturnas', 'Pendiente por compensar', 'Total a pagar'],
+                    rows: d.liq.rows.filter(r => r.total || r.carryOut || r.hon || r.hed || r.hen).map(r => [who({ employeeId: r.emp.id, name: r.emp.name }), escapeHtml(r.emp.department || ''),
+                        `${moneyS(r.honPay)}<span class="block text-3xs text-slate-400">${fmtHorasDec((r.hon || 0) * 60)}</span>`,
+                        `${moneyS(r.hedPay)}<span class="block text-3xs text-slate-400">${fmtHorasDec((r.hed || 0) * 60)}</span>`,
+                        `${moneyS(r.henPay)}<span class="block text-3xs text-slate-400">${fmtHorasDec((r.hen || 0) * 60)}${r.offsetValue ? ` · desc. −${pdfMoney(r.offsetValue)}` : ''}</span>`,
+                        r.carryOut ? `<span class="text-rose-700 font-semibold">${fmtHorasDec(r.carryOut * 60)}</span>` : '-',
+                        `<strong>${moneyS(r.total)}</strong>`]),
+                    foot: ['TOTAL', '', moneyS(d.liq.honPay), moneyS(d.liq.hedPay), moneyS(d.liq.henPay), d.liq.debtCount ? fmtHorasDec(d.liq.debtH * 60) : '-', `<strong>${moneyS(d.liq.total)}</strong>`] }
+                : { title: 'Extras y recargos por colaborador', hint: 'Con marcaciones reales, solo días con turno cerrado. Recargo nocturno al 35 %, extra diurna al 125 % y extra nocturna al 175 % del valor hora (salario ÷ divisor mensual). A las extras diurnas ya se les restaron las salidas anticipadas: si el saldo queda negativo se muestra en rojo y resta del total.',
                     head: ['Colaborador', 'Área', 'Días', 'Recargo nocturno', 'Extras diurnas netas', 'Salidas anticipadas (ya restadas)', 'Extras nocturnas', 'Horas extra netas', 'Total'],
                     rows: (det.costo || []).map(r => [who(r), escapeHtml(r.area), r.dias,
                         `${moneyS(r.costoRecargo)}<span class="block text-3xs text-slate-400">${fmtHorasDec(r.recargoMin)}</span>`,
@@ -12099,7 +12145,10 @@
                 puntualidad: ['Llegadas tarde', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Hora programada', 'Hora de llegada', 'Minutos de retraso'], (det.tardes || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, r.programada, r.real || '', r.min])],
                 perdido: ['Tiempo perdido', ['Colaborador', 'Documento', 'Área', 'Días', 'Min. retraso', 'Min. exceso almuerzo', 'Min. total', 'Horas total', 'Costo aprox. ($)'], (det.perdido || []).map(r => [r.name, doc(r.employeeId), r.area, r.dias, r.retraso, r.almuerzo, r.total, h(r.total), r.costo])],
                 extras: ['Horas extra', ['Colaborador', 'Documento', 'Área', 'Horas generadas', 'Horas desc. salida anticipada', 'Horas diurnas netas', 'Horas nocturnas', 'Horas netas', 'Valor aprox. ($)'], (det.extras || []).map(r => [r.name, doc(r.employeeId), r.area, h(r.generada), h(r.salida), h(r.diurna), h(r.nocturna), h(r.neto), r.valor || 0])],
-                costo: ['Extras y recargos', ['Colaborador', 'Documento', 'Área', 'Días', 'Horas recargo nocturno', 'Costo recargo nocturno ($)', 'Horas extra diurnas netas', 'Costo extras diurnas netas ($)', 'Horas salida anticipada (ya restadas)', 'Valor salida anticipada ($)', 'Horas extra nocturnas', 'Costo extras nocturnas ($)', 'Horas extra netas', 'Costo total ($)'],
+                costo: d.liq ? ['Extras y recargos (a pagar)', ['Colaborador', 'Documento', 'Área', 'Horas recargo nocturno', 'Recargo nocturno ($)', 'Horas extra diurnas a pagar', 'Extras diurnas ($)', 'Horas extra nocturnas', 'Descuento por deuda diurna ($)', 'Extras nocturnas ($)', 'Pendiente por compensar (horas)', 'Total a pagar ($)'],
+                    d.liq.rows.filter(r => r.total || r.carryOut || r.hon || r.hed || r.hen).map(r => [r.emp.name, docLabel(r.emp), r.emp.department || '', Number((r.hon || 0).toFixed(2)), Math.round(r.honPay || 0), Number((r.hed || 0).toFixed(2)), Math.round(r.hedPay || 0), Number((r.hen || 0).toFixed(2)), Math.round(r.offsetValue || 0), Math.round(r.henPay || 0), Number((r.carryOut || 0).toFixed(2)), Math.round(r.total || 0)])
+                        .concat([['TOTAL', '', '', Number(d.liq.honH.toFixed(2)), Math.round(d.liq.honPay), Number(d.liq.hedH.toFixed(2)), Math.round(d.liq.hedPay), Number(d.liq.henH.toFixed(2)), Math.round(d.liq.offsetValue), Math.round(d.liq.henPay), Number(d.liq.debtH.toFixed(2)), Math.round(d.liq.total)]])]
+                : ['Extras y recargos', ['Colaborador', 'Documento', 'Área', 'Días', 'Horas recargo nocturno', 'Costo recargo nocturno ($)', 'Horas extra diurnas netas', 'Costo extras diurnas netas ($)', 'Horas salida anticipada (ya restadas)', 'Valor salida anticipada ($)', 'Horas extra nocturnas', 'Costo extras nocturnas ($)', 'Horas extra netas', 'Costo total ($)'],
                     (det.costo || []).map(r => [r.name, doc(r.employeeId), r.area, r.dias, h2(r.recargoMin), r.costoRecargo, h2(r.diurnaMin), r.costoDiurna, h2(r.salidaMin), r.costoSalida, h2(r.nocturnaMin), r.costoNocturna, h2(r.diurnaMin + r.nocturnaMin), r.total])
                         .concat([['TOTAL', '', '', '', h2(d.total.recargoNocturnoMin), d.total.costoRecargo, h2(d.total.extraDiurnaMin), d.total.costoExtraDiurna, h2(d.total.descuentoSalidaMin), d.total.costoSalida, h2(d.total.extraNocturnaMin), d.total.costoExtraNocturna, h2(d.total.extraTotalMin), d.total.costoTotal]])],
                 sinCerrar: ['Turnos sin cerrar', ['Colaborador', 'Documento', 'Área', 'Fecha', 'Estado'], (det.sinCerrar || []).map(r => [r.name, doc(r.employeeId), r.area, r.date, EST[r.estado] || r.estado])],
