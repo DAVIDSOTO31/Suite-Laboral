@@ -531,9 +531,12 @@ async function syncEmployeesAndShifts(req, res) {
       // La nota del dia si se puede cambiar. Lo que llegue distinto se corrige
       // aqui y se devuelve al navegador en lockedFixed.
       const lockedFixed = [];
+      const startedChanges = [];
       {
         const lockFrom = addDaysISO(bogotaToday(), -1);
-        const locked = db.prepare("SELECT DISTINCT employee_id, shift_date FROM attendance_marks WHERE organization_id = ? AND mark_type = 'entrada' AND shift_date >= ?").all(orgId, lockFrom);
+        const locked = db.prepare(`SELECT employee_id, shift_date, MAX(CASE WHEN mark_type = 'salida' THEN 1 ELSE 0 END) AS closed
+          FROM attendance_marks WHERE organization_id = ? AND mark_type IN ('entrada', 'salida') AND shift_date >= ?
+          GROUP BY employee_id, shift_date HAVING MAX(CASE WHEN mark_type = 'entrada' THEN 1 ELSE 0 END) = 1`).all(orgId, lockFrom);
         if (locked.length) {
           const idxByKey = new Map();
           body.shifts.forEach((sh, i) => { if (sh && sh.date) idxByKey.set(keyOf(sh), i); });
@@ -548,7 +551,16 @@ async function syncEmployeesAndShifts(req, res) {
             else if (stored.isSplit) { if (inc.startTime !== stored.startTime) final = { ...inc, startTime: stored.startTime }; }
             else {
               const same = ['startTime', 'endTime', 'breakM', 'limit', 'isSplit'].every(f => String(inc[f] ?? '') === String(stored[f] ?? ''));
-              if (!same) { final = { ...stored }; if (inc.note) final.note = inc.note; else delete final.note; }
+              // Turno ya iniciado (aun sin salida): se puede cambiar la hora de
+              // salida, el limite de horas o el almuerzo, con motivo. La entrada no.
+              const onlyEnd = String(inc.startTime ?? '') === String(stored.startTime ?? '') && !inc.isSplit && !stored.isSplit;
+              const reason = String(inc.lockReason || '').trim().slice(0, 300);
+              if (!same && onlyEnd && !l.closed && reason.length >= 5) {
+                final = { ...inc };
+                delete final.lockReason;
+                const fmt = (x) => `${x.startTime}-${x.endTime} (${x.limit} h, almuerzo ${x.breakM} min)`;
+                startedChanges.push({ empId: Number(l.employee_id), date: l.shift_date, antes: fmt(stored), despues: fmt(final), motivo: reason, endTime: final.endTime });
+              } else if (!same) { final = { ...stored }; if (inc.note) final.note = inc.note; else delete final.note; }
             }
             if (final !== inc) {
               if (i != null) body.shifts[i] = final; else body.shifts.push(final);
@@ -558,6 +570,16 @@ async function syncEmployeesAndShifts(req, res) {
         }
       }
       lockedFixedAll = lockedFixed;
+      // El motivo nunca se guarda dentro del turno.
+      for (const sh of body.shifts) if (sh && sh.lockReason !== undefined) delete sh.lockReason;
+      // Cambios de horario en un dia ya iniciado: auditoria y salida programada del dia.
+      for (const c of startedChanges) {
+        const emp = db.prepare('SELECT name FROM employees WHERE id = ? AND organization_id = ?').get(c.empId, orgId) || {};
+        db.prepare("UPDATE attendance_days SET scheduled_salida = ?, updated_at = datetime('now') WHERE organization_id = ? AND employee_id = ? AND shift_date = ? AND status != 'turno_finalizado'")
+          .run(c.endTime, orgId, c.empId, c.date);
+        logAction({ organizationId: orgId, userId: req.user.id, action: 'shift.started_changed', resourceType: 'employee', resourceId: String(c.empId), ip: getClientIp(req),
+          metadata: { colaborador: emp.name || null, fecha: c.date, antes: c.antes, despues: c.despues, motivo: c.motivo } });
+      }
       const afterAll = new Map();
       for (const sh of body.shifts) { if (sh && sh.date >= windowFrom) afterAll.set(keyOf(sh), sh); }
       const auditByEmp = new Map();
@@ -660,9 +682,11 @@ function getShiftLocks(req, res, query = {}) {
   const yesterday = addDaysISO(bogotaToday(), -1);
   const from = ISO_DATE.test(query.from || '') && query.from > yesterday ? query.from : yesterday;
   const to = ISO_DATE.test(query.to || '') ? query.to : addDaysISO(bogotaToday(), 1);
-  const rows = db.prepare(`SELECT employee_id, shift_date, MIN(actual_at) AS at FROM attendance_marks
-    WHERE organization_id = ? AND mark_type = 'entrada' AND shift_date BETWEEN ? AND ? GROUP BY employee_id, shift_date`).all(orgId, from, to);
-  sendJson(res, 200, { locks: rows.map(r => ({ empId: Number(r.employee_id), date: r.shift_date, entradaAt: r.at })) });
+  const rows = db.prepare(`SELECT employee_id, shift_date,
+      MIN(CASE WHEN mark_type = 'entrada' THEN actual_at END) AS at, MAX(CASE WHEN mark_type = 'salida' THEN actual_at END) AS salida_at
+    FROM attendance_marks WHERE organization_id = ? AND mark_type IN ('entrada', 'salida') AND shift_date BETWEEN ? AND ?
+    GROUP BY employee_id, shift_date HAVING at IS NOT NULL`).all(orgId, from, to);
+  sendJson(res, 200, { locks: rows.map(r => ({ empId: Number(r.employee_id), date: r.shift_date, entradaAt: r.at, salidaAt: r.salida_at || null })) });
 }
 
 function getShiftsRange(req, res, query) {
