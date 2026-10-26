@@ -1944,6 +1944,31 @@
         </div>
     </div>
 
+    <!-- MODAL: Justificar una inasistencia desde el tablero Hoy -->
+    <div id="modalJustify" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-5 shadow-2xl space-y-3 border border-slate-200 max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-start border-b pb-3">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-user-check text-emerald-600"></i> Justificar inasistencia</h3>
+                    <p class="text-xs text-slate-500 mt-0.5" id="justifySub">-</p>
+                </div>
+                <button onclick="closeModal('modalJustify')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <input type="hidden" id="justifyEmp"><input type="hidden" id="justifyDate">
+            <p class="text-xs font-semibold text-slate-700">¿Por qué no vino?</p>
+            <div id="justifyTypes" class="grid grid-cols-2 gap-1.5 text-xs"></div>
+            <p class="text-3xs text-slate-500">¿Un motivo que se repite (permiso, calamidad doméstica…)? Créalo una vez como inasistencia en el cuadro de turnos y aparecerá aquí como opción propia.</p>
+            <label class="block text-xs"><span class="font-semibold text-slate-700">Nota <span class="font-normal text-slate-400">(opcional)</span></span>
+                <input id="justifyNote" maxlength="120" placeholder="Ej. avisó por WhatsApp a las 7:30" class="mt-1 w-full p-2 border rounded-lg"></label>
+            <p class="text-3xs text-slate-500">Queda registrado en el cuadro de turnos de ese día (lo puedes cambiar allí). La persona sale de "No han llegado" y no se genera la alerta "No se presentó" (si ya existía, se quita sola).</p>
+            <p id="justifyMsg" class="hidden text-2xs font-semibold text-rose-600"></p>
+            <div class="flex justify-end gap-2 pt-1">
+                <button type="button" onclick="closeModal('modalJustify')" class="px-3 py-2 rounded-lg bg-slate-100 text-sm">Cancelar</button>
+                <button type="button" id="justifyBtn" onclick="saveJustify()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold">Justificar</button>
+            </div>
+        </div>
+    </div>
+
     <div id="modalCorrDetail" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
         <div class="bg-white rounded-xl max-w-md w-full p-5 shadow-2xl space-y-3 border border-slate-200 max-h-[92vh] overflow-y-auto">
             <div class="flex justify-between items-start border-b pb-3">
@@ -3057,13 +3082,16 @@
             vacaciones:  { label: 'Vacaciones',  color: 'yellow', icon: 'fa-umbrella-beach' },
             incapacidad: { label: 'Incapacidad', color: 'orange', icon: 'fa-briefcase-medical' },
             sin_horario: { label: 'Sin Horario', color: 'gray',   icon: 'fa-user-slash' },
+            // "Otro motivo": solo se asigna desde "Justificar" del tablero Hoy (con su nota);
+            // no aparece en la paleta del cuadro. Cuenta para el ausentismo.
+            otro_motivo: { label: 'Otro motivo', color: 'stone', icon: 'fa-circle-question', hidden: true },
         };
 
         // Inasistencias personalizadas (ej. Compensatorio, Licencia, Calamidad):
         // cada organización crea las suyas. Se guardan junto a los turnos
         // predeterminados con kind:'absence' y funcionan igual que vacaciones:
         // día sin horario de trabajo, sin marcación y sin horas.
-        const BUILTIN_ABSENCE_KEYS = ['vacaciones', 'incapacidad', 'sin_horario'];
+        const BUILTIN_ABSENCE_KEYS = ['vacaciones', 'incapacidad', 'sin_horario', 'otro_motivo'];
         const ABSENCE_COLOR_CHOICES = ['amber', 'lime', 'teal', 'cyan', 'blue', 'violet', 'pink', 'stone', 'slate', 'green'];
         function syncCustomAbsenceTypes() {
             Object.keys(ABSENCE_TYPES).forEach(k => { if (!BUILTIN_ABSENCE_KEYS.includes(k)) delete ABSENCE_TYPES[k]; });
@@ -12558,6 +12586,70 @@
             }, 60000);
             await attendanceFetchToday();
         }
+        // ---- Justificar una inasistencia desde "No han llegado" ----
+        async function openJustify(empId, dateISO) {
+            const emp = appState.employees.find(e => Number(e.id) === Number(empId));
+            if (!emp) return;
+            const p = lastTodayBoard ? (lastTodayBoard.areas || []).flatMap(a => a.people || []).find(x => Number(x.id) === Number(empId) && x.shiftDate === dateISO) : null;
+            document.getElementById('justifyEmp').value = empId;
+            document.getElementById('justifyDate').value = dateISO;
+            document.getElementById('justifySub').textContent = `${emp.name} · ${dateISO.split('-').reverse().join('/')}${p ? ' · turno ' + p.scheduled : ''}`;
+            document.getElementById('justifyNote').value = '';
+            document.getElementById('justifyMsg').classList.add('hidden');
+            const types = Object.entries(ABSENCE_TYPES).filter(([, a]) => !a.hidden);
+            document.getElementById('justifyTypes').innerHTML = types.map(([k, a]) => {
+                const th = SHIFT_COLOR_THEMES[a.color] || SHIFT_COLOR_THEMES.stone;
+                return `<label class="flex items-center gap-2 px-2 py-1.5 rounded-lg border ${th.bg} cursor-pointer"><input type="radio" name="justifyType" value="${k}" class="w-4 h-4"> <span class="font-bold uppercase text-3xs leading-tight">${escapeHtml(a.label)}</span></label>`;
+            }).join('') + `<label class="flex items-center gap-2 px-2 py-1.5 rounded-lg border border-stone-400 bg-stone-200 text-stone-900 cursor-pointer col-span-2"><input type="radio" name="justifyType" value="otro_motivo" class="w-4 h-4"> <span class="font-bold text-3xs leading-tight">OTRO MOTIVO <span class="font-normal normal-case">(escríbelo en la nota)</span></span></label>`
+                + `<label class="flex items-center gap-2 px-2 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 cursor-pointer col-span-2"><input type="radio" name="justifyType" value="__off" class="w-4 h-4"> <span class="font-bold text-3xs leading-tight">DESCANSO <span class="font-normal normal-case">(el turno estaba mal programado)</span></span></label>`;
+            openModal('modalJustify');
+            if (!shiftsLoaded(dateISO)) { try { await ensureShiftsLoaded(dateISO); } catch (e) { /* sin conexion */ } }
+            try { await loadLeaveData(); } catch (e) { /* sin saldos: no se avisa */ }
+        }
+        async function saveJustify() {
+            const msg = document.getElementById('justifyMsg');
+            const show = (t) => { msg.textContent = t; msg.classList.remove('hidden'); };
+            const empId = Number(document.getElementById('justifyEmp').value), dateISO = document.getElementById('justifyDate').value;
+            const type = (document.querySelector('input[name="justifyType"]:checked') || {}).value;
+            if (!type) return show('Elige el motivo.');
+            const emp = appState.employees.find(e => Number(e.id) === empId);
+            if (!emp) return;
+            if (isShiftLocked(empId, dateISO)) return show('Ya marcó su entrada: este día no se puede cambiar.');
+            const note = document.getElementById('justifyNote').value.trim();
+            let toast;
+            if (type === '__off') {
+                appState.shifts = appState.shifts.filter(s => !(Number(s.empId) === empId && s.date === dateISO));
+                appState.shifts.push({ empId, date: dateISO, startTime: '--:--', endTime: '--:--', breakM: 0, limit: 8, color: 'rose', shiftTitle: 'Descanso', functionTag: 'Día Libre', isOffDay: true,
+                    res: { totalHours: 0, hod: 0, hon: 0, hed: 0, hen: 0, hedd: 0, hend: 0, hourlyRate: 0, baseOrdinaryPay: 0, honSurcharge: 0, hedTotalPay: 0, henTotalPay: 0, domOrdinarySurcharge: 0, totalSurcharges: 0, totalPay: 0, isSunday: shiftSundayFlag(dateISO) } });
+                toast = `Día cambiado a descanso para ${emp.name}.`;
+            } else {
+                const a = ABSENCE_TYPES[type];
+                // Mismos avisos del cuadro: saldo de descansos acumulados y de vacaciones.
+                const prev = appState.shifts.find(s => Number(s.empId) === empId && s.date === dateISO);
+                const isComp = leaveData && leaveData.restKey === type;
+                const balBefore = isComp ? restBalanceNow(empId) : null;
+                const consumes = isComp && balBefore !== null && !(prev && prev.absenceType === type) && dateISO >= leaveData.since;
+                const isVac = vacData && vacData.vacKey === type && isVacBusinessDay(dateISO) && !(prev && prev.absenceType === type);
+                const vacBefore = isVac ? vacAvailableNow(empId) : null;
+                if (vacBefore !== null && vacBefore < 1 && !confirm(`${emp.name} tiene ${fmtDays(vacBefore)} día(s) hábil(es) de vacaciones disponibles.\n\n¿Asignar este día de vacaciones de todas formas?`)) return;
+                if (consumes && balBefore <= 0 && !confirm(`${emp.name} no tiene descansos acumulados (saldo: ${balBefore}).\n\n¿Asignarle el descanso de todas formas? El saldo quedará en ${balBefore - 1}.`)) return;
+                appState.shifts = appState.shifts.filter(s => !(Number(s.empId) === empId && s.date === dateISO));
+                const abs = buildAbsenceShift(empId, dateISO, type);
+                if (note) abs.note = note;
+                appState.shifts.push(abs);
+                toast = `${a.label} registrado para ${emp.name}.`;
+            }
+            const btn = document.getElementById('justifyBtn'); btn.disabled = true;
+            try {
+                renderWeeklyRoster();
+                await flushDataSync();
+                closeModal('modalJustify');
+                showAppToast(toast);
+                if (!document.getElementById('view-attendance').classList.contains('hidden')) await attendanceFetchToday();
+                if (!document.getElementById('view-gerencia').classList.contains('hidden') && typeof loadGerenciaHoy === 'function') loadGerenciaHoy();
+            } catch (e) { show(e.message || 'No se pudo guardar. Intenta de nuevo.'); }
+            finally { btn.disabled = false; }
+        }
         async function attendanceFetchToday() {
             try {
                 lastTodayBoard = await apiFetch('/api/attendance/today');
@@ -12645,6 +12737,7 @@
                             <span class="text-slate-500 min-w-[110px]">${escapeHtml(p.scheduled)}${p.isSplit ? ' <span class="text-3xs text-cyan-700 font-semibold">Partido</span>' : ''}${p.shiftDate !== b.date ? ' <span class="text-3xs text-indigo-700 font-semibold">Turno de ayer</span>' : ''}</span>
                             <span class="px-2 py-0.5 rounded-full ${st.chip} text-2xs font-bold whitespace-nowrap">${st.label}</span>
                             <span class="text-slate-500">${escapeHtml(p.label)}</span>
+                            ${p.status === 'no_llego' && CAN('shifts.edit') ? `<button type="button" onclick="openJustify(${Number(p.id)}, '${p.shiftDate}')" class="ml-auto px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-2xs font-bold whitespace-nowrap"><i class="fa-solid fa-user-check"></i> Justificar</button>` : ''}
                         </div>`;
                     }).join('')}</div>` : '<p class="px-3 py-4 text-center text-slate-400 text-xs">Ningún colaborador en este estado en este momento.</p>'}
                 </div>`;
@@ -12666,6 +12759,7 @@
                             <span class="text-slate-500 min-w-[110px]">${escapeHtml(p.scheduled)}${p.isSplit ? ' <span class="text-3xs text-cyan-700 font-semibold">Partido</span>' : ''}${p.shiftDate !== b.date ? ' <span class="text-3xs text-indigo-700 font-semibold">Turno de ayer</span>' : ''}</span>
                             <span class="px-2 py-0.5 rounded-full ${st.chip} text-2xs font-bold whitespace-nowrap">${st.label}</span>
                             <span class="text-slate-500">${escapeHtml(p.label)}</span>
+                            ${p.status === 'no_llego' && CAN('shifts.edit') ? `<button type="button" onclick="openJustify(${Number(p.id)}, '${p.shiftDate}')" class="ml-auto px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-2xs font-bold whitespace-nowrap"><i class="fa-solid fa-user-check"></i> Justificar</button>` : ''}
                         </div>`;
                     }).join('')}</div>
                 </div>`;
