@@ -1299,7 +1299,9 @@ async function registerCorrection(req, res) {
     resourceType: 'employee', resourceId: String(employee.id), ip: getClientIp(req),
     metadata: { colaborador: employee.name, fecha: date, cambios: changes, motivo: reason },
   });
-  sendJson(res, 200, { ok: true, changes, hours: { hod_min: cat.hod, hon_min: cat.hon, hed_min: hedFinal, hen_min: cat.hen }, halfDay: half ? half.mode : null });
+  let justified = [];
+  try { justified = justifyAlertsFromCorrection(orgId, employee.id, date, changes, reason, req.user.id); } catch (e) { console.error('[correccion->alertas]', e.message); }
+  sendJson(res, 200, { ok: true, changes, justified: justified.length, hours: { hod_min: cat.hod, hon_min: cat.hon, hed_min: hedFinal, hen_min: cat.hen }, halfDay: half ? half.mode : null });
 }
 
 // Correccion del MISMO DIA: solo las marcaciones ya hechas. Recalcula el
@@ -1348,10 +1350,81 @@ function registerSameDayCorrection(req, res, { orgId, employee, shift, day, curr
     resourceType: 'employee', resourceId: String(employee.id), ip: getClientIp(req),
     metadata: { colaborador: employee.name, fecha: date, cambios: changes, motivo: reason, mismoDia: true },
   });
-  sendJson(res, 200, { ok: true, changes, sameDay: true });
+  let justified = [];
+  try { justified = justifyAlertsFromCorrection(orgId, employee.id, date, changes, reason, req.user.id); } catch (e) { console.error('[correccion->alertas]', e.message); }
+  sendJson(res, 200, { ok: true, changes, sameDay: true, justified: justified.length });
 }
 // Minutos desde la medianoche del dia del turno para horas HH:MM en orden
 // (entrada, inicio almuerzo, fin almuerzo, salida); cruza medianoche si hace falta.
+// ---------------------------------------------------------------------------
+// Correccion en Historial -> las alertas de esa marcacion quedan JUSTIFICADAS
+// (con el motivo de la correccion), SOLO si con las horas corregidas la novedad
+// desaparece. No se tocan las que una persona ya decidio a mano (justificada /
+// injustificada); si cambian las pendientes y las automaticas de 24 h.
+// ---------------------------------------------------------------------------
+const CORR_MARK_LABELS = { entrada: 'Entrada', inicio_almuerzo: 'Inicio de almuerzo', fin_almuerzo: 'Regreso de almuerzo', salida: 'Salida' };
+const CORR_ALERT_TYPES = {
+  entrada: ['llegada_tarde', 'inasistencia'],
+  inicio_almuerzo: ['exceso_almuerzo', 'etapa_extendida'],
+  fin_almuerzo: ['exceso_almuerzo'],
+  salida: ['salida_anticipada', 'turno_sin_cerrar'],
+};
+const CORR_CATEGORY = 'Corrección en Historial';
+// ¿La novedad sigue existiendo con las horas que tiene hoy el dia? true = ya no existe.
+function correctionIssuesGone(orgId, employeeId, date) {
+  const d = db.prepare('SELECT entrada_real, inicio_almuerzo_real, fin_almuerzo_real, salida_real FROM attendance_days WHERE employee_id = ? AND shift_date = ?').get(employeeId, date);
+  const shift = getShiftForEmployeeDate(orgId, employeeId, date);
+  const gone = { inasistencia: !!(d && d.entrada_real), turno_sin_cerrar: !!(d && d.salida_real) };
+  if (!d || !shift || shift.isOffDay || !shift.startTime || !shift.endTime) return gone;
+  const abs = correctedAbsMinutes({ entrada: d.entrada_real, inicio_almuerzo: d.inicio_almuerzo_real, fin_almuerzo: d.fin_almuerzo_real, salida: d.salida_real }, shift.startTime);
+  if (abs.entrada != null) gone.llegada_tarde = abs.entrada - rules.timeToMinutes(shift.startTime) <= 0;
+  if (abs.inicio_almuerzo != null && abs.fin_almuerzo != null) {
+    gone.exceso_almuerzo = rules.classifyAlmuerzo(Number(shift.breakM) || 0, abs.fin_almuerzo - abs.inicio_almuerzo).excessMinutes <= 0;
+  }
+  if (shift.isSplit && shift.splitOut && abs.inicio_almuerzo != null) {
+    gone.etapa_extendida = abs.inicio_almuerzo - rules.scheduledAbsoluteMinutes(shift.splitOut, shift.startTime) < rules.OVERTIME_THRESHOLD_MIN;
+  }
+  if (abs.salida != null) {
+    let adeudado = rules.classifySalida(rules.scheduledAbsoluteMinutes(ordinaryEndClock(shift), shift.startTime), abs.salida).adeudadoMinutes;
+    if (shift.isSplit && adeudado > 0 && [abs.entrada, abs.inicio_almuerzo, abs.fin_almuerzo].every(v => v != null)) {
+      const cat = rules.categorizeSplitWorkedMinutes({
+        scheduledEntradaMin: rules.timeToMinutes(shift.startTime), stage1Start: abs.entrada, stage1End: abs.inicio_almuerzo,
+        stage2Start: abs.fin_almuerzo, stage2End: abs.salida, limitMinutes: splitLimitMinutes(shift), nightSurchargeEnabled: false,
+        scheduledStage2Min: shift.splitIn ? rules.scheduledAbsoluteMinutes(shift.splitIn, shift.startTime) : null,
+        scheduledStage1EndMin: shift.splitOut ? rules.scheduledAbsoluteMinutes(shift.splitOut, shift.startTime) : null,
+      });
+      adeudado = Math.min(adeudado, Math.max(0, splitLimitMinutes(shift) - cat.worked));
+    }
+    gone.salida_anticipada = adeudado <= 0;
+  }
+  return gone;
+}
+// changes: [{ marcacion, antes, despues }]. Devuelve cuantas alertas quedaron justificadas.
+function justifyAlertsFromCorrection(orgId, employeeId, date, changes, reason, userId) {
+  const types = [...new Set(changes.flatMap(c => CORR_ALERT_TYPES[c.marcacion] || []))];
+  if (!types.length) return [];
+  const alerts = db.prepare(`SELECT a.id, a.alert_type, m.status, m.auto_marked FROM attendance_alerts a
+      LEFT JOIN alert_management m ON m.alert_id = a.id
+      WHERE a.organization_id = ? AND a.employee_id = ? AND a.shift_date = ? AND a.alert_type IN (${types.map(() => '?').join(',')})`)
+    .all(orgId, employeeId, date, ...types);
+  if (!alerts.length) return [];
+  const gone = correctionIssuesGone(orgId, employeeId, date);
+  const detail = changes.map(c => `${CORR_MARK_LABELS[c.marcacion] || c.marcacion} ${c.antes || '(sin marcar)'} → ${c.despues}`).join(', ');
+  const note = `Corregida en Historial (${detail}). Motivo: ${reason}`.slice(0, 600);
+  const up = db.prepare(`INSERT INTO alert_management (alert_id, organization_id, status, category, note, managed_by, managed_at, auto_marked)
+      VALUES (?, ?, 'justificada', ?, ?, ?, datetime('now', '-5 hours'), 0)
+      ON CONFLICT(alert_id) DO UPDATE SET status = 'justificada', category = excluded.category, note = excluded.note,
+        managed_by = excluded.managed_by, managed_at = excluded.managed_at, auto_marked = 0`);
+  const done = [];
+  for (const a of alerts) {
+    const manual = a.status && Number(a.auto_marked) !== 1 && a.status !== 'pendiente';
+    if (manual || gone[a.alert_type] !== true) continue;
+    up.run(a.id, orgId, CORR_CATEGORY, note, userId || null);
+    done.push(a.alert_type);
+  }
+  if (done.length) live.publishAttendance(orgId, 'alert');
+  return done;
+}
 function correctedAbsMinutes(clocks, shiftStartClock) {
   const scheduledEntradaMin = rules.timeToMinutes(shiftStartClock);
   const abs = {};
@@ -1795,6 +1868,46 @@ function recalcSplitDaysOnce(feature, auditAction) {
 recalcSplitDaysOnce('turno_partido_etapa2_programada_v1', 'attendance.split_stage2_recalc');
 // Etapa 1: si se pasa menos de 30 min, se toma la hora programada de fin.
 recalcSplitDaysOnce('turno_partido_etapa1_barrera30_v1', 'attendance.split_stage1_recalc');
+
+// Una sola vez: las correcciones de Historial hechas ANTES de este cambio, en
+// periodos sin liquidar (despues del Dia 0 y fuera de periodos cerrados),
+// justifican sus alertas con el mismo criterio (solo si la novedad desaparecio
+// y sin tocar lo decidido a mano).
+const CORR_JUSTIFY_FEATURE = 'alertas_justificadas_por_correccion_v1';
+if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(CORR_JUSTIFY_FEATURE)) {
+  const rows = db.prepare(`SELECT c.organization_id, c.employee_id, c.shift_date, c.mark_type, c.original_time, c.corrected_time, c.reason, c.created_by, c.created_at, e.name AS emp_name
+      FROM attendance_corrections c JOIN employees e ON e.id = c.employee_id
+      LEFT JOIN org_settings s ON s.organization_id = c.organization_id
+      WHERE s.day_zero IS NULL OR s.day_zero = '' OR c.shift_date > s.day_zero
+      ORDER BY c.created_at`).all();
+  const groups = new Map();
+  for (const r of rows) {
+    const k = `${r.organization_id}|${r.employee_id}|${r.shift_date}`;
+    if (!groups.has(k)) groups.set(k, { r, byMark: new Map() });
+    const g = groups.get(k);
+    const prev = g.byMark.get(r.mark_type);
+    g.byMark.set(r.mark_type, { marcacion: r.mark_type, antes: prev ? prev.antes : r.original_time, despues: r.corrected_time });
+    g.r = r; // la ultima correccion da el motivo y quien la hizo
+  }
+  const byOrg = new Map();
+  db.exec('BEGIN');
+  try {
+    for (const g of groups.values()) {
+      const r = g.r;
+      if (dayInClosedPeriod(r.organization_id, r.shift_date)) continue;
+      const done = justifyAlertsFromCorrection(r.organization_id, r.employee_id, r.shift_date, [...g.byMark.values()], r.reason || '', r.created_by);
+      if (!done.length) continue;
+      const list = byOrg.get(r.organization_id) || [];
+      list.push(`${r.emp_name} ${r.shift_date.split('-').reverse().join('/')}: ${done.length} alerta(s)`);
+      byOrg.set(r.organization_id, list);
+    }
+    db.prepare("INSERT INTO app_migrations (name, applied_at) VALUES (?, datetime('now', '-5 hours'))").run(CORR_JUSTIFY_FEATURE);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  for (const [org, list] of byOrg) {
+    try { logAction({ organizationId: org, userId: null, action: 'attendance.alerts_justified_by_correction', resourceType: 'alert', metadata: { cantidad: list.length, detalle: list.slice(0, 50) } }); } catch { /* nada */ }
+  }
+}
 function autoMarkStaleAlerts(orgId) {
   const unj = autoMarkStaleByStatus(orgId, AUTO_UNJUST_TYPES, 'injustificada', AUTO_UNJUST_NOTE, 'attendance.alerts_auto_unjustified');
   const just = autoMarkStaleByStatus(orgId, AUTO_JUST_TYPES, 'justificada', AUTO_JUST_NOTE, 'attendance.alerts_auto_justified');
