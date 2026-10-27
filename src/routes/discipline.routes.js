@@ -54,7 +54,9 @@ for (const col of ['annulled_at', 'annulled_by', 'annul_reason',
   // escrita, fecha/hora del servidor, IP, navegador y huella del documento.
   'signed_at', 'signature_png', 'signed_doc_number', 'signed_ip', 'signed_ua', 'doc_hash',
   // Envio por correo: enlace propio (no anula el del WhatsApp), fecha y destino.
-  'email_token_hash', 'email_token_expires', 'email_sent_at', 'email_sent_to']) if (!dcCols.includes(col)) db.exec(`ALTER TABLE discipline_cases ADD COLUMN ${col} TEXT NULL`);
+  'email_token_hash', 'email_token_expires', 'email_sent_at', 'email_sent_to',
+  // Cierre del caso: decision final de la empresa (despues de los descargos).
+  'closed_at', 'closed_by', 'close_decision', 'close_note']) if (!dcCols.includes(col)) db.exec(`ALTER TABLE discipline_cases ADD COLUMN ${col} TEXT NULL`);
 
 const TYPES = ['llegada_tarde', 'exceso_almuerzo', 'inasistencia', 'turno_sin_cerrar'];
 const TYPE_LABEL = { llegada_tarde: 'Llegadas tarde', exceso_almuerzo: 'Exceso en el tiempo de almuerzo', inasistencia: 'Inasistencia sin justificar', turno_sin_cerrar: 'Turnos sin marcar la salida' };
@@ -65,6 +67,16 @@ const DEFAULT_RULES = {
   turno_sin_cerrar: { on: true, count: 3, days: 30 },
 };
 const DESCARGOS_DAYS = 5;
+// Reincidencia: otro llamado de la MISMA falta, ya enviado, dentro de este
+// periodo (configurable; por defecto 6 meses). No cuentan los descartados,
+// los anulados ni los cerrados como "descargos aceptados".
+const DEFAULT_REINCIDENCE_DAYS = 180;
+const CLOSE_DECISIONS = {
+  aceptados: 'Archivado – descargos aceptados',
+  archivado: 'Archivado sin sanción',
+  compromiso: 'Compromiso de mejora',
+  sancion: 'Sanción aplicada',
+};
 const LINK_DAYS = 15;
 
 // Plantillas sugeridas. Variables: {{empresa}} {{ciudad_fecha}} {{nombre}} {{documento}} {{cargo}}
@@ -147,7 +159,9 @@ function getConfig(orgId) {
     const tp = (c.templates || {})[t];
     templates[t] = tp && tp.body ? { title: String(tp.title || DEFAULT_TEMPLATES[t].title), body: String(tp.body), custom: true } : { ...DEFAULT_TEMPLATES[t], custom: false };
   }
-  return { rules, templates, signer: c.signer || '', signerRole: c.signerRole || '', city: c.city || '', signerSignature: c.signerSignature || '' };
+  const rd = Math.round(Number(c.reincidenceDays));
+  return { rules, templates, signer: c.signer || '', signerRole: c.signerRole || '', city: c.city || '', signerSignature: c.signerSignature || '',
+    reincidenceDays: rd >= 30 && rd <= 730 ? rd : DEFAULT_REINCIDENCE_DAYS };
 }
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -211,6 +225,27 @@ function scanOrg(orgId) {
   return created;
 }
 
+// Fecha de referencia de un llamado (cuando se generó; si no, cuando se propuso).
+function caseRefDate(c) { return String(c.doc_date || c.created_at || '').slice(0, 10); }
+// Llamados anteriores de la misma falta que cuentan para reincidencia (el más reciente primero).
+function priorCases(c, all, days) {
+  const ref = caseRefDate(c) || todayISOInBogota();
+  const from = addDaysISO(ref, -days);
+  return all.filter(x => x.id !== c.id && x.employee_id === c.employee_id && x.rule_type === c.rule_type
+      && ['enviado', 'recibido'].includes(x.status) && !x.annulled_at && x.close_decision !== 'aceptados'
+      && String(x.created_at) < String(c.created_at) && caseRefDate(x) >= from && caseRefDate(x) <= ref)
+    .sort((a, b) => caseRefDate(b).localeCompare(caseRefDate(a)));
+}
+function reincidenceOf(c, all, days) {
+  const prev = priorCases(c, all, days);
+  if (!prev.length) return null;
+  const p = prev[0];
+  return { n: prev.length + 1, prevDate: caseRefDate(p), prevDecision: p.close_decision ? CLOSE_DECISIONS[p.close_decision] || '' : '', prevSigned: !!p.signed_at };
+}
+function reincidenceParagraph(r) {
+  if (!r) return '';
+  return `Esta situación constituye una reincidencia: el ${longDate(r.prevDate)} se le envió una comunicación por la misma falta${r.prevDecision ? `, que se cerró con: ${r.prevDecision.toLowerCase()}` : ''}${r.n > 2 ? ` (esta es la ${r.n}.ª comunicación por esta falta en el periodo)` : ''}. Le recordamos que, de acuerdo con el reglamento interno de trabajo, la reincidencia puede dar lugar a las sanciones disciplinarias allí previstas, siempre con respeto de su derecho al debido proceso.`;
+}
 function caseAlerts(c) {
   let ids = []; try { ids = JSON.parse(c.alert_ids) || []; } catch { ids = []; }
   if (!ids.length) return [];
@@ -271,6 +306,7 @@ function caseOut(c, emp) {
     descargos: c.descargos_text || '', descargosAt: c.descargos_at || '',
     annulledAt: c.annulled_at || '', annulReason: c.annul_reason || '',
     signedAt: c.signed_at || '', signedDoc: c.signed_doc_number || '', signedIp: c.signed_ip || '', verifyCode: verifyCode(c.doc_hash),
+    closedAt: c.closed_at || '', closeDecision: c.close_decision || '', closeDecisionLabel: CLOSE_DECISIONS[c.close_decision] || '', closeNote: c.close_note || '',
   };
 }
 
@@ -286,10 +322,12 @@ function listCases(req, res, query) {
   sendJson(res, 200, {
     cases: rows.map(c => {
       const o = caseOut(c, emps.get(c.employee_id));
+      if (c.status !== 'descartado') o.reincidence = reincidenceOf(c, rows, cfg.reincidenceDays);
       if (c.status === 'propuesto') { o.novedades = caseAlerts(c).map(noveltyLine); }
       return o;
     }),
-    config: { rules: cfg.rules, templates: cfg.templates, signer: cfg.signer, signerRole: cfg.signerRole, signerSignature: cfg.signerSignature, adminName: orgAdminName(orgId), city: cfg.city, orgLocation: orgLocation(orgId), nit: orgNit(orgId), defaults: { rules: DEFAULT_RULES, templates: DEFAULT_TEMPLATES } },
+    closeDecisions: CLOSE_DECISIONS,
+    config: { reincidenceDays: cfg.reincidenceDays, defaultReincidenceDays: DEFAULT_REINCIDENCE_DAYS, rules: cfg.rules, templates: cfg.templates, signer: cfg.signer, signerRole: cfg.signerRole, signerSignature: cfg.signerSignature, adminName: orgAdminName(orgId), city: cfg.city, orgLocation: orgLocation(orgId), nit: orgNit(orgId), defaults: { rules: DEFAULT_RULES, templates: DEFAULT_TEMPLATES } },
     typeLabels: TYPE_LABEL, descargosDays: DESCARGOS_DAYS, linkDays: LINK_DAYS,
   });
 }
@@ -303,7 +341,20 @@ function draftCase(req, res, params) {
   const cfg = getConfig(orgId);
   const tpl = cfg.templates[c.rule_type];
   const vars = docVars(orgId, c, emp || {});
-  sendJson(res, 200, { title: fillTemplate(tpl.title, vars), body: fillTemplate(tpl.body, vars), novedades: caseAlerts(c).map(noveltyLine) });
+  // Reincidencia: se agrega el parrafo (en {{reincidencia}} si la plantilla lo tiene; si no, antes de la citacion a descargos).
+  const all = db.prepare('SELECT * FROM discipline_cases WHERE organization_id = ? AND employee_id = ?').all(orgId, c.employee_id);
+  const reinc = reincidenceOf(c, all, cfg.reincidenceDays);
+  const par = reincidenceParagraph(reinc);
+  vars.reincidencia = par;
+  let text = fillTemplate(tpl.body, vars);
+  if (par && !/\{\{\s*reincidencia\s*\}\}/.test(tpl.body)) {
+    const anchors = ['\n\nEn garantía de su derecho', '\n\nAtentamente'];
+    const at = anchors.map(a => text.indexOf(a)).find(i => i >= 0);
+    text = at != null && at >= 0 ? text.slice(0, at) + '\n\n' + par + text.slice(at) : text + '\n\n' + par;
+  }
+  text = text.replace(/\n{3,}(?=\S)/g, (m) => m.length > 3 ? '\n\n' : m);
+  const title = fillTemplate(tpl.title, vars) + (reinc ? ` (reincidencia · ${reinc.n}.º llamado)` : '');
+  sendJson(res, 200, { title, body: text, novedades: caseAlerts(c).map(noveltyLine), reincidence: reinc });
 }
 
 // POST /api/discipline/:id/decide { action: 'generar'|'descartar', title, body, reason }
@@ -398,6 +449,25 @@ async function emailCase(req, res, params) {
   sendJson(res, 200, { ok: true, to, delivered: !!r.delivered, mode: r.mode });
 }
 
+// POST /api/discipline/:id/close { decision, note } -> decision final del caso
+// (se puede cambiar despues). "aceptados" no cuenta para reincidencia.
+async function closeCase(req, res, params) {
+  let body; try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  const c = db.prepare('SELECT * FROM discipline_cases WHERE id = ? AND organization_id = ?').get(String(params.id), orgId);
+  if (!c) return sendJson(res, 404, { error: 'Llamado no encontrado.' });
+  if (c.annulled_at || !['enviado', 'recibido'].includes(c.status)) return sendJson(res, 409, { error: 'Solo se cierra un llamado ya enviado (no anulado).' });
+  const decision = String(body.decision || '');
+  if (!CLOSE_DECISIONS[decision]) return sendJson(res, 400, { error: 'Elige la decisión final.' });
+  const note = String(body.note || '').trim().slice(0, 1000);
+  if (note.length < 5) return sendJson(res, 400, { error: 'Escribe una nota con la decisión (mínimo 5 caracteres).' });
+  db.prepare("UPDATE discipline_cases SET closed_at = datetime('now', '-5 hours'), closed_by = ?, close_decision = ?, close_note = ? WHERE id = ?").run(req.user.id, decision, note, c.id);
+  const emp = db.prepare('SELECT name FROM employees WHERE id = ?').get(c.employee_id) || {};
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'discipline.close', resourceType: 'employee', resourceId: String(c.employee_id), ip: getClientIp(req),
+    metadata: { colaborador: emp.name, tipo: TYPE_LABEL[c.rule_type], decision: CLOSE_DECISIONS[decision], antes: c.close_decision ? CLOSE_DECISIONS[c.close_decision] : null, nota: note } });
+  sendJson(res, 200, { ok: true });
+}
+
 // GET /api/discipline/:id/signature -> imagen de la firma del colaborador (para el PDF)
 function caseSignature(req, res, params) {
   const orgId = resolveOrgId(req, {});
@@ -412,7 +482,9 @@ async function saveConfig(req, res) {
   try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
   const orgId = resolveOrgId(req, body);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
-  const out = { rules: {}, templates: {}, signer: String(body.signer || '').trim().slice(0, 120), signerRole: String(body.signerRole || '').trim().slice(0, 120), city: String(body.city || '').trim().slice(0, 60) };
+  const rdays = body.reincidenceDays == null || body.reincidenceDays === '' ? DEFAULT_REINCIDENCE_DAYS : Math.round(Number(body.reincidenceDays));
+  if (!(rdays >= 30 && rdays <= 730)) return sendJson(res, 400, { error: 'El periodo de reincidencia debe estar entre 30 y 730 días.' });
+  const out = { reincidenceDays: rdays, rules: {}, templates: {}, signer: String(body.signer || '').trim().slice(0, 120), signerRole: String(body.signerRole || '').trim().slice(0, 120), city: String(body.city || '').trim().slice(0, 60) };
   // Firma de quien firma por la empresa (imagen PNG, opcional).
   const sig = String(body.signerSignature || '');
   if (sig) {
@@ -428,7 +500,7 @@ async function saveConfig(req, res) {
     if (tp && tp.body && String(tp.body).trim() !== DEFAULT_TEMPLATES[t].body.trim()) out.templates[t] = { title: String(tp.title || DEFAULT_TEMPLATES[t].title).slice(0, 200), body: String(tp.body).slice(0, 20000) };
   }
   db.prepare('UPDATE org_settings SET discipline_config = ? WHERE organization_id = ?').run(JSON.stringify(out), orgId);
-  logAction({ organizationId: orgId, userId: req.user.id, action: 'discipline.config', resourceType: 'organization', resourceId: orgId, ip: getClientIp(req), metadata: { reglas: out.rules, plantillasPropias: Object.keys(out.templates) } });
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'discipline.config', resourceType: 'organization', resourceId: orgId, ip: getClientIp(req), metadata: { reglas: out.rules, reincidenciaDias: out.reincidenceDays, plantillasPropias: Object.keys(out.templates) } });
   sendJson(res, 200, { ok: true });
 }
 
@@ -565,4 +637,4 @@ function bellItems(orgId, sinceSql) {
   return pend.concat(signed);
 }
 
-module.exports = { emailCase, publicSign, caseSignature, bellItems, listCases, draftCase, decideCase, createLink, saveConfig, publicView, publicAck, scanOrg, TYPE_LABEL };
+module.exports = { closeCase, emailCase, publicSign, caseSignature, bellItems, listCases, draftCase, decideCase, createLink, saveConfig, publicView, publicAck, scanOrg, TYPE_LABEL };

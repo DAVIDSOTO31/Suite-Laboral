@@ -128,6 +128,7 @@ route('PUT', '/api/discipline/config', [requirePermission('employees.edit')], (r
 route('GET', '/api/discipline/:id/draft', [requirePermission('employees.edit')], (req, res, params) => discipline.draftCase(req, res, params));
 route('POST', '/api/discipline/:id/decide', [requirePermission('employees.edit')], (req, res, params) => discipline.decideCase(req, res, params));
 route('POST', '/api/discipline/:id/link', [requirePermission('employees.edit')], (req, res, params) => discipline.createLink(req, res, params));
+route('POST', '/api/discipline/:id/close', [requirePermission('employees.edit')], (req, res, params) => discipline.closeCase(req, res, params));
 route('POST', '/api/discipline/:id/email', [requirePermission('employees.edit')], (req, res, params) => discipline.emailCase(req, res, params));
 // Enlace publico del colaborador (sin sesion; protegido por el token del enlace).
 route('GET', '/api/public/comunicacion/:token', [], (req, res, params) => discipline.publicView(req, res, params), { auth: false });
