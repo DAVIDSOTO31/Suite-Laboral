@@ -9074,7 +9074,16 @@
             document.getElementById('payrollOtEndDate').value = to;
             await renderPayrollOvertimeView();
         }
+        // El cierre es para TODA la empresa: con un filtro de área puesto la tabla
+        // solo tiene parte de los colaboradores, así que no se deja cerrar.
+        function payrollCloseBlockedByArea() {
+            const areas = msVals('payrollOtDeptFilter');
+            if (!areas.length) return false;
+            alert(`Para cerrar el periodo quita el filtro de área.\n\nAhora estás viendo solo: ${areas.join(', ')}.\nEl cierre se hace para toda la empresa; con el filtro puesto quedarían por fuera los colaboradores de las demás áreas.\n\nEn el filtro "Área" marca "Todas las áreas" y vuelve a dar "Cerrar periodo".`);
+            return true;
+        }
         async function closeRecargosPeriod() {
+            if (payrollCloseBlockedByArea()) return;
             const cache = appState._payrollOtCache;
             const info = cache && cache.closures && cache.closures.recargosInfo;
             if (!info || !info.nextStart) return;
@@ -9095,6 +9104,7 @@
         }
 
         async function closePayrollPeriod(type) {
+            if (payrollCloseBlockedByArea()) return;
             const cache = appState._payrollOtCache;
             if (!cache || !CAN('employees.edit_payroll')) return;
             const rows = cache.rows;
