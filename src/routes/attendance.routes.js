@@ -738,9 +738,39 @@ function bestFaceMatch(descriptor, profiles) {
     if (!best || dist < best.dist) { second = best; best = { employeeId: p.employee_id, dist }; }
     else if (!second || dist < second.dist) second = { employeeId: p.employee_id, dist };
   }
-  if (!best || best.dist > FACE_MATCH_THRESHOLD) return { match: null, ambiguous: false };
+  if (!best || best.dist > FACE_MATCH_THRESHOLD) return { match: null, ambiguous: false, best, second };
   const ambiguous = !!(second && second.employeeId !== best.employeeId && second.dist - best.dist < FACE_MATCH_MARGIN);
-  return { match: ambiguous ? null : best, ambiguous };
+  return { match: ambiguous ? null : best, ambiguous, best, second };
+}
+
+// ---------------------------------------------------------------------------
+// CALIDAD DEL RECONOCIMIENTO: cada intento de marcar con el rostro deja un
+// registro SOLO con numeros (con quien se parecio, a que distancia, quien fue
+// el segundo y el resultado). Nunca fotos. Se borra a los 90 dias.
+// ---------------------------------------------------------------------------
+db.exec(`CREATE TABLE IF NOT EXISTS face_match_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id TEXT NOT NULL,
+  device_id TEXT,
+  source TEXT NOT NULL,
+  result TEXT NOT NULL,
+  best_employee_id INTEGER, best_dist REAL,
+  second_employee_id INTEGER, second_dist REAL,
+  at TEXT NOT NULL DEFAULT (datetime('now', '-5 hours'))
+);
+CREATE INDEX IF NOT EXISTS idx_face_log_org ON face_match_log(organization_id, at);`);
+const FACE_LOG_DAYS = 90;
+function purgeFaceLog() { try { db.prepare("DELETE FROM face_match_log WHERE at < datetime('now', '-5 hours', ?)").run(`-${FACE_LOG_DAYS} days`); } catch (e) { console.error('[calidad facial]', e.message); } }
+purgeFaceLog();
+// at: hora de Colombia (texto) del intento; si no viene, ahora.
+function logFaceAttempt(orgId, deviceId, source, m, at) {
+  try {
+    const result = m.match ? 'reconocido' : m.ambiguous ? 'dudoso' : 'no_reconocido';
+    const r = (x) => (x ? Math.round(x.dist * 10000) / 10000 : null);
+    db.prepare(`INSERT INTO face_match_log (organization_id, device_id, source, result, best_employee_id, best_dist, second_employee_id, second_dist, at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now', '-5 hours')))`)
+      .run(orgId, deviceId || null, source, result, m.best ? m.best.employeeId : null, r(m.best), m.second ? m.second.employeeId : null, r(m.second), at || null);
+  } catch (e) { console.error('[calidad facial]', e.message); }
 }
 const FACE_CONSENT_TEXT = 'El colaborador autoriza expresamente el uso de su rostro (dato biometrico) para fines de control de asistencia laboral, conforme a la Ley 1581 de 2012 de proteccion de datos personales (Habeas Data). Tambien autoriza que, si la empresa lo activa, el kiosco tome una foto de evidencia en cada marcacion, que se conserva 30 dias y luego se elimina automaticamente.';
 
@@ -752,6 +782,96 @@ function euclideanDistance(a, b) {
 
 function validDescriptor(d) {
   return Array.isArray(d) && d.length === 128 && d.every(n => typeof n === 'number' && Number.isFinite(n));
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/attendance/face-quality?days=30 -> panel de calidad del reconocimiento
+// Por colaborador (semaforo), parejas de huellas muy parecidas y por kiosco.
+// ---------------------------------------------------------------------------
+const FQ_GREEN = 0.40, FQ_YELLOW = 0.45, FQ_NEAR = FACE_MATCH_THRESHOLD + 0.10, FQ_PAIR = 0.55;
+function faceQuality(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  purgeFaceLog();
+  const days = [7, 30, 90].includes(Number(query.days)) ? Number(query.days) : 30;
+  const since = `-${days} days`;
+  const emps = new Map(db.prepare("SELECT id, name, department FROM employees WHERE organization_id = ? AND COALESCE(status, 'activo') != 'retirado'").all(orgId).map(e => [Number(e.id), e]));
+  const profiles = db.prepare('SELECT employee_id, descriptor_json, updated_at FROM employee_face_profiles WHERE organization_id = ? AND active = 1').all(orgId)
+    .filter(p => emps.has(Number(p.employee_id)));
+  const logs = db.prepare("SELECT * FROM face_match_log WHERE organization_id = ? AND at >= datetime('now', '-5 hours', ?)").all(orgId, since);
+  const manual = db.prepare(`SELECT employee_id, COUNT(*) AS n FROM attendance_marks WHERE organization_id = ? AND method IN ('kiosk-manual', 'kiosk-manual-offline')
+      AND created_at >= datetime('now', ?) GROUP BY employee_id`).all(orgId, since);
+  const manualBy = new Map(manual.map(r => [Number(r.employee_id), r.n]));
+  const devices = new Map(db.prepare('SELECT id, device_name FROM attendance_devices WHERE organization_id = ?').all(orgId).map(d => [d.id, d.device_name]));
+  const r2 = (x) => (x == null ? null : Math.round(x * 100) / 100);
+
+  // Parejas de huellas registradas muy parecidas (riesgo de confusion).
+  const desc = profiles.map(p => { try { return { id: Number(p.employee_id), d: JSON.parse(p.descriptor_json) }; } catch { return null; } }).filter(Boolean);
+  const ambByPair = new Map();
+  for (const l of logs) if (l.result === 'dudoso' && l.best_employee_id && l.second_employee_id) {
+    const k = [l.best_employee_id, l.second_employee_id].sort((a, b) => a - b).join('|'); ambByPair.set(k, (ambByPair.get(k) || 0) + 1);
+  }
+  const pairs = [];
+  for (let i = 0; i < desc.length; i++) for (let j = i + 1; j < desc.length; j++) {
+    const dist = euclideanDistance(desc[i].d, desc[j].d);
+    const k = [desc[i].id, desc[j].id].sort((a, b) => a - b).join('|');
+    if (dist < FQ_PAIR || ambByPair.get(k)) pairs.push({ a: desc[i].id, b: desc[j].id, aName: emps.get(desc[i].id).name, bName: emps.get(desc[j].id).name, dist: r2(dist), dudosos: ambByPair.get(k) || 0 });
+  }
+  pairs.sort((x, y) => x.dist - y.dist);
+  const pairOf = new Map();
+  for (const p of pairs) { if (!pairOf.has(p.a)) pairOf.set(p.a, p); if (!pairOf.has(p.b)) pairOf.set(p.b, p); }
+
+  // Por colaborador con rostro registrado.
+  const rows = profiles.map(p => {
+    const id = Number(p.employee_id), e = emps.get(id);
+    const ok = logs.filter(l => l.result === 'reconocido' && Number(l.best_employee_id) === id);
+    const near = logs.filter(l => l.result === 'no_reconocido' && Number(l.best_employee_id) === id && l.best_dist != null && l.best_dist <= FQ_NEAR).length;
+    const dud = logs.filter(l => l.result === 'dudoso' && (Number(l.best_employee_id) === id || Number(l.second_employee_id) === id)).length;
+    const avg = ok.length ? ok.reduce((a, l) => a + l.best_dist, 0) / ok.length : null;
+    const worst = ok.length ? Math.max(...ok.map(l => l.best_dist)) : null;
+    const man = manualBy.get(id) || 0;
+    const fails = near + dud;
+    const pair = pairOf.get(id);
+    let level = 'sin_datos';
+    if (ok.length || fails || man) {
+      if ((avg != null && avg > FQ_YELLOW) || fails >= 3 || man >= 3) level = 'rojo';
+      else if ((avg != null && avg > FQ_GREEN) || fails >= 1 || man >= 1) level = 'amarillo';
+      else level = 'verde';
+    }
+    const tips = [];
+    if (level === 'rojo') tips.push('Volver a registrar su rostro (de frente, con buena luz, sin gorro ni tapabocas).');
+    else if (level === 'amarillo' && avg != null && avg > FQ_GREEN) tips.push('Lo reconoce, pero cerca del límite: conviene actualizar su registro.');
+    if (man >= 1 && !ok.length) tips.push('Marca a mano y casi nunca con el rostro: revisa si su registro está bien hecho.');
+    if (pair) tips.push(`Su huella se parece a la de ${pair.a === id ? pair.bName : pair.aName}: registra de nuevo a los dos con buena luz.`);
+    const total = ok.length + fails;
+    return { employeeId: id, name: e.name, area: e.department || 'Sin área', registeredAt: String(p.updated_at || '').slice(0, 10), level,
+      recognized: ok.length, avgDist: r2(avg), worstDist: r2(worst), nearMiss: near, dudosos: dud, manual: man,
+      firstTryPct: total ? Math.round(ok.length / total * 100) : null, tips };
+  });
+  const ORDER = { rojo: 0, amarillo: 1, verde: 2, sin_datos: 3 };
+  rows.sort((a, b) => ORDER[a.level] - ORDER[b.level] || a.name.localeCompare(b.name, 'es'));
+
+  // Por kiosco: exito y horas con mas fallas.
+  const byDev = new Map();
+  for (const l of logs) {
+    const k = l.device_id || (l.source === 'suite' ? '_suite' : '_otro');
+    if (!byDev.has(k)) byDev.set(k, { id: k, name: k === '_suite' ? 'Marcación desde la suite' : (devices.get(k) || 'Kiosco eliminado'), total: 0, ok: 0, dudoso: 0, no: 0, hours: {} });
+    const d = byDev.get(k); d.total++;
+    if (l.result === 'reconocido') d.ok++; else if (l.result === 'dudoso') d.dudoso++; else d.no++;
+    const h = Number(String(l.at).slice(11, 13));
+    if (!d.hours[h]) d.hours[h] = { total: 0, fail: 0 };
+    d.hours[h].total++; if (l.result !== 'reconocido') d.hours[h].fail++;
+  }
+  const devicesOut = [...byDev.values()].map(d => ({ id: d.id, name: d.name, total: d.total, ok: d.ok, dudoso: d.dudoso, no: d.no,
+    okPct: d.total ? Math.round(d.ok / d.total * 100) : null,
+    badHours: Object.entries(d.hours).filter(([, v]) => v.total >= 3 && v.fail / v.total >= 0.3).map(([h, v]) => ({ hour: Number(h), total: v.total, failPct: Math.round(v.fail / v.total * 100) })).sort((a, b) => b.failPct - a.failPct).slice(0, 4) }))
+    .sort((a, b) => b.total - a.total);
+
+  const tot = { total: logs.length, ok: logs.filter(l => l.result === 'reconocido').length, dudoso: logs.filter(l => l.result === 'dudoso').length,
+    no: logs.filter(l => l.result === 'no_reconocido').length, unknown: logs.filter(l => l.result === 'no_reconocido' && (l.best_dist == null || l.best_dist > FQ_NEAR)).length };
+  const withoutProfile = [...emps.values()].filter(e => !profiles.some(p => Number(p.employee_id) === Number(e.id))).length;
+  sendJson(res, 200, { days, threshold: FACE_MATCH_THRESHOLD, margin: FACE_MATCH_MARGIN, levels: { green: FQ_GREEN, yellow: FQ_YELLOW, near: FQ_NEAR, pair: FQ_PAIR },
+    totals: tot, employees: rows, pairs: pairs.slice(0, 20), devices: devicesOut, withoutProfile, keepDays: FACE_LOG_DAYS });
 }
 
 // ---------------------------------------------------------------------------
@@ -848,6 +968,7 @@ async function registerMarkByFace(req, res) {
   ).all(orgId);
 
   const m = bestFaceMatch(body.descriptor, profiles);
+  logFaceAttempt(orgId, null, 'suite', m);
   const best = m.match;
   if (!best) {
     return sendJson(res, 404, { error: m.ambiguous ? FACE_AMBIGUOUS_MSG : 'Rostro no reconocido. Intenta de nuevo o usa la selección manual.', state: 'no_reconocido' });
@@ -1122,6 +1243,7 @@ async function kioskMarkByFace(req, res) {
   `).all(device.id, device.organization_id);
 
   const m = bestFaceMatch(body.descriptor, profiles);
+  logFaceAttempt(device.organization_id, device.id, 'kiosco', m);
   const best = m.match;
   if (!best) {
     return sendJson(res, 404, { error: m.ambiguous ? FACE_AMBIGUOUS_MSG : 'Rostro no reconocido en este dispositivo.', state: 'no_reconocido' });
@@ -3200,12 +3322,13 @@ const OFFLINE_MAX_AGE_MS = 72 * 3600 * 1000;   // mas de 3 dias: requiere revisi
 const OFFLINE_CLOCK_TOLERANCE_MS = 2 * 60000;  // cambio del reloj del equipo tolerado
 const OFFLINE_DUP_WINDOW_MS = 3 * 60000;       // misma persona dentro de 3 min: duplicada
 
-function matchFaceOnDevice(device, descriptor) {
+function matchFaceOnDevice(device, descriptor, atMs) {
   const profiles = db.prepare(`
     SELECT fp.employee_id, fp.descriptor_json FROM employee_face_profiles fp
     JOIN attendance_device_employees de ON de.employee_id = fp.employee_id AND de.device_id = ?
     WHERE fp.organization_id = ? AND fp.active = 1`).all(device.id, device.organization_id);
   const m = bestFaceMatch(descriptor, profiles);
+  logFaceAttempt(device.organization_id, device.id, 'kiosco-sin-conexion', m, Number.isFinite(atMs) ? bogotaLabel(atMs) + ':00' : null);
   return m.match ? m.match.employeeId : null;
 }
 
@@ -3249,7 +3372,7 @@ async function kioskSync(req, res) {
     if (kind === 'face') {
       if (!validDescriptor(it.descriptor)) { results.push({ clientId, status: 'error', message: 'Rostro inválido.' }); continue; }
       descriptorJson = JSON.stringify(it.descriptor);
-      employeeId = matchFaceOnDevice(device, it.descriptor);
+      employeeId = matchFaceOnDevice(device, it.descriptor, capturedMs);
     } else {
       const eid = Number(it.employeeId);
       const allowed = db.prepare('SELECT 1 FROM attendance_device_employees WHERE device_id = ? AND employee_id = ?').get(device.id, eid);
@@ -3392,6 +3515,7 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(HOURS_ENGINE_
 }
 
 module.exports = {
+  faceQuality,
   listDayMarks, voidMark,
   kioskLiveVersion, kioskOfflineCache,
   listMarkEvidence, getMarkEvidencePhoto, getEvidenceSettings, saveEvidenceSettings, resetDeviceEnv, confirmEvidenceEnvOk,
