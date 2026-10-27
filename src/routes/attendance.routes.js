@@ -2244,6 +2244,89 @@ const ISO_D = /^\d{4}-\d{2}-\d{2}$/;
 // Desde esta fecha las incapacidades y demas inasistencias suman al ausentismo
 // (en todas las organizaciones; ademas se respeta el Dia 0 de cada una).
 const AUSENTISMO_NOVEDADES_DESDE = '2026-10-16';
+// ---------------------------------------------------------------------------
+// INFORME DE INASISTENCIAS (para la nomina manual)
+// GET /api/attendance/absences-report?from=&to=[&area=][&employeeId=]
+// Por colaborador: dias con novedad de inasistencia en el cuadro de turnos
+// (todas menos "Descanso acumulado" y el descanso / dia libre) + faltas "No se
+// presento" (alerta), separadas en justificadas, injustificadas y pendientes.
+// ---------------------------------------------------------------------------
+const ABS_REPORT_EXCLUDED = ['abs_descanso_acumulado'];
+function absencesReport(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const ISO = /^\d{4}-\d{2}-\d{2}$/;
+  const from = ISO.test(query.from || '') ? query.from : bogota.todayISOInBogota().slice(0, 8) + '01';
+  const to = ISO.test(query.to || '') ? query.to : bogota.todayISOInBogota();
+  if (to < from) return sendJson(res, 400, { error: 'La fecha final no puede ser anterior a la inicial.' });
+  const area = String(query.area || '');
+  const empFilter = query.employeeId ? Number(query.employeeId) : null;
+  const { isHolidayCO } = require('../lib/holidays-co');
+  const isBiz = (d) => new Date(d + 'T00:00:00Z').getUTCDay() !== 0 && !isHolidayCO(d);
+  const emps = new Map(db.prepare('SELECT id, name, department, document_type, document_number, status FROM employees WHERE organization_id = ?').all(orgId).map(e => [Number(e.id), e]));
+  const okEmp = (id) => { const e = emps.get(Number(id)); return e && (!area || (e.department || 'Sin área') === area) && (!empFilter || Number(id) === empFilter); };
+  // Nombres de las inasistencias creadas por la organizacion.
+  const custom = new Map();
+  for (const r of db.prepare('SELECT data_json FROM shift_presets WHERE organization_id = ?').all(orgId)) {
+    try { const p = JSON.parse(r.data_json); if (p && p.kind === 'absence') custom.set(String(p.id), p.name || 'Inasistencia'); } catch { /* nada */ }
+  }
+  const BUILTIN = { vacaciones: 'Vacaciones', incapacidad: 'Incapacidad', sin_horario: 'Sin horario', otro_motivo: 'Otro motivo' };
+  const typeLabel = (k, sh) => BUILTIN[k] || custom.get(String(k)) || (sh && sh.shiftTitle) || 'Inasistencia';
+  const rows = new Map();
+  const rowOf = (id) => {
+    if (!rows.has(id)) { const e = emps.get(id); rows.set(id, { employeeId: id, name: e.name, area: e.department || 'Sin área', documentType: e.document_type || 'CC', documentNumber: e.document_number || '', retired: e.status === 'retirado', counts: {}, vacBiz: 0, faltas: { justificada: 0, injustificada: 0, pendiente: 0 }, total: 0, days: [] }); }
+    return rows.get(id);
+  };
+  const seen = new Set();
+  const typesUsed = new Map();
+  const keyByLabel = new Map();
+  // 1) Novedades del cuadro de turnos.
+  const shiftRows = db.prepare("SELECT data_json FROM shifts WHERE organization_id = ? AND json_extract(data_json, '$.date') BETWEEN ? AND ?").all(orgId, from, to);
+  for (const r of shiftRows) {
+    let s; try { s = JSON.parse(r.data_json); } catch { continue; }
+    if (!s || !s.isOffDay || !s.absenceType || ABS_REPORT_EXCLUDED.includes(s.absenceType)) continue;
+    const id = Number(s.empId);
+    if (!okEmp(id) || seen.has(`${id}|${s.date}`)) continue;
+    seen.add(`${id}|${s.date}`);
+    // Dos tipos con el mismo nombre (ej. uno borrado y creado de nuevo) van en una sola columna.
+    const label = typeLabel(String(s.absenceType), s);
+    const k = keyByLabel.get(label) || String(s.absenceType);
+    keyByLabel.set(label, k);
+    typesUsed.set(k, label);
+    const row = rowOf(id);
+    row.counts[k] = (row.counts[k] || 0) + 1;
+    if (k === 'vacaciones' && isBiz(s.date)) row.vacBiz++;
+    row.total++;
+    row.days.push({ date: s.date, type: k, label, note: s.note || '' });
+  }
+  // 2) Faltas "No se presento" (sin novedad en el cuadro).
+  const alerts = db.prepare(`SELECT a.employee_id, a.shift_date, COALESCE(m.status, 'pendiente') AS st, m.note AS note FROM attendance_alerts a
+      LEFT JOIN alert_management m ON m.alert_id = a.id
+      WHERE a.organization_id = ? AND a.alert_type = 'inasistencia' AND a.shift_date BETWEEN ? AND ?`).all(orgId, from, to);
+  const STL = { justificada: 'Justificada', injustificada: 'Injustificada', pendiente: 'Pendiente' };
+  for (const a of alerts) {
+    const id = Number(a.employee_id);
+    if (!okEmp(id) || seen.has(`${id}|${a.shift_date}`)) continue;
+    seen.add(`${id}|${a.shift_date}`);
+    const st = STL[a.st] ? a.st : 'pendiente';
+    const row = rowOf(id);
+    row.faltas[st]++;
+    row.total++;
+    row.days.push({ date: a.shift_date, type: 'falta', label: 'No se presentó', status: STL[st], note: a.note || '' });
+  }
+  const ORDER = ['vacaciones', 'incapacidad', 'sin_horario'];
+  const types = [...typesUsed.entries()].map(([key, label]) => ({ key, label }))
+    .sort((x, y) => {
+      const ix = ORDER.indexOf(x.key), iy = ORDER.indexOf(y.key);
+      const ox = x.key === 'otro_motivo' ? 99 : ix >= 0 ? ix : 10, oy = y.key === 'otro_motivo' ? 99 : iy >= 0 ? iy : 10;
+      return ox - oy || x.label.localeCompare(y.label, 'es');
+    });
+  const out = [...rows.values()].sort((x, y) => x.area.localeCompare(y.area, 'es') || x.name.localeCompare(y.name, 'es'));
+  out.forEach(r => r.days.sort((x, y) => x.date.localeCompare(y.date)));
+  const areas = [...new Set([...emps.values()].map(e => e.department || 'Sin área'))].sort((x, y) => x.localeCompare(y, 'es'));
+  sendJson(res, 200, { from, to, types, rows: out, areas });
+}
+
 function monthlyDividerForDate(dateISO) {
   if (dateISO >= '2026-07-15') return 210;
   if (dateISO >= '2025-07-15') return 220;
@@ -3200,7 +3283,7 @@ module.exports = {
   listDevices, createDevice, rotateDeviceToken, deactivateDevice, deleteDevice, getDeviceAssignments, setDeviceAssignments,
   kioskEmployeesToday, kioskMark, kioskMarkByFace,
   listPayrollAttendance, decideHalfDay,
-  todayBoard, manageAlert, getAlertAttachment, novedadesSummary,
+  todayBoard, manageAlert, getAlertAttachment, novedadesSummary, absencesReport,
   indicators, getDigestSettingsRoute, saveDigestSettings, sendDigestTest,
   kioskHeartbeat, listDeviceEvents, getDeviceAlertSettingsRoute, saveDeviceAlertSettings,
   kioskSync, listOfflineMarks, applyOfflineMark, discardOfflineMark,

@@ -194,6 +194,7 @@ route('POST', '/api/attendance/devices/:id/env-reset', [requirePermission('atten
 // Tablero "Hoy" y gestion de novedades (justificar / injustificar con nota y soporte).
 route('GET', '/api/attendance/today', [requirePermission('attendance.view')], (req, res, params, query) => attendance.todayBoard(req, res, query));
 route('GET', '/api/attendance/novedades', [requirePermission('attendance.view_alerts')], (req, res, params, query) => attendance.novedadesSummary(req, res, query));
+route('GET', '/api/attendance/absences-report', [requirePermission('attendance.view')], (req, res, params, query) => attendance.absencesReport(req, res, query));
 route('POST', '/api/attendance/alerts/:id/manage', [requirePermission('attendance.view_alerts')], (req, res, params) => attendance.manageAlert(req, res, params));
 route('GET', '/api/attendance/alerts/:id/attachment', [requirePermission('attendance.view_alerts')], (req, res, params) => attendance.getAlertAttachment(req, res, params));
 // Indicadores de asistencia (gerencia) y resumen diario por correo.
