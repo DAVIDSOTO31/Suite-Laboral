@@ -757,12 +757,12 @@ function validDescriptor(d) {
 function listFaceProfiles(req, res, query) {
   const orgId = resolveOrgId(req, query);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
-  const employees = db.prepare("SELECT id, name, role FROM employees WHERE organization_id = ? AND COALESCE(status, 'activo') != 'retirado' ORDER BY name ASC").all(orgId);
+  const employees = db.prepare("SELECT id, name, role, department FROM employees WHERE organization_id = ? AND COALESCE(status, 'activo') != 'retirado' ORDER BY name ASC").all(orgId);
   const profiles = db.prepare('SELECT employee_id, active, consent_given, consent_at, updated_at FROM employee_face_profiles WHERE organization_id = ?').all(orgId);
   const byEmp = Object.fromEntries(profiles.map(p => [p.employee_id, p]));
   sendJson(res, 200, {
     employees: employees.map(e => ({
-      id: e.id, name: e.name, role: e.role,
+      id: e.id, name: e.name, role: e.role, department: e.department || 'Sin área',
       profile: byEmp[e.id] ? { active: !!byEmp[e.id].active, consentGiven: !!byEmp[e.id].consent_given, updatedAt: byEmp[e.id].updated_at } : null,
     })),
   });
