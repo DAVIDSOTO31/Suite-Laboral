@@ -9268,9 +9268,11 @@
             if (Object.values(times).some(v => !v)) { showAppToast(sameDay ? 'Completa las horas de las marcaciones que ya hizo.' : 'Completa las 4 horas del día.'); return; }
             if (reason.length < 5) { showAppToast('Escribe el motivo de la corrección (mínimo 5 caracteres).'); return; }
             try {
-                await apiFetch('/api/attendance/corrections', { method: 'POST', body: JSON.stringify({ employeeId: empId, date, times, reason }) });
+                const corrRes = await apiFetch('/api/attendance/corrections', { method: 'POST', body: JSON.stringify({ employeeId: empId, date, times, reason }) });
                 closeModal('modalAttCorrection');
-                showAppToast(sameDay ? 'Corrección guardada. Al marcar la salida, las horas del día se calculan con las horas corregidas.' : 'Corrección guardada. El día se recalculó con las horas corregidas.');
+                const nJust = Number(corrRes && corrRes.justified) || 0;
+                const justMsg = nJust ? ` ${nJust === 1 ? 'La alerta de esa marcación quedó justificada' : `${nJust} alertas de esas marcaciones quedaron justificadas`} con el mismo motivo.` : '';
+                showAppToast((sameDay ? 'Corrección guardada. Al marcar la salida, las horas del día se calculan con las horas corregidas.' : 'Corrección guardada. El día se recalculó con las horas corregidas.') + justMsg);
                 if (!document.getElementById('view-payrollot').classList.contains('hidden')) {
                     const dm = document.getElementById('payrollOtDetailModal');
                     if (dm) { dm.classList.add('hidden'); dm.classList.remove('flex'); }

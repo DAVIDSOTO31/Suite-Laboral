@@ -177,6 +177,8 @@ function describeAudit(row, ctx = {}) {
     case 'shift.started_changed': return out('Turnos', 'Horario cambiado en un día ya iniciado',
       `Cambió el horario de ${val(m.colaborador)} del ${dayName(m.fecha)} cuando ya había marcado su entrada.`,
       [`Antes: ${m.antes}`, `Ahora: ${m.despues}`, m.motivo ? `Motivo: ${m.motivo}` : null].filter(Boolean));
+    case 'attendance.alerts_justified_by_correction': return out('Asistencia', 'Alertas justificadas por correcciones anteriores',
+      `La suite justificó las alertas de ${m.cantidad || 0} día(s) corregidos en Historial (periodo aún sin liquidar) en los que, con las horas corregidas, la novedad ya no existía. Lo decidido a mano no se tocó.`, m.detalle || [], 'Sistema (automático)');
     case 'attendance.split_stage1_recalc': return out('Asistencia', 'Turno partido: fin de la etapa 1 recalculado',
       `La suite recalculó ${m.dias || 0} turno(s) partido(s) del periodo aún sin liquidar: si la etapa 1 se pasó menos de 30 minutos de su hora de fin, se toma la hora programada.`, m.detalle || [], 'Sistema (automático)');
     case 'attendance.split_stage2_recalc': return out('Asistencia', 'Turno partido: etapa 2 recalculada',
