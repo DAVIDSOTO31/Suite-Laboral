@@ -215,6 +215,7 @@ route('GET', '/api/attendance/digest-settings', [requirePermission('settings.man
 route('PUT', '/api/attendance/digest-settings', [requirePermission('settings.manage')], (req, res) => attendance.saveDigestSettings(req, res));
 route('POST', '/api/attendance/digest-test', [requirePermission('settings.manage')], (req, res) => attendance.sendDigestTest(req, res));
 route('GET', '/api/attendance/payroll-summary', [requirePermission('attendance.view')], (req, res, params, query) => attendance.listPayrollAttendance(req, res, query));
+route('GET', '/api/attendance/face-quality', [requirePermission('attendance.manage_biometrics')], (req, res, params, query) => attendance.faceQuality(req, res, query));
 route('GET', '/api/attendance/face-profiles', [requirePermission('attendance.manage_biometrics')], (req, res, params, query) => attendance.listFaceProfiles(req, res, query));
 route('POST', '/api/attendance/face-profiles', [requirePermission('attendance.manage_biometrics')], (req, res) => attendance.enrollFaceProfile(req, res));
 route('POST', '/api/attendance/face-profiles/:id/deactivate', [requirePermission('attendance.manage_biometrics')], (req, res, params) => attendance.deactivateFaceProfile(req, res, params));

@@ -1101,7 +1101,21 @@
 
                 <!-- Sub-vista: Biometría -->
                 <div id="attSubtab-bio" class="hidden">
-                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <div class="flex gap-1.5 mb-3">
+                        <button type="button" id="bioTab_profiles" onclick="setBioTab('profiles')" class="px-3 py-1.5 rounded-lg text-xs font-bold border bg-slate-800 text-white border-slate-800">Perfiles faciales</button>
+                        <button type="button" id="bioTab_quality" onclick="setBioTab('quality')" class="px-3 py-1.5 rounded-lg text-xs font-bold border bg-white text-slate-700 border-slate-300 hover:bg-slate-50"><i class="fa-solid fa-gauge-high"></i> Calidad del reconocimiento</button>
+                    </div>
+                    <div id="bioPane_quality" class="hidden bg-white p-5 rounded-xl border border-slate-200 shadow-sm text-xs">
+                        <div class="flex flex-wrap items-start justify-between gap-2 mb-3">
+                            <div><h3 class="font-bold text-slate-800 text-base">Calidad del reconocimiento facial</h3>
+                                <p class="text-slate-500 max-w-3xl">Qué tan seguro reconoce el kiosco a cada colaborador. Cada intento de marcar con el rostro deja solo números (con quién se pareció y qué tanto), nunca fotos, y se borran a los 90 días. Mientras más baja la <strong>distancia</strong>, más se parece al rostro registrado.</p></div>
+                            <select id="bioQDays" onchange="loadFaceQuality()" class="p-2 border border-slate-300 rounded-lg bg-white">
+                                <option value="7">Últimos 7 días</option><option value="30" selected>Últimos 30 días</option><option value="90">Últimos 90 días</option>
+                            </select>
+                        </div>
+                        <div id="bioQBody"><p class="text-slate-400 py-6 text-center">Cargando…</p></div>
+                    </div>
+                    <div id="bioPane_profiles" class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                         <h3 class="font-bold text-slate-800 text-base mb-1">Perfiles biométricos faciales</h3>
                         <p class="text-xs text-slate-500 mb-4">Solo se guarda una plantilla matemática del rostro, nunca la fotografía. Requiere el consentimiento explícito del colaborador (Ley 1581 de 2012, Habeas Data).</p>
                         <!-- Filtros de la tabla: área y colaborador -->
@@ -10983,7 +10997,7 @@
             if (tab === 'workdays') attendanceLoadWorkdays();
             if (tab === 'absences') attendanceLoadAbsences();
             if (tab === 'alerts') attendanceLoadAlerts();
-            if (tab === 'bio') attendanceLoadBioList();
+            if (tab === 'bio') { attendanceLoadBioList(); if (bioTab === 'quality') loadFaceQuality(); }
             if (tab === 'devices') attendanceLoadDevices();
             if (tab === 'today') attendanceLoadToday(); else attTodayStopAuto();
             if (tab === 'novedades') attendanceLoadNovedades();
@@ -13322,6 +13336,75 @@
                     </td>
                 </tr>`;
             }).join('') || `<tr><td colspan="4" class="px-3 py-6 text-center text-slate-400">${attBioList.length ? 'Ningún colaborador coincide con el filtro.' : 'No hay colaboradores registrados.'}</td></tr>`;
+        }
+        // ---- Calidad del reconocimiento facial ----
+        let bioTab = 'profiles';
+        function setBioTab(t) {
+            bioTab = t;
+            ['profiles', 'quality'].forEach(k => {
+                document.getElementById('bioPane_' + k).classList.toggle('hidden', k !== t);
+                document.getElementById('bioTab_' + k).className = `px-3 py-1.5 rounded-lg text-xs font-bold border ${k === t ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`;
+            });
+            if (t === 'quality') loadFaceQuality();
+        }
+        async function loadFaceQuality() {
+            const box = document.getElementById('bioQBody');
+            box.innerHTML = '<p class="text-slate-400 py-6 text-center">Cargando…</p>';
+            let d;
+            try { d = await apiFetch(`/api/attendance/face-quality?days=${document.getElementById('bioQDays').value}`); }
+            catch (e) { box.innerHTML = `<p class="text-rose-600 py-6 text-center">${escapeHtml(e.message)}</p>`; return; }
+            const n2 = (v) => v == null ? '—' : Number(v).toFixed(2).replace('.', ',');
+            const pct = (a, b) => b ? Math.round(a / b * 100) + ' %' : '—';
+            const LV = { rojo: ['Con problemas', 'bg-rose-600 text-white', '🔴'], amarillo: ['Al límite', 'bg-amber-300 text-amber-950', '🟡'], verde: ['Muy seguro', 'bg-emerald-600 text-white', '🟢'], sin_datos: ['Sin intentos', 'bg-slate-100 text-slate-500', '⚪'] };
+            const t = d.totals, cnt = (k) => d.employees.filter(e => e.level === k).length;
+            const kpi = (label, val, sub, cls = '') => `<div class="border border-slate-200 rounded-lg p-3"><p class="text-3xs font-bold uppercase text-slate-500">${label}</p><p class="text-xl font-black ${cls}">${val}</p><p class="text-3xs text-slate-500">${sub}</p></div>`;
+            const fmtD = (iso) => iso ? iso.split('-').reverse().join('/') : '—';
+            box.innerHTML = `
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-4">
+                    ${kpi('Intentos con el rostro', t.total, `en los últimos ${d.days} días`)}
+                    ${kpi('Reconocidos', pct(t.ok, t.total), `${t.ok} de ${t.total}`, 'text-emerald-700')}
+                    ${kpi('Dudosos', t.dudoso, 'se parecía a dos personas', t.dudoso ? 'text-amber-700' : '')}
+                    ${kpi('No reconocidos', t.no, `${t.unknown} muy distintos a todos (otra persona, mala luz o rostro tapado)`, t.no ? 'text-rose-700' : '')}
+                </div>
+                <div class="flex flex-wrap gap-2 mb-2 text-2xs">
+                    <span class="px-2 py-0.5 rounded-full ${LV.rojo[1]} font-bold">${cnt('rojo')} con problemas</span>
+                    <span class="px-2 py-0.5 rounded-full ${LV.amarillo[1]} font-bold">${cnt('amarillo')} al límite</span>
+                    <span class="px-2 py-0.5 rounded-full ${LV.verde[1]} font-bold">${cnt('verde')} muy seguros</span>
+                    <span class="px-2 py-0.5 rounded-full ${LV.sin_datos[1]} font-bold">${cnt('sin_datos')} sin intentos</span>
+                    ${d.withoutProfile ? `<span class="px-2 py-0.5 rounded-full bg-slate-800 text-white font-bold">${d.withoutProfile} sin rostro registrado</span>` : ''}
+                </div>
+                <div class="overflow-x-auto border border-slate-200 rounded-lg mb-4">
+                    <table class="w-full"><thead class="bg-slate-50 text-slate-500 uppercase text-3xs"><tr>
+                        <th class="text-left px-3 py-2">Colaborador</th><th class="text-left px-3 py-2">Estado</th><th class="text-center px-3 py-2" title="Reconocido sobre (reconocido + casi + dudoso)">Reconocido</th>
+                        <th class="text-center px-3 py-2" title="Distancia promedio cuando lo reconoce (más baja = más seguro; límite ${n2(d.threshold)})">Distancia prom.</th>
+                        <th class="text-center px-3 py-2" title="Intentos en los que casi lo reconoce (distancia hasta ${n2(d.levels.near)})">Casi</th><th class="text-center px-3 py-2" title="Se parecía a dos personas a la vez">Dudosos</th>
+                        <th class="text-center px-3 py-2" title="Marcaciones manuales en el kiosco">Manuales</th><th class="text-left px-3 py-2">Registro</th><th class="text-left px-3 py-2">Recomendación</th></tr></thead>
+                    <tbody class="divide-y divide-slate-100">${d.employees.map(e => `<tr class="align-top">
+                        <td class="px-3 py-2 font-semibold text-slate-800">${escapeHtml(e.name)}<span class="block text-3xs font-normal text-slate-500">${escapeHtml(e.area)}</span></td>
+                        <td class="px-3 py-2 whitespace-nowrap"><span class="px-2 py-0.5 rounded-full text-3xs font-bold ${LV[e.level][1]}">${LV[e.level][0]}</span></td>
+                        <td class="px-3 py-2 text-center">${e.firstTryPct == null ? '—' : e.firstTryPct + ' %'}<span class="block text-3xs text-slate-400">${e.recognized} vez(ces)</span></td>
+                        <td class="px-3 py-2 text-center font-semibold ${e.avgDist == null ? '' : e.avgDist > d.levels.yellow ? 'text-rose-700' : e.avgDist > d.levels.green ? 'text-amber-700' : 'text-emerald-700'}">${n2(e.avgDist)}${e.worstDist != null ? `<span class="block text-3xs font-normal text-slate-400">peor ${n2(e.worstDist)}</span>` : ''}</td>
+                        <td class="px-3 py-2 text-center ${e.nearMiss ? 'text-rose-700 font-bold' : 'text-slate-300'}">${e.nearMiss}</td>
+                        <td class="px-3 py-2 text-center ${e.dudosos ? 'text-amber-700 font-bold' : 'text-slate-300'}">${e.dudosos}</td>
+                        <td class="px-3 py-2 text-center ${e.manual ? 'text-violet-700 font-bold' : 'text-slate-300'}">${e.manual}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-slate-500">${fmtD(e.registeredAt)}</td>
+                        <td class="px-3 py-2 text-slate-600">${e.tips.map(x => `<span class="block">• ${escapeHtml(x)}</span>`).join('') || '<span class="text-slate-300">—</span>'}</td>
+                    </tr>`).join('') || '<tr><td colspan="9" class="px-3 py-6 text-center text-slate-400">No hay rostros registrados.</td></tr>'}</tbody></table>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div class="border border-slate-200 rounded-lg p-3">
+                        <p class="font-bold text-slate-800 mb-1"><i class="fa-solid fa-people-arrows text-amber-600"></i> Posibles confusiones</p>
+                        <p class="text-3xs text-slate-500 mb-2">Parejas de colaboradores cuyos rostros registrados se parecen mucho (distancia menor a ${n2(d.levels.pair)}) o que el kiosco ya confundió.</p>
+                        ${d.pairs.length ? d.pairs.map(p => `<p class="py-1 border-t border-slate-100"><strong>${escapeHtml(p.aName)}</strong> y <strong>${escapeHtml(p.bName)}</strong> · distancia ${n2(p.dist)}${p.dudosos ? ` · <span class="text-amber-700 font-semibold">${p.dudosos} intento(s) dudoso(s)</span>` : ''}</p>`).join('') : '<p class="text-emerald-700 font-semibold">Ninguna: todos los rostros registrados se diferencian bien.</p>'}
+                    </div>
+                    <div class="border border-slate-200 rounded-lg p-3">
+                        <p class="font-bold text-slate-800 mb-1"><i class="fa-solid fa-tablet-screen-button text-sky-600"></i> Por kiosco</p>
+                        <p class="text-3xs text-slate-500 mb-2">Si un kiosco falla más en ciertas horas, suele ser la luz (sol de frente, contraluz o poca luz).</p>
+                        ${d.devices.length ? d.devices.map(v => `<div class="py-1.5 border-t border-slate-100"><p><strong>${escapeHtml(v.name)}</strong> · ${v.total} intento(s) · <span class="${(v.okPct || 0) >= 90 ? 'text-emerald-700' : (v.okPct || 0) >= 75 ? 'text-amber-700' : 'text-rose-700'} font-bold">${v.okPct == null ? '—' : v.okPct + ' % reconocidos'}</span>${v.dudoso ? ` · ${v.dudoso} dudoso(s)` : ''}${v.no ? ` · ${v.no} no reconocido(s)` : ''}</p>
+                            ${v.badHours.length ? `<p class="text-3xs text-rose-700">Horas con más fallas: ${v.badHours.map(h => `${h.hour}:00 (${h.failPct} % de ${h.total})`).join(' · ')}</p>` : ''}</div>`).join('') : '<p class="text-slate-400">Aún no hay intentos registrados en este periodo.</p>'}
+                    </div>
+                </div>
+                <p class="text-3xs text-slate-400 mt-3">Cómo se calcula: el kiosco acepta a alguien si su distancia es menor a ${n2(d.threshold)} y nadie más se le parece casi igual (margen de ${n2(d.margin)}). 🟢 Muy seguro: distancia promedio hasta ${n2(d.levels.green)} y sin fallas. 🟡 Al límite: promedio hasta ${n2(d.levels.yellow)} o alguna falla. 🔴 Con problemas: promedio mayor a ${n2(d.levels.yellow)}, o 3 o más fallas o marcaciones manuales en el periodo. Los datos empiezan a contar desde esta actualización.</p>`;
         }
         async function attendanceLoadBioList() {
             const body = document.getElementById('attBioTableBody');
