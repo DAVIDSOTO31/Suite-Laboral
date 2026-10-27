@@ -68,7 +68,7 @@
       <video id="evidenceVideo" autoplay muted playsinline style="position:absolute; width:2px; height:2px; opacity:0; pointer-events:none;"></video>
 
       <div id="manualBox" class="hidden">
-        <select id="employeeSelect" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm mb-3"></select>
+        <select id="employeeSelect" data-search title="Escribe tu nombre para buscarte" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm mb-3"></select>
         <label class="block text-xs font-semibold text-slate-300 mb-1">¿Por qué marcas manualmente? <span class="text-rose-400">*</span></label>
         <textarea id="manualReason" rows="2" maxlength="300" placeholder="Ej. La cámara no me reconoció" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm mb-1"></textarea>
         <p class="text-2xs text-slate-400 mb-3">Obligatorio. Queda registrado y el administrador recibe una alerta.</p>
@@ -106,6 +106,7 @@
    </div>
   </div>
 
+<script src="/search-select.js"></script>
 <script>
 const MARK_LABELS = { entrada: 'Entrada', inicio_almuerzo: 'Inicio de almuerzo', fin_almuerzo: 'Fin de almuerzo', salida: 'Salida' };
 // Turno partido: mismas 4 marcaciones, con nombres de etapas.
@@ -790,7 +791,8 @@ async function loadEmployeesForManual(quiet) {
     try { localStorage.setItem('kioskEmployeesCache', JSON.stringify(employees.map(e => ({ id: e.id, name: e.name })))); } catch (x) { /* sin espacio */ }
     document.getElementById('deviceNameLabel').textContent = deviceName;
     if (employees.length === 0) { sel.innerHTML = '<option value="">Sin colaboradores asignados a este dispositivo.</option>'; return; }
-    sel.innerHTML = employees.map(e => {
+    // Primero vacío: cada persona escribe o elige su nombre (así nadie marca por otro sin querer).
+    sel.innerHTML = '<option value="">Escribe o elige tu nombre</option>' + employees.map(e => {
       if (!e.hasShift) return `<option value="${e.id}" data-noshift="1">${escapeHtml(e.name)} — sin turno hoy</option>`;
       if (e.completed) return `<option value="${e.id}" data-noshift="1">${escapeHtml(e.name)} — turno completo</option>`;
       return `<option value="${e.id}">${escapeHtml(e.name)} — ${markLabel(e.nextMark, e.isSplit)}</option>`;
@@ -801,7 +803,7 @@ async function loadEmployeesForManual(quiet) {
     let cached = [];
     try { cached = JSON.parse(localStorage.getItem('kioskEmployeesCache') || '[]'); } catch (x) { cached = []; }
     if (e.network && cached.length) {
-      sel.innerHTML = '<option value="">Sin conexión — elige tu nombre</option>' + cached.map(c => `<option value="${c.id}" data-offline="1">${escapeHtml(c.name)}</option>`).join('');
+      sel.innerHTML = '<option value="">Sin conexión — escribe o elige tu nombre</option>' + cached.map(c => `<option value="${c.id}" data-offline="1">${escapeHtml(c.name)}</option>`).join('');
       return;
     }
     sel.innerHTML = `<option value="">${escapeHtml(e.message)}</option>`;
@@ -810,7 +812,14 @@ async function loadEmployeesForManual(quiet) {
 
 async function doManualMark() {
   const sel = document.getElementById('employeeSelect');
-  if (!sel.value || sel.selectedOptions[0]?.dataset.noshift) return;
+  if (!sel.value) {
+    const box = document.getElementById('resultBox');
+    box.className = 'mt-4 bg-rose-900/50 border border-rose-700 rounded-xl p-4 text-rose-200 text-sm';
+    box.textContent = 'Escribe o elige tu nombre en la lista.';
+    box.classList.remove('hidden');
+    return;
+  }
+  if (sel.selectedOptions[0]?.dataset.noshift) return;
   const reasonEl = document.getElementById('manualReason');
   const reason = (reasonEl.value || '').trim();
   if (reason.length < 5) {
@@ -834,6 +843,7 @@ async function doManualMark() {
     const saved = await enqueueOffline({ kind: 'manual', employeeId: empId, localEmpId: empId, employeeName: name, reason, ...(ev ? { evidence: ev } : {}) });
     if (!saved) { renderSaveFailed(name); return; }
     reasonEl.value = '';
+    sel.value = ''; // el siguiente colaborador busca su propio nombre
     const mt = cachedNextMark(empId);
     renderOfflineResult(name, mt, cached && cached.isSplit, cachedHasShiftToday(empId));
     speakOfflineConfirmation(name, mt, cached && cached.isSplit);
@@ -844,6 +854,7 @@ async function doManualMark() {
     const r = await apiKiosk('/api/kiosk/mark', { method: 'POST', timeoutMs: 7000, body: JSON.stringify({ employeeId: Number(sel.value), reason, evidence }) });
     if (r && r.employeeId) advanceCachedMark(r.employeeId, r.markType);
     reasonEl.value = '';
+    sel.value = ''; // el siguiente colaborador busca su propio nombre
     renderResult(r);
     loadEmployeesForManual();
   } catch (e) {
