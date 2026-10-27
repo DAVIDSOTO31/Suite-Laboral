@@ -983,6 +983,10 @@
                                 <span class="att-subnav-icon"><i class="fa-solid fa-calendar-check"></i></span>
                                 <span class="att-subnav-text"><span class="att-subnav-title">Días laborados<span class="att-badge hidden" id="attBadge-workdays"></span></span><span class="att-subnav-desc">Conteo de días según marcaciones</span></span>
                             </button>
+                            <button id="btnAttTabAbsences" data-perm="attendance.view" onclick="attendanceSetSubTab('absences')" class="att-subnav-item">
+                                <span class="att-subnav-icon"><i class="fa-solid fa-user-xmark"></i></span>
+                                <span class="att-subnav-text"><span class="att-subnav-title">Inasistencias<span class="att-badge hidden" id="attBadge-absences"></span></span><span class="att-subnav-desc">Informe de novedades de inasistencia por colaborador</span></span>
+                            </button>
                             <button id="btnAttTabNovedades" data-perm="attendance.view_alerts" onclick="attendanceSetSubTab('novedades')" class="att-subnav-item">
                                 <span class="att-subnav-icon"><i class="fa-solid fa-folder-open"></i></span>
                                 <span class="att-subnav-text"><span class="att-subnav-title">Novedades por colaborador<span class="att-badge hidden" id="attBadge-novedades"></span></span><span class="att-subnav-desc">Resumen del periodo: tardanzas, inasistencias y su gestión</span></span>
@@ -1319,6 +1323,52 @@
                                 </tr></thead>
                                 <tbody id="attWorkdaysBody"></tbody>
                                 <tfoot id="attWorkdaysFoot" class="bg-slate-50 font-semibold"></tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sub-vista: Informe de inasistencias por colaborador -->
+                <div id="attSubtab-absences" class="hidden">
+                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                        <div class="mb-4">
+                            <h3 class="font-bold text-slate-800 text-base">Informe de inasistencias</h3>
+                            <p class="text-xs text-slate-500">Días de inasistencia por colaborador según el cuadro de turnos (vacaciones, incapacidad, sin horario, otro motivo y las inasistencias creadas por la empresa) más los días que <strong>no se presentó</strong>. No incluye el descanso (día libre) ni el descanso acumulado.</p>
+                        </div>
+                        <div class="flex flex-wrap items-end gap-3 mb-4">
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Desde</label>
+                                <input type="date" id="attAbsFrom" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Hasta</label>
+                                <input type="date" id="attAbsTo" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
+                            </div>
+                            <div class="flex gap-1">
+                                <button type="button" onclick="attAbsQuick('q1')" class="px-2 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-2xs font-semibold text-slate-600">Quincena 1</button>
+                                <button type="button" onclick="attAbsQuick('q2')" class="px-2 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-2xs font-semibold text-slate-600">Quincena 2</button>
+                                <button type="button" onclick="attAbsQuick('mes')" class="px-2 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-2xs font-semibold text-slate-600">Mes</button>
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Área</label>
+                                <select id="attAbsArea" onchange="attendanceLoadAbsences()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white w-44">
+                                    <option value="">Todas las áreas</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Colaborador</label>
+                                <select id="attAbsEmp" data-search onchange="attendanceLoadAbsences()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white w-60">
+                                    <option value="">Todos los colaboradores</option>
+                                </select>
+                            </div>
+                            <button onclick="attendanceLoadAbsences()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
+                            <button onclick="exportAbsencesXLSX()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel</button>
+                        </div>
+                        <div class="overflow-x-auto att-sticky-head border border-slate-200 rounded-lg">
+                            <table class="w-full text-xs">
+                                <thead id="attAbsHead" class="bg-slate-50 text-slate-500 uppercase text-[11px]"></thead>
+                                <tbody id="attAbsBody"></tbody>
+                                <tfoot id="attAbsFoot" class="bg-slate-50 font-semibold"></tfoot>
                             </table>
                         </div>
                     </div>
@@ -10705,6 +10755,7 @@
             bio: ['Biometría', 'fa-id-badge', 'Registro y desactivación de perfiles faciales para marcar en el kiosco.'],
             mark: ['Marcación manual', 'fa-hand-pointer', 'Respaldo de emergencia cuando el kiosco no funciona. Pide motivo y genera alerta.'],
             workdays: ['Días laborados', 'fa-calendar-check', 'Conteo de días con marcación de entrada para los colaboradores seleccionados.'],
+            absences: ['Inasistencias', 'fa-user-xmark', 'Informe por colaborador de los días de inasistencia del periodo (sin descansos), con total por colaborador.'],
             novedades: ['Novedades por colaborador', 'fa-folder-open', 'Resumen por colaborador de las novedades del periodo y su gestión (justificadas / injustificadas).'],
             devices: ['Dispositivos', 'fa-tablet-screen-button', 'Tablets y celulares habilitados como punto de marcación.'],
         };
@@ -10737,6 +10788,7 @@
             if (tab === 'mark') attendanceLoadEmployeesToday();
             if (tab === 'history') attendanceLoadHistory();
             if (tab === 'workdays') attendanceLoadWorkdays();
+            if (tab === 'absences') attendanceLoadAbsences();
             if (tab === 'alerts') attendanceLoadAlerts();
             if (tab === 'bio') attendanceLoadBioList();
             if (tab === 'devices') attendanceLoadDevices();
@@ -11371,6 +11423,121 @@
             try {
                 await downloadXLSX(`Dias_laborados_${from}_al_${to}.xlsx`,
                     ['Colaborador', 'Documento', 'Área', 'Días laborados', 'Jornada completa', 'Marcación incompleta', 'Fechas (día/mes)'], rows, 'Días laborados');
+            } catch (e) { showAppToast(e.message); }
+        }
+
+        // -----------------------------------------------------------------
+        // Informe de inasistencias por colaborador (Asistencia -> Inasistencias).
+        // -----------------------------------------------------------------
+        let lastAbsReport = null;
+        function attAbsQuick(kind) {
+            const fromEl = document.getElementById('attAbsFrom');
+            const base = (fromEl.value || bogotaTodayISO()).slice(0, 8); // AAAA-MM-
+            const [y, m] = base.split('-').map(Number);
+            const last = String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0');
+            fromEl.value = base + (kind === 'q2' ? '16' : '01');
+            document.getElementById('attAbsTo').value = base + (kind === 'q1' ? '15' : last);
+            attendanceLoadAbsences();
+        }
+        function attAbsFillFilters() {
+            const areaSel = document.getElementById('attAbsArea');
+            const empSel = document.getElementById('attAbsEmp');
+            const curA = areaSel.value, curE = empSel.value;
+            const areas = [...new Set(appState.departments.map(d => d.name).concat(appState.employees.map(e => e.department).filter(Boolean)))].sort((x, y) => x.localeCompare(y, 'es'));
+            areaSel.innerHTML = '<option value="">Todas las áreas</option>' + areas.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+            areaSel.value = areas.includes(curA) ? curA : '';
+            const emps = appState.employees.filter(e => !areaSel.value || (e.department || '') === areaSel.value)
+                .slice().sort((x, y) => x.name.localeCompare(y.name, 'es'));
+            empSel.innerHTML = '<option value="">Todos los colaboradores</option>' + emps.map(e => `<option value="${e.id}">${escapeHtml(e.name)}${e.status === 'retirado' ? ' (retirado)' : ''}</option>`).join('');
+            empSel.value = emps.some(e => String(e.id) === curE) ? curE : '';
+        }
+        async function attendanceLoadAbsences() {
+            const fromEl = document.getElementById('attAbsFrom');
+            const toEl = document.getElementById('attAbsTo');
+            if (!fromEl.value || !toEl.value) {
+                const today = bogotaTodayISO();
+                fromEl.value = today.slice(0, 8) + '01';
+                toEl.value = today;
+            }
+            attAbsFillFilters();
+            const body = document.getElementById('attAbsBody');
+            document.getElementById('attAbsFoot').innerHTML = '';
+            body.innerHTML = '<tr><td class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>';
+            const qs = new URLSearchParams({ from: fromEl.value, to: toEl.value });
+            const area = document.getElementById('attAbsArea').value, emp = document.getElementById('attAbsEmp').value;
+            if (area) qs.set('area', area);
+            if (emp) qs.set('employeeId', emp);
+            try {
+                lastAbsReport = await apiFetch(`/api/attendance/absences-report?${qs}`);
+                renderAbsencesTable();
+            } catch (e) {
+                lastAbsReport = null;
+                document.getElementById('attAbsHead').innerHTML = '';
+                body.innerHTML = `<tr><td class="px-3 py-6 text-center text-slate-400">${escapeHtml(e.message)}</td></tr>`;
+            }
+        }
+        function renderAbsencesTable() {
+            const d = lastAbsReport;
+            const head = document.getElementById('attAbsHead');
+            const body = document.getElementById('attAbsBody');
+            const foot = document.getElementById('attAbsFoot');
+            const types = d.types;
+            const nCols = 2 + types.length + 3 + 2;
+            head.innerHTML = `<tr>
+                    <th rowspan="2" class="text-left px-3 py-2 align-bottom">Colaborador</th><th rowspan="2" class="text-left px-3 py-2 align-bottom">Área</th>
+                    ${types.map(t => `<th rowspan="2" class="text-center px-2 py-2 align-bottom">${escapeHtml(t.label)}</th>`).join('')}
+                    <th colspan="3" class="text-center px-2 pt-2 pb-0.5 border-l border-slate-200">No se presentó</th>
+                    <th rowspan="2" class="text-center px-3 py-2 align-bottom border-l border-slate-200 text-slate-700">Total</th>
+                    <th rowspan="2" class="px-2 py-2"></th>
+                </tr><tr>
+                    <th class="text-center px-2 pb-2 pt-0.5 text-3xs border-l border-slate-200">Justif.</th><th class="text-center px-2 pb-2 pt-0.5 text-3xs">Injustif.</th><th class="text-center px-2 pb-2 pt-0.5 text-3xs">Pendiente</th>
+                </tr>`;
+            const num = (n, cls = '') => n ? `<span class="font-semibold ${cls}">${n}</span>` : '<span class="text-slate-300">0</span>';
+            const fmt = (iso) => iso.split('-').reverse().join('/');
+            if (!d.rows.length) {
+                body.innerHTML = `<tr><td colspan="${nCols}" class="px-3 py-6 text-center text-slate-400">Sin inasistencias en el periodo con los filtros elegidos.</td></tr>`;
+                return;
+            }
+            body.innerHTML = d.rows.map((r, i) => `
+                <tr class="border-t border-slate-100">
+                    <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}${r.retired ? ' <span class="text-3xs text-slate-400 font-normal">(retirado)</span>' : ''}</td>
+                    <td class="px-3 py-2 text-slate-500">${escapeHtml(r.area)}</td>
+                    ${types.map(t => `<td class="px-2 py-2 text-center">${num(r.counts[t.key] || 0)}${t.key === 'vacaciones' && r.counts.vacaciones ? `<span class="block text-3xs text-slate-400">${r.vacBiz} hábil${r.vacBiz === 1 ? '' : 'es'}</span>` : ''}</td>`).join('')}
+                    <td class="px-2 py-2 text-center border-l border-slate-100">${num(r.faltas.justificada, 'text-emerald-700')}</td>
+                    <td class="px-2 py-2 text-center">${num(r.faltas.injustificada, 'text-rose-700')}</td>
+                    <td class="px-2 py-2 text-center">${num(r.faltas.pendiente, 'text-amber-700')}</td>
+                    <td class="px-3 py-2 text-center text-base font-black text-sky-700 border-l border-slate-100">${r.total}</td>
+                    <td class="px-2 py-2 text-right"><button type="button" onclick="document.getElementById('attAbsDet${i}').classList.toggle('hidden')" class="text-2xs font-semibold text-sky-700 hover:underline whitespace-nowrap">Ver días</button></td>
+                </tr>
+                <tr id="attAbsDet${i}" class="hidden bg-slate-50/60"><td colspan="${nCols}" class="px-4 py-2">
+                    <div class="flex flex-wrap gap-1.5">${r.days.map(x => `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-slate-200 bg-white text-2xs" title="${escapeHtml(x.note || '')}"><strong>${fmt(x.date)}</strong> ${escapeHtml(x.label)}${x.status ? ` · ${escapeHtml(x.status)}` : ''}${x.note ? ' <i class="fa-regular fa-comment text-slate-400"></i>' : ''}</span>`).join('')}</div>
+                </td></tr>`).join('');
+            const sum = (f) => d.rows.reduce((s, r) => s + f(r), 0);
+            foot.innerHTML = `<tr class="border-t-2 border-slate-200">
+                <td class="px-3 py-2 uppercase text-2xs text-slate-500" colspan="2">Total (${d.rows.length} colaborador${d.rows.length === 1 ? '' : 'es'})</td>
+                ${types.map(t => `<td class="px-2 py-2 text-center">${sum(r => r.counts[t.key] || 0)}</td>`).join('')}
+                <td class="px-2 py-2 text-center border-l border-slate-200">${sum(r => r.faltas.justificada)}</td>
+                <td class="px-2 py-2 text-center">${sum(r => r.faltas.injustificada)}</td>
+                <td class="px-2 py-2 text-center">${sum(r => r.faltas.pendiente)}</td>
+                <td class="px-3 py-2 text-center text-sky-700 border-l border-slate-200">${sum(r => r.total)}</td><td></td></tr>`;
+        }
+        async function exportAbsencesXLSX() {
+            const d = lastAbsReport;
+            if (!d || !d.rows.length) { showAppToast('Primero consulta un periodo con inasistencias.'); return; }
+            const doc = (r) => docLabel({ documentType: r.documentType, documentNumber: r.documentNumber });
+            const fmt = (iso) => iso.split('-').reverse().join('/');
+            const resumenHead = ['Colaborador', 'Documento', 'Área', ...d.types.flatMap(t => t.key === 'vacaciones' ? [t.label, 'Vacaciones (días hábiles)'] : [t.label]),
+                'No se presentó - justificada', 'No se presentó - injustificada', 'No se presentó - pendiente', 'Total inasistencias'];
+            const resumen = d.rows.map(r => [r.name, doc(r), r.area, ...d.types.flatMap(t => t.key === 'vacaciones' ? [r.counts.vacaciones || 0, r.vacBiz] : [r.counts[t.key] || 0]),
+                r.faltas.justificada, r.faltas.injustificada, r.faltas.pendiente, r.total]);
+            const detalleHead = ['Colaborador', 'Documento', 'Área', 'Fecha', 'Novedad', 'Estado', 'Nota'];
+            const detalle = d.rows.flatMap(r => r.days.map(x => [r.name, doc(r), r.area, fmt(x.date), x.label, x.status || '', x.note || '']));
+            try {
+                await loadXLSXLibrary();
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, xlsxSheet([resumenHead, ...resumen]), 'Resumen');
+                XLSX.utils.book_append_sheet(wb, xlsxSheet([detalleHead, ...detalle]), 'Detalle por día');
+                XLSX.writeFile(wb, `Inasistencias_${d.from}_al_${d.to}.xlsx`);
             } catch (e) { showAppToast(e.message); }
         }
 
