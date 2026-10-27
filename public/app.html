@@ -1095,6 +1095,15 @@
                     <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                         <h3 class="font-bold text-slate-800 text-base mb-1">Perfiles biométricos faciales</h3>
                         <p class="text-xs text-slate-500 mb-4">Solo se guarda una plantilla matemática del rostro, nunca la fotografía. Requiere el consentimiento explícito del colaborador (Ley 1581 de 2012, Habeas Data).</p>
+                        <!-- Filtros de la tabla: área y colaborador -->
+                        <div class="flex flex-wrap items-center gap-2 mb-2">
+                            <select id="attBioArea" onchange="renderBioTable()" title="Área" class="text-xs py-1.5 px-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 w-48">
+                                <option value="">Todas las áreas</option>
+                            </select>
+                            <select id="attBioEmp" data-search onchange="renderBioTable()" title="Colaborador" class="text-xs py-1.5 px-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 w-56">
+                                <option value="">Todos los colaboradores</option>
+                            </select>
+                        </div>
                         <div class="overflow-x-auto border border-slate-200 rounded-lg">
                             <table class="w-full text-xs">
                                 <thead class="bg-slate-50 text-slate-500 uppercase"><tr>
@@ -13025,27 +13034,44 @@
         let attBioCurrentEmployeeId = null;
         let attBioCaptures = [];
 
+        // Filtros de Biometría (área y colaborador con cuadro de texto): filtran la tabla.
+        let attBioList = [];
+        function renderBioTable() {
+            const body = document.getElementById('attBioTableBody');
+            const areaSel = document.getElementById('attBioArea');
+            const empSel = document.getElementById('attBioEmp');
+            const curA = areaSel.value, curE = empSel.value;
+            const areas = [...new Set(attBioList.map(e => e.department || 'Sin área'))].sort((x, y) => x.localeCompare(y, 'es'));
+            areaSel.innerHTML = '<option value="">Todas las áreas</option>' + areas.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+            areaSel.value = areas.includes(curA) ? curA : '';
+            const inArea = attBioList.filter(e => !areaSel.value || (e.department || 'Sin área') === areaSel.value);
+            empSel.innerHTML = '<option value="">Todos los colaboradores</option>' + inArea.map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
+            empSel.value = inArea.some(e => String(e.id) === curE) ? curE : '';
+            const list = inArea.filter(e => !empSel.value || String(e.id) === empSel.value);
+            body.innerHTML = list.map(e => {
+                const active = e.profile && e.profile.active;
+                const statusHtml = active
+                    ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-2xs font-semibold">Activo</span>'
+                    : (e.profile ? '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-2xs font-semibold">Inactivo</span>' : '<span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-2xs font-semibold">Sin registrar</span>');
+                const updated = e.profile ? e.profile.updatedAt : '-';
+                return `<tr class="border-t border-slate-100">
+                    <td class="px-3 py-2 font-medium">${escapeHtml(e.name)}</td>
+                    <td class="px-3 py-2">${statusHtml}</td>
+                    <td class="px-3 py-2 whitespace-nowrap">${updated}</td>
+                    <td class="px-3 py-2 flex gap-2">
+                        <button onclick="attendanceOpenEnrollModal(${e.id}, '${escapeHtml(e.name)}')" class="text-xs px-2 py-1 rounded bg-sky-50 text-sky-700 hover:bg-sky-100">${active ? 'Actualizar' : 'Registrar'} rostro</button>
+                        ${active ? `<button onclick="attendanceDeactivateFace(${e.id})" class="text-xs px-2 py-1 rounded bg-rose-50 text-rose-600 hover:bg-rose-100">Desactivar</button>` : ''}
+                    </td>
+                </tr>`;
+            }).join('') || `<tr><td colspan="4" class="px-3 py-6 text-center text-slate-400">${attBioList.length ? 'Ningún colaborador coincide con el filtro.' : 'No hay colaboradores registrados.'}</td></tr>`;
+        }
         async function attendanceLoadBioList() {
             const body = document.getElementById('attBioTableBody');
             body.innerHTML = `<tr><td colspan="4" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
             try {
                 const { employees } = await apiFetch('/api/attendance/face-profiles');
-                body.innerHTML = employees.map(e => {
-                    const active = e.profile && e.profile.active;
-                    const statusHtml = active
-                        ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-2xs font-semibold">Activo</span>'
-                        : (e.profile ? '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-2xs font-semibold">Inactivo</span>' : '<span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-2xs font-semibold">Sin registrar</span>');
-                    const updated = e.profile ? e.profile.updatedAt : '-';
-                    return `<tr class="border-t border-slate-100">
-                        <td class="px-3 py-2 font-medium">${escapeHtml(e.name)}</td>
-                        <td class="px-3 py-2">${statusHtml}</td>
-                        <td class="px-3 py-2 whitespace-nowrap">${updated}</td>
-                        <td class="px-3 py-2 flex gap-2">
-                            <button onclick="attendanceOpenEnrollModal(${e.id}, '${escapeHtml(e.name)}')" class="text-xs px-2 py-1 rounded bg-sky-50 text-sky-700 hover:bg-sky-100">${active ? 'Actualizar' : 'Registrar'} rostro</button>
-                            ${active ? `<button onclick="attendanceDeactivateFace(${e.id})" class="text-xs px-2 py-1 rounded bg-rose-50 text-rose-600 hover:bg-rose-100">Desactivar</button>` : ''}
-                        </td>
-                    </tr>`;
-                }).join('') || `<tr><td colspan="4" class="px-3 py-6 text-center text-slate-400">No hay colaboradores registrados.</td></tr>`;
+                attBioList = employees;
+                renderBioTable();
             } catch (e) {
                 body.innerHTML = `<tr><td colspan="4" class="px-3 py-6 text-center text-slate-400">No tienes permiso para ver esta sección.</td></tr>`;
             }
