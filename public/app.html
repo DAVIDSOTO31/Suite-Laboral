@@ -2104,6 +2104,22 @@
         </div>
     </div>
 
+    <!-- MODAL: Cerrar el caso de un llamado (decisión final) -->
+    <div id="modalDiscClose" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-5 shadow-2xl space-y-3 border border-slate-200 text-xs">
+            <div class="flex items-start justify-between gap-2">
+                <div><p class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-flag-checkered"></i> Cerrar caso</p><p id="discCloseSub" class="text-slate-500"></p></div>
+                <button type="button" onclick="closeModal('modalDiscClose')" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 shrink-0" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <p class="text-slate-600">Registra qué decidió la empresa después de los descargos (o de vencido el plazo). Se puede cambiar después.</p>
+            <div id="discCloseOpts" class="space-y-1.5"></div>
+            <label class="block"><span class="font-semibold text-slate-700">Nota <span class="text-rose-600">*</span></span>
+                <textarea id="discCloseNote" rows="3" maxlength="1000" placeholder="Ej. Se reunió con su jefe y se comprometió a llegar puntual." class="mt-1 w-full p-2 border rounded-lg"></textarea></label>
+            <p id="discCloseMsg" class="hidden text-rose-600 font-semibold"></p>
+            <button type="button" id="discCloseBtn" onclick="discCloseSave()" class="w-full py-2.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold text-sm">Guardar cierre</button>
+        </div>
+    </div>
+
     <!-- MODAL: Compartir el PDF (WhatsApp u otra app del celular) -->
     <div id="modalSharePdf" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm hidden items-center justify-center z-[70] p-4">
         <div class="bg-white rounded-xl max-w-sm w-full p-5 shadow-2xl space-y-3 border border-slate-200">
@@ -3422,6 +3438,13 @@
         }
         // ---- Llamados de atención ----
         let discData = null, discTab = 'rev', discEditing = null;
+        // Etiqueta de reincidencia: "Reincidente · 2.º llamado" (con el anterior en el detalle).
+        function discReincBadge(c) {
+            const r = c.reincidence; if (!r) return '';
+            const f = String(r.prevDate || '').split('-').reverse().join('/');
+            const tip = `Llamado anterior por la misma falta: ${f}${r.prevDecision ? ' · ' + r.prevDecision : (r.prevSigned ? ' · firmado, sin cerrar' : ' · sin cerrar')}`;
+            return `<span title="${escapeHtml(tip)}" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-bold bg-rose-600 text-white"><i class="fa-solid fa-rotate-right"></i> Reincidente · ${r.n}.º llamado</span><span class="block text-3xs text-rose-700 mt-0.5">${escapeHtml(tip)}</span>`;
+        }
         const DISC_ST = { propuesto: ['Por revisar', 'bg-amber-100 text-amber-800'], descartado: ['Descartado', 'bg-slate-100 text-slate-600'], generado: ['Generado (sin enviar)', 'bg-sky-100 text-sky-800'], enviado: ['Enviado', 'bg-violet-100 text-violet-800'], recibido: ['Recibido', 'bg-emerald-100 text-emerald-800'] };
         async function loadDiscData() {
             if (!CAN('employees.view')) return null;
@@ -3741,7 +3764,7 @@
                     <div class="border border-amber-200 bg-amber-50/40 rounded-lg p-3 mb-2">
                         <div class="flex flex-wrap items-start justify-between gap-2">
                             <div><p class="font-bold text-slate-800 text-sm">${escapeHtml(c.name)} <span class="font-normal text-slate-500">· ${escapeHtml(c.area || 'Sin área')}</span></p>
-                                <p class="text-rose-700 font-semibold">${escapeHtml(c.typeLabel)}: ${c.count} novedad(es) injustificada(s) · ${fmt(c.from)} al ${fmt(c.to)}</p></div>
+                                <p class="text-rose-700 font-semibold">${escapeHtml(c.typeLabel)}: ${c.count} novedad(es) injustificada(s) · ${fmt(c.from)} al ${fmt(c.to)}</p>${c.reincidence ? `<div class="mt-1">${discReincBadge(c)}</div>` : ''}</div>
                             ${canEdit ? `<div class="flex gap-1.5">
                                 <button type="button" onclick="discStartEdit('${c.id}')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold">Revisar y generar</button>
                                 <button type="button" onclick="discDiscard('${c.id}')" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold">Descartar</button>
@@ -3761,8 +3784,8 @@
                         return `<tr>
                             <td class="px-2 py-2 font-semibold text-slate-800">${escapeHtml(c.name)}<span class="block text-3xs font-normal text-slate-500">${escapeHtml(c.area || '')}</span></td>
                             <td class="px-2 py-2">${escapeHtml(c.typeLabel)} <span class="text-slate-400">(${c.count})</span></td>
-                            <td class="px-2 py-2"><span class="px-2 py-0.5 rounded-full text-3xs font-bold ${st[1]}">${st[0]}</span>${c.descargos ? ` <button type="button" onclick="discDescargos('${c.id}')" title="Ver los descargos" class="px-2 py-0.5 rounded-full text-3xs font-bold bg-indigo-100 text-indigo-800 hover:bg-indigo-200 underline decoration-dotted underline-offset-2"><i class="fa-regular fa-comment-dots"></i> Con descargos</button>` : ''}</td>
-                            <td class="px-2 py-2 text-3xs text-slate-500 leading-tight">${c.annulledAt ? `Enviado ${fmt(c.sentAt)}<br>Anulado ${fmt(c.annulledAt)}<br>Motivo: ${escapeHtml(c.annulReason)}` : c.status === 'descartado' ? `Descartado ${fmt(c.decidedAt)}<br>Motivo: ${escapeHtml(c.discardReason)}` : `Generado ${fmt(c.docDate)}${c.sentAt ? `<br>Enviado ${fmt(c.sentAt)}` : ''}${c.emailSentAt ? `<br>Correo ${fmt(c.emailSentAt)} · ${escapeHtml(c.emailSentTo)}` : ''}${c.receivedAt ? `<br>Recibido ${fmt(c.receivedAt)} ${String(c.receivedAt).slice(11, 16)}` : ''}${c.signedAt ? `<br><strong class="text-emerald-700">Firmado ${fmt(c.signedAt)} ${String(c.signedAt).slice(11, 16)}</strong>` : ''}${c.descargosAt ? `<br>Descargos ${fmt(c.descargosAt)}` : ''}`}</td>
+                            <td class="px-2 py-2"><span class="px-2 py-0.5 rounded-full text-3xs font-bold ${st[1]}">${st[0]}</span>${c.closedAt ? ` <button type="button" onclick="discCloseOpen('${c.id}')" title="${escapeHtml(c.closeNote)}" class="px-2 py-0.5 rounded-full text-3xs font-bold bg-slate-800 text-white hover:bg-slate-700"><i class="fa-solid fa-flag-checkered"></i> Cerrado · ${escapeHtml(c.closeDecisionLabel)}</button>` : ''}${c.descargos ? ` <button type="button" onclick="discDescargos('${c.id}')" title="Ver los descargos" class="px-2 py-0.5 rounded-full text-3xs font-bold bg-indigo-100 text-indigo-800 hover:bg-indigo-200 underline decoration-dotted underline-offset-2"><i class="fa-regular fa-comment-dots"></i> Con descargos</button>` : ''}${c.reincidence && !c.annulledAt && c.status !== 'descartado' ? `<div class="mt-1">${discReincBadge(c)}</div>` : ''}</td>
+                            <td class="px-2 py-2 text-3xs text-slate-500 leading-tight">${c.annulledAt ? `Enviado ${fmt(c.sentAt)}<br>Anulado ${fmt(c.annulledAt)}<br>Motivo: ${escapeHtml(c.annulReason)}` : c.status === 'descartado' ? `Descartado ${fmt(c.decidedAt)}<br>Motivo: ${escapeHtml(c.discardReason)}` : `Generado ${fmt(c.docDate)}${c.sentAt ? `<br>Enviado ${fmt(c.sentAt)}` : ''}${c.emailSentAt ? `<br>Correo ${fmt(c.emailSentAt)} · ${escapeHtml(c.emailSentTo)}` : ''}${c.receivedAt ? `<br>Recibido ${fmt(c.receivedAt)} ${String(c.receivedAt).slice(11, 16)}` : ''}${c.signedAt ? `<br><strong class="text-emerald-700">Firmado ${fmt(c.signedAt)} ${String(c.signedAt).slice(11, 16)}</strong>` : ''}${c.descargosAt ? `<br>Descargos ${fmt(c.descargosAt)}` : ''}${c.closedAt ? `<br><strong class="text-slate-800">Cerrado ${fmt(c.closedAt)}</strong>` : ''}`}</td>
                             <td class="px-2 py-2 text-right whitespace-nowrap">${c.annulledAt ? `<button type="button" onclick="discView('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Ver</button>` : c.status === 'descartado' ? '' : `
                                 <button type="button" onclick="discView('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Ver</button>
                                 <button type="button" onclick="discPdf('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold"><i class="fa-regular fa-file-pdf"></i> Ver PDF</button>
@@ -3771,6 +3794,7 @@
                                     <button type="button" onclick="discEmail('${c.id}')" title="${c.email ? 'Enviar al correo ' + escapeHtml(c.email) : 'Sin correo en la ficha'}" class="px-2 py-1 rounded bg-sky-600 hover:bg-sky-700 text-white font-bold"><i class="fa-regular fa-envelope"></i> Correo</button>` : ''}
                                 ${canEdit && c.status === 'generado' ? `<button type="button" onclick="discEditing='${c.id}'; discTab='rev'; discStartEdit('${c.id}', true)" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Editar</button>
                                     <button type="button" onclick="discDiscard('${c.id}', true)" class="px-2 py-1 rounded bg-white border border-slate-300 hover:bg-slate-50 font-semibold">Descartar</button>` : ''}
+                                ${canEdit && (c.status === 'enviado' || c.status === 'recibido') ? `<button type="button" onclick="discCloseOpen('${c.id}')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-900 text-white font-bold"><i class="fa-solid fa-flag-checkered"></i> ${c.closedAt ? 'Editar cierre' : 'Cerrar caso'}</button>` : ''}
                                 ${canEdit && (c.status === 'enviado' || c.status === 'recibido') ? `<button type="button" onclick="discAnnul('${c.id}')" class="px-2 py-1 rounded bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 font-semibold">Anular</button>` : ''}`}</td>
                         </tr>`;
                     }).join('')}</tbody></table>`
@@ -3800,6 +3824,13 @@
                     </div>
                 </div>
                 <p class="text-3xs text-slate-500 mb-4">La firma de los llamados es siempre esta, sin importar qué usuario los genere${cfg.adminName ? ` (por defecto, el administrador de la empresa: <strong>${escapeHtml(cfg.adminName)}</strong>)` : ''}. Debajo va el nombre de la empresa y su NIT${cfg.nit ? ` (<strong>${escapeHtml(cfg.nit)}</strong>)` : ': <strong class="text-rose-700">la organización no tiene NIT registrado</strong> (se registra en Super Admin → Organizaciones)'}. El logo va arriba a la izquierda en el PDF y en el enlace.</p>
+                <div class="border border-rose-200 bg-rose-50/40 rounded-lg p-3 mb-3 flex flex-wrap items-center gap-2">
+                    <span class="font-bold text-slate-800"><i class="fa-solid fa-rotate-right text-rose-600"></i> Reincidencia:</span>
+                    <span class="text-slate-600">un llamado es reincidente si hubo otro por la <strong>misma falta</strong> en los últimos</span>
+                    <input type="number" id="discReincDays" value="${cfg.reincidenceDays || 180}" min="30" max="730" class="w-20 p-1.5 border rounded-lg">
+                    <span class="text-slate-600">días (por defecto ${cfg.defaultReincidenceDays || 180} = 6 meses).</span>
+                    <span class="block w-full text-3xs text-slate-500">Usa el mismo plazo de tu Reglamento Interno de Trabajo. No cuentan los llamados descartados, anulados ni los cerrados como "descargos aceptados". El documento del llamado reincidente incluye un párrafo que lo indica.</span>
+                </div>
                 ${Object.keys(T).map(k => { const r = cfg.rules[k], tp = cfg.templates[k]; return `
                 <div class="border border-slate-200 rounded-lg p-3 mb-3">
                     <div class="flex flex-wrap items-center gap-2">
@@ -3816,7 +3847,7 @@
                         <button type="button" onclick="discRestoreTpl('${k}')" class="mt-1 px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Restaurar la sugerida</button>
                     </details>
                 </div>`; }).join('')}
-                <p class="text-3xs text-slate-500 mb-2">Puedes pegar el modelo que ya usa la empresa. Datos que la suite llena sola: <code>{{empresa}}</code> <code>{{ciudad_fecha}}</code> <code>{{nombre}}</code> <code>{{documento}}</code> <code>{{cargo}}</code> <code>{{area}}</code> <code>{{novedades}}</code> (lista con fechas y horas) <code>{{cantidad}}</code> <code>{{fecha_descargos}}</code> <code>{{firmante}}</code> (nombre y cargo) <code>{{nit}}</code>. Valida el texto con tu asesor legal.</p>
+                <p class="text-3xs text-slate-500 mb-2">Puedes pegar el modelo que ya usa la empresa. Datos que la suite llena sola: <code>{{empresa}}</code> <code>{{ciudad_fecha}}</code> <code>{{nombre}}</code> <code>{{documento}}</code> <code>{{cargo}}</code> <code>{{area}}</code> <code>{{novedades}}</code> (lista con fechas y horas) <code>{{cantidad}}</code> <code>{{fecha_descargos}}</code> <code>{{firmante}}</code> (nombre y cargo) <code>{{nit}}</code> <code>{{reincidencia}}</code> (párrafo de reincidencia; vacío si no aplica. Si tu plantilla no lo tiene, la suite lo pone antes de la citación a descargos). Valida el texto con tu asesor legal.</p>
                 <p id="discCfgMsg" class="hidden text-rose-600 font-semibold mb-2"></p>
                 <button type="button" onclick="discSaveCfg()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold">Guardar reglas y plantillas</button>`;
             discSigInit();
@@ -3824,6 +3855,7 @@
         function discEditorHtml(c) {
             return `<div class="border-2 border-slate-800 rounded-lg p-3 mb-2">
                 <p class="font-bold text-slate-800 text-sm">${escapeHtml(c.name)} · ${escapeHtml(c.typeLabel)}</p>
+                ${c.reincidence ? `<div class="my-1">${discReincBadge(c)}<span class="block text-3xs text-slate-500 mt-0.5">El texto ya incluye un párrafo de reincidencia (puedes ajustarlo).</span></div>` : ''}
                 <p class="text-slate-500 mb-2">Revisa y ajusta el texto si es necesario. Al generarlo queda guardado tal cual en el historial del colaborador.</p>
                 <input id="discDocTitle" maxlength="200" class="w-full p-2 border rounded-lg font-semibold" value="">
                 <textarea id="discDocBody" rows="18" class="mt-1 w-full p-2 border rounded-lg text-xs leading-relaxed"></textarea>
@@ -3864,6 +3896,40 @@
             if (!reason) return;
             try { await apiFetch(`/api/discipline/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: 'descartar', reason }) }); showAppToast('Llamado descartado.'); await loadDiscData(); setDiscTab(fromHist ? 'hist' : 'rev'); }
             catch (e) { showAppToast(e.message); }
+        }
+        // ---- Cerrar caso: decisión final del llamado ----
+        const DISC_CLOSE_HINT = {
+            aceptados: 'La falta quedó justificada. NO cuenta para reincidencia.',
+            archivado: 'La falta ocurrió, pero se decidió no sancionar. Cuenta para reincidencia.',
+            compromiso: 'Se acordó con el colaborador corregir la conducta. Cuenta para reincidencia.',
+            sancion: 'Se aplicó una sanción según el reglamento. Cuenta para reincidencia.',
+        };
+        let discClosingId = null;
+        function discCloseOpen(id) {
+            const c = discData.cases.find(x => x.id === id); if (!c || !CAN('employees.edit')) return;
+            discClosingId = id;
+            document.getElementById('discCloseSub').textContent = `${c.name} · ${c.typeLabel}${c.signedAt ? ' · firmado' : ''}${c.descargos ? ' · con descargos' : ''}`;
+            const D = discData.closeDecisions || {};
+            document.getElementById('discCloseOpts').innerHTML = Object.keys(D).map(k => `<label class="flex items-start gap-2 p-2 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                <input type="radio" name="discCloseDecision" value="${k}" ${c.closeDecision === k ? 'checked' : ''} class="mt-0.5">
+                <span><strong class="text-slate-800">${escapeHtml(D[k])}</strong><span class="block text-3xs text-slate-500">${escapeHtml(DISC_CLOSE_HINT[k] || '')}</span></span></label>`).join('');
+            document.getElementById('discCloseNote').value = c.closeNote || '';
+            document.getElementById('discCloseMsg').classList.add('hidden');
+            openModal('modalDiscClose');
+        }
+        async function discCloseSave() {
+            const decision = (document.querySelector('input[name="discCloseDecision"]:checked') || {}).value;
+            const note = document.getElementById('discCloseNote').value.trim();
+            const m = document.getElementById('discCloseMsg');
+            if (!decision) { m.textContent = 'Elige la decisión final.'; m.classList.remove('hidden'); return; }
+            if (note.length < 5) { m.textContent = 'Escribe una nota con la decisión (mínimo 5 caracteres).'; m.classList.remove('hidden'); return; }
+            const btn = document.getElementById('discCloseBtn'); btn.disabled = true;
+            try {
+                await apiFetch(`/api/discipline/${discClosingId}/close`, { method: 'POST', body: JSON.stringify({ decision, note }) });
+                closeModal('modalDiscClose'); showAppToast('Caso cerrado.');
+                await loadDiscData(); setDiscTab('hist');
+            } catch (e) { m.textContent = e.message; m.classList.remove('hidden'); }
+            finally { btn.disabled = false; }
         }
         async function discAnnul(id) {
             const c = discData.cases.find(x => x.id === id); if (!c) return;
@@ -4137,7 +4203,7 @@
             });
             const m = document.getElementById('discCfgMsg');
             try {
-                await apiFetch('/api/discipline/config', { method: 'PUT', body: JSON.stringify({ rules, templates, signer: document.getElementById('discSigner').value, signerRole: document.getElementById('discSignerRole').value, city: document.getElementById('discCity').value, signerSignature: discSigValue() }) });
+                await apiFetch('/api/discipline/config', { method: 'PUT', body: JSON.stringify({ reincidenceDays: Number(document.getElementById('discReincDays').value), rules, templates, signer: document.getElementById('discSigner').value, signerRole: document.getElementById('discSignerRole').value, city: document.getElementById('discCity').value, signerSignature: discSigValue() }) });
                 showAppToast('Reglas y plantillas guardadas.'); await loadDiscData(); setDiscTab('cfg');
             } catch (e) { m.textContent = e.message; m.classList.remove('hidden'); }
         }
