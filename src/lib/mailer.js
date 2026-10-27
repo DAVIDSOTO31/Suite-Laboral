@@ -25,7 +25,8 @@ function toAbsoluteLink(link) {
   return `${base}${link}`;
 }
 
-async function sendMail({ to, subject, link, kind, bodyHtml, bodyText }) {
+// attachments (opcional): [{ name: 'archivo.pdf', content: '<base64>' }]
+async function sendMail({ to, subject, link, kind, bodyHtml, bodyText, attachments }) {
   const absoluteLink = toAbsoluteLink(link);
 
   if (env.EMAIL_MODE === 'brevo') {
@@ -45,6 +46,7 @@ async function sendMail({ to, subject, link, kind, bodyHtml, bodyText }) {
           // ejemplo el horario publicado. Si no vienen, se usa el formato simple.
           htmlContent: bodyHtml ? `${bodyHtml}<p><a href="${absoluteLink}">${absoluteLink}</a></p>` : `<p>${subject}</p><p><a href="${absoluteLink}">${absoluteLink}</a></p>`,
           textContent: bodyText ? `${bodyText}\n\n${absoluteLink}` : `${subject}\n\n${absoluteLink}`,
+          ...(attachments && attachments.length ? { attachment: attachments.map(a => ({ name: a.name, content: a.content })) } : {}),
         }),
       });
       const data = await resp.json().catch(() => ({}));
@@ -68,6 +70,7 @@ async function sendMail({ to, subject, link, kind, bodyHtml, bodyText }) {
     console.log('Asunto:   ', subject);
     console.log('Tipo:     ', kind);
     if (bodyText) console.log('Contenido:\n' + bodyText);
+    if (attachments && attachments.length) console.log('Adjuntos: ', attachments.map(a => `${a.name} (${Math.round(String(a.content || '').length * 3 / 4 / 1024)} KB)`).join(', '));
     console.log('Enlace:   ', absoluteLink);
     console.log('============================================================\n');
     return { delivered: false, mode: 'console', link: absoluteLink };

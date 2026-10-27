@@ -932,7 +932,7 @@
                             <button type="button" id="discTab_hist" onclick="setDiscTab('hist')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Historial</button>
                             <button type="button" id="discTab_cfg" onclick="setDiscTab('cfg')" data-perm="employees.edit" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Reglas y plantillas</button>
                         </div>
-                        <p class="text-2xs text-slate-500 mt-1.5">La suite propone un llamado cuando alguien acumula novedades <strong>injustificadas</strong> según las reglas. Nada se envía solo: tú revisas, generas (puedes editar el texto) y envías por WhatsApp. Es una comunicación de novedades con citación a descargos, no una sanción.</p>
+                        <p class="text-2xs text-slate-500 mt-1.5">La suite propone un llamado cuando alguien acumula novedades <strong>injustificadas</strong> según las reglas. Nada se envía solo: tú revisas, generas (puedes editar el texto) y envías por WhatsApp, PDF o correo. Es una comunicación de novedades con citación a descargos, no una sanción.</p>
                     </div>
                     <div id="discBody" class="p-4 text-xs"></div>
                 </div>
@@ -2101,6 +2101,20 @@
                 </div>
             </div>
             <iframe id="pdfViewerFrame" title="Documento PDF" class="flex-1 w-full rounded-b-xl bg-slate-100"></iframe>
+        </div>
+    </div>
+
+    <!-- MODAL: Compartir el PDF (WhatsApp u otra app del celular) -->
+    <div id="modalSharePdf" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm hidden items-center justify-center z-[70] p-4">
+        <div class="bg-white rounded-xl max-w-sm w-full p-5 shadow-2xl space-y-3 border border-slate-200">
+            <div class="flex items-start justify-between gap-2">
+                <div><p class="font-bold text-slate-800"><i class="fa-regular fa-file-pdf text-rose-600"></i> PDF listo para compartir</p><p id="sharePdfName" class="text-3xs text-slate-500 break-all"></p></div>
+                <button type="button" onclick="closeModal('modalSharePdf')" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 shrink-0" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <p id="sharePdfHint" class="text-xs text-slate-600"></p>
+            <button type="button" id="sharePdfBtn" onclick="sharePdfNow()" class="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm"><i class="fa-solid fa-share-nodes"></i> Compartir (WhatsApp u otra app)</button>
+            <a id="sharePdfWa" href="#" target="_blank" rel="noopener" class="hidden block w-full text-center py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-semibold text-xs"><i class="fa-brands fa-whatsapp"></i> Abrir el chat del colaborador</a>
+            <button type="button" onclick="sharePdfDownload()" class="w-full py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs"><i class="fa-solid fa-download"></i> Descargar el PDF</button>
         </div>
     </div>
 
@@ -3470,11 +3484,13 @@
                         <td class="px-2 py-2 font-semibold text-slate-800">${escapeHtml(c.name)}<span class="block text-3xs font-normal text-slate-500">${escapeHtml(c.area || '')}</span></td>
                         <td class="px-2 py-2">${escapeHtml(c.kindLabel)}<span class="block text-3xs text-slate-500">${c.includeSalary ? 'Con salario' : 'Sin salario'}${c.includeFunctions ? ' · con funciones' : ''}</span></td>
                         <td class="px-2 py-2">${escapeHtml(c.addressedTo || 'A quien interese')}</td>
-                        <td class="px-2 py-2 text-3xs text-slate-500 leading-tight">${certFmt(c.issueDate)}<br>${escapeHtml(c.issuedBy)}${c.sentAt ? `<br>Enviado ${certFmt(c.sentAt)}` : ''}</td>
+                        <td class="px-2 py-2 text-3xs text-slate-500 leading-tight">${certFmt(c.issueDate)}<br>${escapeHtml(c.issuedBy)}${c.sentAt ? `<br>Enviado ${certFmt(c.sentAt)}` : ''}${c.emailSentAt ? `<br>Correo ${certFmt(c.emailSentAt)} · ${escapeHtml(c.emailSentTo)}` : ''}</td>
                         <td class="px-2 py-2">${c.annulledAt ? `<span class="px-2 py-0.5 rounded-full text-3xs font-bold bg-rose-100 text-rose-800">Anulado</span><span class="block text-3xs text-slate-500 mt-0.5">${certFmt(c.annulledAt)} · ${escapeHtml(c.annulReason)}</span>` : '<span class="px-2 py-0.5 rounded-full text-3xs font-bold bg-emerald-100 text-emerald-800">Vigente</span>'}</td>
                         <td class="px-2 py-2 text-right whitespace-nowrap">
                             <button type="button" onclick="certViewPdf('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold"><i class="fa-regular fa-file-pdf"></i> Ver PDF</button>
                             ${c.annulledAt ? '' : `<button type="button" onclick="certWhatsApp('${c.id}')" class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold"><i class="fa-brands fa-whatsapp"></i> ${c.sentAt ? 'Reenviar' : 'Enviar'}</button>
+                            <button type="button" onclick="certShare('${c.id}')" title="Compartir el PDF (WhatsApp u otra app del celular)" class="px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-semibold"><i class="fa-solid fa-share-nodes"></i> PDF</button>
+                            <button type="button" onclick="certEmail('${c.id}')" title="${c.email ? 'Enviar al correo ' + escapeHtml(c.email) : 'Sin correo en la ficha'}" class="px-2 py-1 rounded bg-sky-600 hover:bg-sky-700 text-white font-bold"><i class="fa-regular fa-envelope"></i> Correo</button>
                             <button type="button" onclick="certAnnul('${c.id}')" class="px-2 py-1 rounded bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 font-semibold">Anular</button>`}
                         </td></tr>`).join('')}</tbody></table></div>`
                     : '<p class="text-center text-slate-400 py-8">Aún no se han expedido certificados.</p>';
@@ -3600,6 +3616,20 @@
                 if (w) w.location.href = url; else location.href = url;
                 await loadCertData(); setCertTab('hist');
             } catch (e) { if (w) w.close(); showAppToast(e.message); }
+        }
+        async function certShare(id) {
+            const c = certData.certificates.find(x => x.id === id); if (!c) return;
+            const r = await buildCertPdf(c, false); if (!r) return;
+            const first = String(c.name).split(' ')[0];
+            openSharePdf(r.doc, r.fileName, `Hola ${first}, ${appState.orgName || 'la empresa'} te envía tu ${c.kindLabel.toLowerCase()} No. ${c.number}. Código de verificación: ${c.verifyCode}.`, c.phone);
+        }
+        async function certEmail(id) {
+            const c = certData.certificates.find(x => x.id === id); if (!c) return;
+            if (!c.email) { showAppToast(`${c.name} no tiene correo registrado en su ficha. Agrégalo en Colaboradores.`); return; }
+            if (!confirm(`¿Enviar el certificado ${c.number} a ${c.email}?\n\nVa con el PDF adjunto y un enlace para verlo.`)) return;
+            const r = await buildCertPdf(c, false); if (!r) return;
+            try { await sendDocByEmail(`/api/certificates/${id}/email`, r.doc, r.fileName); await loadCertData(); setCertTab('hist'); }
+            catch (e) { showAppToast(e.message); }
         }
         function certRestoreTpl(k) {
             const d = certData.config.defaults[k];
@@ -3732,11 +3762,13 @@
                             <td class="px-2 py-2 font-semibold text-slate-800">${escapeHtml(c.name)}<span class="block text-3xs font-normal text-slate-500">${escapeHtml(c.area || '')}</span></td>
                             <td class="px-2 py-2">${escapeHtml(c.typeLabel)} <span class="text-slate-400">(${c.count})</span></td>
                             <td class="px-2 py-2"><span class="px-2 py-0.5 rounded-full text-3xs font-bold ${st[1]}">${st[0]}</span>${c.descargos ? ` <button type="button" onclick="discDescargos('${c.id}')" title="Ver los descargos" class="px-2 py-0.5 rounded-full text-3xs font-bold bg-indigo-100 text-indigo-800 hover:bg-indigo-200 underline decoration-dotted underline-offset-2"><i class="fa-regular fa-comment-dots"></i> Con descargos</button>` : ''}</td>
-                            <td class="px-2 py-2 text-3xs text-slate-500 leading-tight">${c.annulledAt ? `Enviado ${fmt(c.sentAt)}<br>Anulado ${fmt(c.annulledAt)}<br>Motivo: ${escapeHtml(c.annulReason)}` : c.status === 'descartado' ? `Descartado ${fmt(c.decidedAt)}<br>Motivo: ${escapeHtml(c.discardReason)}` : `Generado ${fmt(c.docDate)}${c.sentAt ? `<br>Enviado ${fmt(c.sentAt)}` : ''}${c.receivedAt ? `<br>Recibido ${fmt(c.receivedAt)} ${String(c.receivedAt).slice(11, 16)}` : ''}${c.signedAt ? `<br><strong class="text-emerald-700">Firmado ${fmt(c.signedAt)} ${String(c.signedAt).slice(11, 16)}</strong>` : ''}${c.descargosAt ? `<br>Descargos ${fmt(c.descargosAt)}` : ''}`}</td>
+                            <td class="px-2 py-2 text-3xs text-slate-500 leading-tight">${c.annulledAt ? `Enviado ${fmt(c.sentAt)}<br>Anulado ${fmt(c.annulledAt)}<br>Motivo: ${escapeHtml(c.annulReason)}` : c.status === 'descartado' ? `Descartado ${fmt(c.decidedAt)}<br>Motivo: ${escapeHtml(c.discardReason)}` : `Generado ${fmt(c.docDate)}${c.sentAt ? `<br>Enviado ${fmt(c.sentAt)}` : ''}${c.emailSentAt ? `<br>Correo ${fmt(c.emailSentAt)} · ${escapeHtml(c.emailSentTo)}` : ''}${c.receivedAt ? `<br>Recibido ${fmt(c.receivedAt)} ${String(c.receivedAt).slice(11, 16)}` : ''}${c.signedAt ? `<br><strong class="text-emerald-700">Firmado ${fmt(c.signedAt)} ${String(c.signedAt).slice(11, 16)}</strong>` : ''}${c.descargosAt ? `<br>Descargos ${fmt(c.descargosAt)}` : ''}`}</td>
                             <td class="px-2 py-2 text-right whitespace-nowrap">${c.annulledAt ? `<button type="button" onclick="discView('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Ver</button>` : c.status === 'descartado' ? '' : `
                                 <button type="button" onclick="discView('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Ver</button>
                                 <button type="button" onclick="discPdf('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold"><i class="fa-regular fa-file-pdf"></i> Ver PDF</button>
-                                ${canEdit ? `<button type="button" onclick="discWhatsApp('${c.id}')" class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold"><i class="fa-brands fa-whatsapp"></i> ${c.sentAt ? 'Reenviar' : 'Enviar'}</button>` : ''}
+                                ${canEdit ? `<button type="button" onclick="discWhatsApp('${c.id}')" class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold"><i class="fa-brands fa-whatsapp"></i> ${c.sentAt ? 'Reenviar' : 'Enviar'}</button>
+                                    <button type="button" onclick="discShare('${c.id}')" title="Compartir el PDF con el enlace para firmar (WhatsApp u otra app del celular)" class="px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-semibold"><i class="fa-solid fa-share-nodes"></i> PDF</button>
+                                    <button type="button" onclick="discEmail('${c.id}')" title="${c.email ? 'Enviar al correo ' + escapeHtml(c.email) : 'Sin correo en la ficha'}" class="px-2 py-1 rounded bg-sky-600 hover:bg-sky-700 text-white font-bold"><i class="fa-regular fa-envelope"></i> Correo</button>` : ''}
                                 ${canEdit && c.status === 'generado' ? `<button type="button" onclick="discEditing='${c.id}'; discTab='rev'; discStartEdit('${c.id}', true)" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold">Editar</button>
                                     <button type="button" onclick="discDiscard('${c.id}', true)" class="px-2 py-1 rounded bg-white border border-slate-300 hover:bg-slate-50 font-semibold">Descartar</button>` : ''}
                                 ${canEdit && (c.status === 'enviado' || c.status === 'recibido') ? `<button type="button" onclick="discAnnul('${c.id}')" class="px-2 py-1 rounded bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 font-semibold">Anular</button>` : ''}`}</td>
@@ -3863,13 +3895,37 @@
                     <button type="button" onclick="discPdf('${c.id}')" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 font-semibold"><i class="fa-regular fa-file-pdf"></i> Ver PDF</button>
                 </div>`;
         }
-        async function discPdf(id) {
-            const c = discData.cases.find(x => x.id === id); if (!c) return;
+        // PDF del llamado tal como está (con la firma del colaborador si ya firmó).
+        async function discDocFor(c) {
             let signature = '';
-            if (c.signedAt) { try { signature = (await apiFetch(`/api/discipline/${id}/signature`)).signature; } catch (e) { /* sin imagen */ } }
-            const res = await buildDiscPdf({ title: c.docTitle, body: c.docBody, name: c.name, employeeId: c.employeeId, docDate: c.docDate,
+            if (c.signedAt) { try { signature = (await apiFetch(`/api/discipline/${c.id}/signature`)).signature; } catch (e) { /* sin imagen */ } }
+            return buildDiscPdf({ title: c.docTitle, body: c.docBody, name: c.name, employeeId: c.employeeId, docDate: c.docDate,
                 signature, signedAt: c.signedAt, signedDoc: c.signedDoc, signedIp: c.signedIp, verifyCode: c.verifyCode,
                 adminSignature: discData.config.signerSignature || '' }, false, true);
+        }
+        async function discShare(id) {
+            const c = discData.cases.find(x => x.id === id); if (!c) return;
+            const res = await discDocFor(c); if (!res) return;
+            try {
+                // El mensaje lleva el enlace para dar "Recibido", firmar y escribir descargos (reemplaza el enlace anterior del WhatsApp).
+                const r = await apiFetch(`/api/discipline/${id}/link`, { method: 'POST', body: '{}' });
+                const link = `${location.origin}/comunicacion.html#t=${r.token}`;
+                const first = String(c.name).split(' ')[0];
+                openSharePdf(res.doc, res.fileName, `Hola ${first}, ${appState.orgName || 'la empresa'} te envía una comunicación sobre: ${c.typeLabel.toLowerCase()} (va en el PDF).\n\nPara firmarla ábrela aquí, pulsa "Recibido" y firma con el dedo: ${link}\n\nAllí también puedes escribir tus descargos. El enlace vence el ${String(r.expires).split('-').reverse().join('/')}.`, c.phone);
+                await loadDiscData(); if (!document.getElementById('view-docs').classList.contains('hidden')) setDiscTab('hist');
+            } catch (e) { showAppToast(e.message); }
+        }
+        async function discEmail(id) {
+            const c = discData.cases.find(x => x.id === id); if (!c) return;
+            if (!c.email) { showAppToast(`${c.name} no tiene correo registrado en su ficha. Agrégalo en Colaboradores.`); return; }
+            if (!confirm(`¿Enviar la comunicación a ${c.email}?\n\nVa con el PDF adjunto y un enlace para dar "Recibido", firmar y escribir descargos.`)) return;
+            const res = await discDocFor(c); if (!res) return;
+            try { await sendDocByEmail(`/api/discipline/${id}/email`, res.doc, res.fileName); await loadDiscData(); if (!document.getElementById('view-docs').classList.contains('hidden')) setDiscTab('hist'); }
+            catch (e) { showAppToast(e.message); }
+        }
+        async function discPdf(id) {
+            const c = discData.cases.find(x => x.id === id); if (!c) return;
+            const res = await discDocFor(c);
             if (res) openPdfViewer(res.doc, res.fileName, `${c.name} · ${c.typeLabel}${c.signedAt ? ' · Firmado' : ''}`);
         }
         // Visor de PDF dentro de la suite: se ve sin descargar; si el navegador
@@ -3896,6 +3952,38 @@
             pdfViewerUrl = '';
         }
         function downloadPdfViewer() { if (pdfViewerDoc) pdfViewerDoc.save(pdfViewerName); }
+        // ---- Envío de documentos laborales: compartir el PDF y correo ----
+        // Compartir: el PDF se arma primero y el botón "Compartir" lo entrega al
+        // menú del celular (WhatsApp u otra app). Los celulares exigen que eso
+        // pase justo al tocar un botón, por eso va en este paso aparte.
+        let sharePdfState = null;
+        function openSharePdf(doc, fileName, text, phone) {
+            const file = new File([doc.output('blob')], fileName, { type: 'application/pdf' });
+            const can = !!(navigator.canShare && navigator.canShare({ files: [file] }));
+            sharePdfState = { doc, fileName, file, text };
+            document.getElementById('sharePdfName').textContent = fileName;
+            document.getElementById('sharePdfHint').textContent = can
+                ? 'Toca "Compartir", elige WhatsApp y busca al colaborador. El mensaje va con el archivo.'
+                : 'Este equipo no permite compartir archivos directamente (pasa en algunos computadores). Descarga el PDF y adjúntalo en el chat del colaborador (WhatsApp Web o el celular).';
+            document.getElementById('sharePdfBtn').classList.toggle('hidden', !can);
+            const wa = document.getElementById('sharePdfWa');
+            wa.classList.toggle('hidden', can || !phone);
+            if (phone) wa.href = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+            openModal('modalSharePdf');
+        }
+        async function sharePdfNow() {
+            const st = sharePdfState; if (!st) return;
+            try { await navigator.share({ files: [st.file], text: st.text }); closeModal('modalSharePdf'); }
+            catch (e) { if (e && e.name !== 'AbortError') showAppToast('No se pudo compartir: ' + e.message); }
+        }
+        function sharePdfDownload() { if (sharePdfState) sharePdfState.doc.save(sharePdfState.fileName); }
+        const pdfBase64 = (doc) => String(doc.output('datauristring')).split(',')[1] || '';
+        // Correo: el PDF adjunto + el enlace; la respuesta dice a qué correo salió.
+        async function sendDocByEmail(url, doc, fileName) {
+            const r = await apiFetch(url, { method: 'POST', body: JSON.stringify({ pdf: pdfBase64(doc), fileName }) });
+            showAppToast(r.delivered ? `Enviado por correo a ${r.to}.` : `Registrado como enviado a ${r.to} (el servidor está en modo de prueba: el correo no salió de verdad).`);
+            return r;
+        }
         // Vista previa: el PDF con el texto que está en pantalla, sin guardar nada.
         async function discPreviewPdf(id) {
             const c = discData.cases.find(x => x.id === id); if (!c) return;

@@ -128,6 +128,7 @@ route('PUT', '/api/discipline/config', [requirePermission('employees.edit')], (r
 route('GET', '/api/discipline/:id/draft', [requirePermission('employees.edit')], (req, res, params) => discipline.draftCase(req, res, params));
 route('POST', '/api/discipline/:id/decide', [requirePermission('employees.edit')], (req, res, params) => discipline.decideCase(req, res, params));
 route('POST', '/api/discipline/:id/link', [requirePermission('employees.edit')], (req, res, params) => discipline.createLink(req, res, params));
+route('POST', '/api/discipline/:id/email', [requirePermission('employees.edit')], (req, res, params) => discipline.emailCase(req, res, params));
 // Enlace publico del colaborador (sin sesion; protegido por el token del enlace).
 route('GET', '/api/public/comunicacion/:token', [], (req, res, params) => discipline.publicView(req, res, params), { auth: false });
 route('POST', '/api/public/comunicacion/:token/sign', [], (req, res, params) => discipline.publicSign(req, res, params), { auth: false });
@@ -140,6 +141,7 @@ route('POST', '/api/certificates/draft', [requirePermission('employees.edit_payr
 route('POST', '/api/certificates', [requirePermission('employees.edit_payroll')], (req, res) => certificates.createCertificate(req, res));
 route('POST', '/api/certificates/:id/annul', [requirePermission('employees.edit_payroll')], (req, res, params) => certificates.annulCertificate(req, res, params));
 route('POST', '/api/certificates/:id/link', [requirePermission('employees.edit_payroll')], (req, res, params) => certificates.certificateLink(req, res, params));
+route('POST', '/api/certificates/:id/email', [requirePermission('employees.edit_payroll')], (req, res, params) => certificates.emailCertificate(req, res, params));
 route('GET', '/api/public/certificado/verificar/:code', [], (req, res, params) => certificates.publicVerify(req, res, params), { auth: false });
 route('GET', '/api/public/certificado/:token', [], (req, res, params) => certificates.publicCertificate(req, res, params), { auth: false });
 route('GET', '/api/rest-days', [requirePermission('shifts.view')], (req, res, params, query) => leave.listRestDays(req, res, query));
