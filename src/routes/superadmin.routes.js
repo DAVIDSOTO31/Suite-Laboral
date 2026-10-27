@@ -346,7 +346,8 @@ function listAuditLogs(req, res, query) {
     }
   }
   let detailed = logs;
-  if (query.category) detailed = detailed.filter(l => l.category === query.category);
+  const cats = require('../lib/list-param').parseListParam(query.category);
+  if (cats) detailed = detailed.filter(l => cats.has(l.category));
   if (query.q) { const q = String(query.q).toLowerCase(); detailed = detailed.filter(l => (l.text + ' ' + l.details.join(' ') + ' ' + l.user + ' ' + l.orgName).toLowerCase().includes(q)); }
   const usageList = [...usage.values()].map(o => ({ organizationId: o.organizationId, orgName: o.orgName, total: o.total, byCategory: o.byCategory, activeUsers: o.users.size, lastAt: o.lastAt }))
     .sort((a, b) => b.total - a.total);

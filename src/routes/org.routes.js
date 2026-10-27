@@ -914,7 +914,8 @@ function listOrgAudit(req, res, query = {}) {
       user: u ? u.email : (d.actorFallback || 'Sistema'), role: u ? (ROLE_ES[u.role] || u.role || '') : '', ip: r.ip,
     };
   });
-  if (query.category) logs = logs.filter(l => l.category === query.category);
+  const cats = require('../lib/list-param').parseListParam(query.category);
+  if (cats) logs = logs.filter(l => cats.has(l.category));
   if (query.q) { const q = String(query.q).toLowerCase(); logs = logs.filter(l => (l.text + ' ' + l.details.join(' ') + ' ' + l.user).toLowerCase().includes(q)); }
   sendJson(res, 200, {
     from, to, logs: logs.slice(0, 1500), truncated: logs.length > 1500,
