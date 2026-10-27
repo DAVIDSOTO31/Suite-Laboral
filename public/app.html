@@ -526,7 +526,7 @@
                             <p class="text-3xs text-slate-400 mt-2">* Mes en curso: los datos van hasta hoy. Pasa el cursor (o toca) cada barra para ver el detalle del mes.</p>
                             <div id="indTrendTableBox" class="hidden mt-3 overflow-x-auto border border-slate-200 rounded-lg">
                                 <table class="w-full text-xs">
-                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr><th class="text-left px-3 py-2">Mes</th><th class="text-center px-3 py-2">Turnos evaluados</th><th class="text-center px-3 py-2">Ausentismo</th><th class="text-center px-3 py-2">Puntualidad</th><th class="text-center px-3 py-2">Horas extra netas</th><th class="text-right px-3 py-2">Valor extras</th><th class="text-right px-3 py-2">Costo extras y recargos</th><th class="text-center px-3 py-2">Días de incapacidad</th><th class="text-right px-3 py-2">Costo incapacidad</th></tr></thead>
+                                    <thead class="bg-slate-50 text-slate-500 uppercase text-[11px]"><tr><th class="text-left px-3 py-2">Mes</th><th class="text-center px-3 py-2">Turnos evaluados</th><th class="text-center px-3 py-2">Ausentismo</th><th class="text-center px-3 py-2">Puntualidad</th><th class="text-center px-3 py-2">Horas extra netas</th><th class="text-right px-3 py-2">Valor extras</th><th class="text-right px-3 py-2" title="Lo que hay que pagar por extras y recargos ese mes, con el mismo cálculo de la Liquidación">A pagar extras y recargos</th><th class="text-center px-3 py-2">Días de incapacidad</th><th class="text-right px-3 py-2">Costo incapacidad</th></tr></thead>
                                     <tbody id="indTrendBody"></tbody>
                                 </table>
                             </div>
@@ -12330,6 +12330,17 @@
                         const [cur, prev] = await Promise.all([computePayrollOt(d.from, d.to, areaList.length ? areaList : '_ALL_'), computePayrollOt(d.prevFrom, d.prevTo, areaList.length ? areaList : '_ALL_')]);
                         d.liq = indLiqSummary(cur); d.liqPrev = indLiqSummary(prev);
                     } catch (e) { d.liq = null; }
+                    // Tendencia de 6 meses: el costo de cada mes también es lo que hay que pagar según la Liquidación.
+                    try {
+                        const today = bogotaTodayISO();
+                        const spans = d.trend.map(m => {
+                            const end = new Date(Date.UTC(Number(m.month.slice(0, 4)), Number(m.month.slice(5, 7)), 0)).toISOString().slice(0, 10);
+                            return { from: m.month + '-01', to: end < today ? end : today };
+                        });
+                        if (spans.length && !shiftsLoaded(spans[0].from)) await ensureShiftsLoaded(spans[0].from);
+                        const liqs = await Promise.all(spans.map(x => computePayrollOt(x.from, x.to, areaList.length ? areaList : '_ALL_').then(indLiqSummary).catch(() => null)));
+                        d.trend.forEach((m, i) => { if (liqs[i]) { m.costoIndicador = m.costoTotal; m.costoTotal = liqs[i].total; m.costoLiq = true; } });
+                    } catch (e) { /* se queda con el valor del indicador */ }
                 }
                 lastIndicators = d;
                 const sel = document.getElementById('indArea');
@@ -12697,11 +12708,11 @@
             const extC = tr.map(m => m.programados ? (m.costoTotal || 0) : null);
             indMakeChart('indChartExt', { type: 'bar', data: { labels, datasets: [
                 { type: 'bar', label: 'Horas extra netas', data: extH, backgroundColor: extH.map(v => (v || 0) < 0 ? IND_C.redSoft : IND_C.skySoft), borderColor: extH.map(v => (v || 0) < 0 ? IND_C.red : IND_C.sky), borderWidth: 1, borderRadius: 4, maxBarThickness: 34, yAxisID: 'y', order: 2 },
-                { type: 'line', label: 'Costo extras y recargos ($)', data: extC, borderColor: IND_C.violet, backgroundColor: IND_C.violet, borderWidth: 2.5, pointRadius: 4, pointHoverRadius: 6, cubicInterpolationMode: 'monotone', spanGaps: true, yAxisID: 'y1', order: 1 },
+                { type: 'line', label: 'A pagar extras y recargos ($)', data: extC, borderColor: IND_C.violet, backgroundColor: IND_C.violet, borderWidth: 2.5, pointRadius: 4, pointHoverRadius: 6, cubicInterpolationMode: 'monotone', spanGaps: true, yAxisID: 'y1', order: 1 },
             ] }, options: {
                 scales: { x: xAxis, y: yAxis({ ticks: { color: IND_C.tick, font: { size: 10 }, maxTicksLimit: 5, callback: (v) => `${indNum1(v)} h` } }),
                     y1: yAxis({ position: 'right', grid: { display: false }, ticks: { color: IND_C.violet, font: { size: 10 }, maxTicksLimit: 5, callback: (v) => Math.abs(v) >= 1e6 ? `$${indNum1(v / 1e6)} M` : Math.abs(v) >= 1e3 ? `$${Math.round(v / 1e3)} mil` : `$${v}` } }) },
-                plugins: { tooltip: { callbacks: { label: (c) => c.raw == null ? `${c.dataset.label}: sin turnos` : c.dataset.yAxisID === 'y1' ? `Costo extras y recargos: ${pdfMoney(c.raw)}` : `Horas extra netas: ${indHoras(c.raw)}` } } } } });
+                plugins: { tooltip: { callbacks: { label: (c) => c.raw == null ? `${c.dataset.label}: sin turnos` : c.dataset.yAxisID === 'y1' ? `A pagar extras y recargos: ${pdfMoney(c.raw)}` : `Horas extra netas: ${indHoras(c.raw)}` } } } } });
             {
                 const withData = tr.filter(m => m.programados);
                 if (!last.programados) indInsight('indInsExt', '', `En ${lastName}${curTag} aún no hay turnos terminados.`);
@@ -12847,7 +12858,7 @@
                         e.periodos.map(x => x.desde === x.hasta ? x.desde : `${x.desde} a ${x.hasta}`).join('; ')]),
                     ['TOTAL', '', '', inc.total.episodios || 0, inc.total.dias || 0, '', inc.total.costoSalario || 0, inc.total.diasEmpresa || 0, inc.total.valorEmpresa || 0, ''],
                 ]), 'Incapacidades');
-                XLSX.utils.book_append_sheet(wb, xlsxSheet([['Mes', 'Turnos evaluados', 'Ausentismo %', 'Puntualidad %', 'Horas extra netas', 'Valor horas extra ($)', 'Costo de extras y recargos ($)', 'Días de incapacidad', 'Costo incapacidad ($)'],
+                XLSX.utils.book_append_sheet(wb, xlsxSheet([['Mes', 'Turnos evaluados', 'Ausentismo %', 'Puntualidad %', 'Horas extra netas', 'Valor horas extra ($)', 'A pagar extras y recargos ($)', 'Días de incapacidad', 'Costo incapacidad ($)'],
                     ...d.trend.map(m => [m.month, m.programados, m.ausentismo, m.puntualidad, m.extraHoras, m.extraValor || 0, m.costoTotal || 0, m.incapacidadDias, m.incapacidadCosto])]), 'Tendencia 6 meses');
                 const empById = new Map(appState.employees.map(e => [Number(e.id), e]));
                 XLSX.utils.book_append_sheet(wb, xlsxSheet([['#', 'Colaborador', 'Documento', 'Área', 'Total novedades', 'Injustificadas', 'Pendientes', 'Justificadas'],
