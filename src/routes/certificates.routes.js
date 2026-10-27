@@ -21,6 +21,7 @@ const { logAction } = require('../lib/audit');
 const { randomToken, sha256Hex } = require('../lib/crypto');
 const { todayISOInBogota, addDaysISO } = require('../lib/bogota-time');
 const { orgLocation } = require('../lib/org-location');
+const docMail = require('../lib/doc-mail');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS work_certificates (
@@ -51,6 +52,9 @@ CREATE INDEX IF NOT EXISTS idx_work_cert_org ON work_certificates(organization_i
 CREATE UNIQUE INDEX IF NOT EXISTS idx_work_cert_verify ON work_certificates(verify_code);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_work_cert_token ON work_certificates(token_hash);
 `);
+// Envio por correo: enlace propio (no anula el del WhatsApp), fecha y destino.
+const wcCols = db.prepare('PRAGMA table_info(work_certificates)').all().map(c => c.name);
+for (const col of ['email_token_hash', 'email_token_expires', 'email_sent_at', 'email_sent_to']) if (!wcCols.includes(col)) db.exec(`ALTER TABLE work_certificates ADD COLUMN ${col} TEXT NULL`);
 const stCols = db.prepare('PRAGMA table_info(org_settings)').all().map(c => c.name);
 if (!stCols.includes('certificate_config')) db.exec('ALTER TABLE org_settings ADD COLUMN certificate_config TEXT NULL');
 
@@ -280,6 +284,7 @@ function certOut(c, emp) {
   return {
     id: c.id, employeeId: c.employee_id, name: emp ? emp.name : data.name || '', area: emp ? emp.department || '' : '',
     phone: emp && emp.phone_number ? `${String(emp.phone_country || '+57').replace(/[^\d]/g, '')}${String(emp.phone_number).replace(/[^\d]/g, '')}` : '',
+    email: emp && emp.email ? String(emp.email) : '', emailSentAt: c.email_sent_at || '', emailSentTo: c.email_sent_to || '',
     number: c.number, kind: c.kind, kindLabel: KIND_LABEL[c.kind] || c.kind, addressedTo: c.addressed_to || '', includeSalary: !!c.include_salary, includeFunctions: !!c.include_functions,
     title: c.title, body: c.body, issueDate: c.issue_date, issuedAt: c.issued_at, issuedBy: c.issued_by_email || '',
     verifyCode: verifyFormat(c.verify_code), sentAt: c.sent_at || '', annulledAt: c.annulled_at || '', annulReason: c.annul_reason || '', data,
@@ -391,6 +396,40 @@ async function certificateLink(req, res, params) {
   sendJson(res, 200, { ok: true, token, expires });
 }
 
+// POST /api/certificates/:id/email { pdf, fileName } -> envia el certificado al
+// correo de la ficha del colaborador: PDF adjunto + enlace propio para verlo
+// (no anula el enlace del WhatsApp).
+async function emailCertificate(req, res, params) {
+  let body; try { body = await readBody(req, 7 * 1024 * 1024); } catch { return sendJson(res, 413, { error: 'El PDF es demasiado grande.' }); }
+  const orgId = resolveOrgId(req, body);
+  const c = db.prepare('SELECT * FROM work_certificates WHERE id = ? AND organization_id = ?').get(String(params.id), orgId);
+  if (!c) return sendJson(res, 404, { error: 'Certificado no encontrado.' });
+  if (c.annulled_at) return sendJson(res, 409, { error: 'El certificado está anulado.' });
+  const emp = db.prepare('SELECT name, email FROM employees WHERE id = ?').get(c.employee_id) || {};
+  const to = String(emp.email || '').trim();
+  if (!docMail.EMAIL_RE.test(to)) return sendJson(res, 400, { error: `${emp.name || 'El colaborador'} no tiene un correo válido en su ficha. Agrégalo en Colaboradores.` });
+  const pdf = body.pdf ? docMail.cleanPdf(body.pdf) : null;
+  if (body.pdf && !pdf) return sendJson(res, 400, { error: 'El PDF no es válido o pesa más de 4 MB.' });
+  const org = orgName(orgId) || 'La empresa';
+  const token = randomToken(24);
+  const expires = addDaysISO(todayISOInBogota(), LINK_DAYS);
+  const first = String(emp.name || '').split(' ')[0];
+  const label = KIND_LABEL[c.kind] || 'Certificación laboral';
+  const r = await docMail.sendDocEmail({
+    to, orgName: org, subject: `${org}: tu ${label.toLowerCase()} No. ${c.number}`,
+    lines: [`Hola ${first},`, `${org} te envía tu ${label.toLowerCase()} No. ${c.number}.`,
+      `Va adjunta en PDF. También puedes verla y descargarla con el botón (el enlace vence el ${expires.split('-').reverse().join('/')}).`,
+      `Código de verificación: ${verifyFormat(c.verify_code)}.`],
+    link: `/certificado.html#t=${token}`, buttonLabel: 'Ver el certificado', pdf, fileName: docMail.safeFileName(body.fileName, `Certificado_${c.number}.pdf`),
+  });
+  if (!r.delivered && r.mode === 'brevo-error') return sendJson(res, 502, { error: 'No se pudo enviar el correo. Intenta de nuevo más tarde.' });
+  db.prepare(`UPDATE work_certificates SET email_token_hash = ?, email_token_expires = ?, email_sent_at = datetime('now', '-5 hours'), email_sent_to = ?,
+    sent_at = COALESCE(sent_at, datetime('now', '-5 hours')), sent_by = COALESCE(sent_by, ?) WHERE id = ?`).run(sha256Hex(token), expires, to, req.user.id, c.id);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'certificate.email', resourceType: 'employee', resourceId: String(c.employee_id), ip: getClientIp(req),
+    metadata: { colaborador: emp.name, numero: c.number, correo: to, adjunto: !!pdf, vence: expires } });
+  sendJson(res, 200, { ok: true, to, delivered: !!r.delivered, mode: r.mode });
+}
+
 // PUT /api/certificates/config { templates }
 async function saveCertificateConfig(req, res) {
   let body;
@@ -432,8 +471,10 @@ function publicVerify(req, res, params) {
 function publicCertificate(req, res, params) {
   const t = String(params.token || '');
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(t)) return sendJson(res, 404, { error: 'Este enlace no es válido.' });
-  const c = db.prepare('SELECT * FROM work_certificates WHERE token_hash = ?').get(sha256Hex(t));
-  if (!c || !c.token_expires || c.token_expires < todayISOInBogota()) return sendJson(res, 404, { error: 'Este enlace no es válido o ya venció. Pide uno nuevo a Recursos Humanos.' });
+  const h = sha256Hex(t);
+  const c = db.prepare('SELECT * FROM work_certificates WHERE token_hash = ? OR email_token_hash = ?').get(h, h);
+  const exp = c ? (c.token_hash === h ? c.token_expires : c.email_token_expires) : null; // enlace del WhatsApp o del correo
+  if (!c || !exp || exp < todayISOInBogota()) return sendJson(res, 404, { error: 'Este enlace no es válido o ya venció. Pide uno nuevo a Recursos Humanos.' });
   const st = db.prepare('SELECT org_name, logo_base64 FROM org_settings WHERE organization_id = ?').get(c.organization_id) || {};
   if (c.annulled_at) return sendJson(res, 200, { annulled: true, org: st.org_name || '', nit: orgNit(c.organization_id), logo: st.logo_base64 || null, number: c.number });
   const sc = signerConfig(c.organization_id);
@@ -442,6 +483,6 @@ function publicCertificate(req, res, params) {
 }
 
 module.exports = {
-  listCertificates, draftCertificate, createCertificate, annulCertificate, certificateLink, saveCertificateConfig,
+  listCertificates, draftCertificate, createCertificate, annulCertificate, certificateLink, emailCertificate, saveCertificateConfig,
   publicVerify, publicCertificate, pesosEnLetras, numberToWords, DEFAULT_TEMPLATES,
 };

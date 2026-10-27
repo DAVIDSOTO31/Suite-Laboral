@@ -23,6 +23,7 @@ const { logAction } = require('../lib/audit');
 const { randomToken, sha256Hex } = require('../lib/crypto');
 const { todayISOInBogota, addDaysISO } = require('../lib/bogota-time');
 const { orgLocation } = require('../lib/org-location');
+const docMail = require('../lib/doc-mail');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS discipline_cases (
@@ -51,7 +52,9 @@ const dcCols = db.prepare('PRAGMA table_info(discipline_cases)').all().map(c => 
 for (const col of ['annulled_at', 'annulled_by', 'annul_reason',
   // Firma electronica del colaborador (en el enlace): imagen de la firma, cedula
   // escrita, fecha/hora del servidor, IP, navegador y huella del documento.
-  'signed_at', 'signature_png', 'signed_doc_number', 'signed_ip', 'signed_ua', 'doc_hash']) if (!dcCols.includes(col)) db.exec(`ALTER TABLE discipline_cases ADD COLUMN ${col} TEXT NULL`);
+  'signed_at', 'signature_png', 'signed_doc_number', 'signed_ip', 'signed_ua', 'doc_hash',
+  // Envio por correo: enlace propio (no anula el del WhatsApp), fecha y destino.
+  'email_token_hash', 'email_token_expires', 'email_sent_at', 'email_sent_to']) if (!dcCols.includes(col)) db.exec(`ALTER TABLE discipline_cases ADD COLUMN ${col} TEXT NULL`);
 
 const TYPES = ['llegada_tarde', 'exceso_almuerzo', 'inasistencia', 'turno_sin_cerrar'];
 const TYPE_LABEL = { llegada_tarde: 'Llegadas tarde', exceso_almuerzo: 'Exceso en el tiempo de almuerzo', inasistencia: 'Inasistencia sin justificar', turno_sin_cerrar: 'Turnos sin marcar la salida' };
@@ -258,6 +261,7 @@ function caseOut(c, emp) {
   return {
     id: c.id, employeeId: c.employee_id, name: emp ? emp.name : '', area: emp ? (emp.department || '') : '', role: emp ? (emp.role || '') : '',
     phone: emp && emp.phone_number ? `${String(emp.phone_country || '+57').replace(/[^\d]/g, '')}${String(emp.phone_number).replace(/[^\d]/g, '')}` : '',
+    email: emp && emp.email ? String(emp.email) : '', emailSentAt: c.email_sent_at || '', emailSentTo: c.email_sent_to || '',
     type: c.rule_type, typeLabel: TYPE_LABEL[c.rule_type] || c.rule_type, status: c.status,
     count: (() => { try { return JSON.parse(c.alert_ids).length; } catch { return 0; } })(),
     from: c.window_from, to: c.window_to, createdAt: c.created_at,
@@ -275,7 +279,7 @@ function listCases(req, res, query) {
   const orgId = resolveOrgId(req, query);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
   try { notifyNew(orgId, scanOrg(orgId)); } catch (e) { console.error('[llamados]', e.message); }
-  const emps = new Map(db.prepare('SELECT id, name, department, role, phone_country, phone_number FROM employees WHERE organization_id = ?').all(orgId).map(e => [e.id, e]));
+  const emps = new Map(db.prepare('SELECT id, name, department, role, phone_country, phone_number, email FROM employees WHERE organization_id = ?').all(orgId).map(e => [e.id, e]));
   const rows = db.prepare(`SELECT c.*, u.email AS decided_by_email FROM discipline_cases c LEFT JOIN users u ON u.id = c.decided_by
     WHERE c.organization_id = ? ORDER BY c.created_at DESC`).all(orgId);
   const cfg = getConfig(orgId);
@@ -358,6 +362,42 @@ async function createLink(req, res, params) {
   sendJson(res, 200, { ok: true, token, expires });
 }
 
+// POST /api/discipline/:id/email { pdf, fileName } -> envia el llamado al correo
+// de la ficha del colaborador: enlace propio (para dar "Recibido", firmar y
+// escribir descargos; no anula el enlace del WhatsApp) + el PDF adjunto.
+async function emailCase(req, res, params) {
+  let body; try { body = await readBody(req, 7 * 1024 * 1024); } catch { return sendJson(res, 413, { error: 'El PDF es demasiado grande.' }); }
+  const orgId = resolveOrgId(req, body);
+  const c = db.prepare('SELECT * FROM discipline_cases WHERE id = ? AND organization_id = ?').get(String(params.id), orgId);
+  if (!c) return sendJson(res, 404, { error: 'Llamado no encontrado.' });
+  if (c.annulled_at) return sendJson(res, 409, { error: 'El llamado está anulado.' });
+  if (!['generado', 'enviado', 'recibido'].includes(c.status)) return sendJson(res, 409, { error: 'Primero genera el documento.' });
+  const emp = db.prepare('SELECT name, email FROM employees WHERE id = ?').get(c.employee_id) || {};
+  const to = String(emp.email || '').trim();
+  if (!docMail.EMAIL_RE.test(to)) return sendJson(res, 400, { error: `${emp.name || 'El colaborador'} no tiene un correo válido en su ficha. Agrégalo en Colaboradores.` });
+  const pdf = body.pdf ? docMail.cleanPdf(body.pdf) : null;
+  if (body.pdf && !pdf) return sendJson(res, 400, { error: 'El PDF no es válido o pesa más de 4 MB.' });
+  const st = db.prepare('SELECT org_name FROM org_settings WHERE organization_id = ?').get(orgId) || {};
+  const org = st.org_name || 'La empresa';
+  const token = randomToken(24);
+  const expires = addDaysISO(todayISOInBogota(), LINK_DAYS);
+  const first = String(emp.name || '').split(' ')[0];
+  const r = await docMail.sendDocEmail({
+    to, orgName: org, subject: `${org}: comunicación sobre ${String(TYPE_LABEL[c.rule_type] || '').toLowerCase()}`,
+    lines: [`Hola ${first},`, `${org} te envía una comunicación sobre: ${String(TYPE_LABEL[c.rule_type] || '').toLowerCase()}.`,
+      'Ábrela con el botón, pulsa "Recibido" y luego firma el documento con el dedo o el mouse (no tienes que imprimir nada). Allí también puedes escribir tus descargos.',
+      `El enlace vence el ${expires.split('-').reverse().join('/')}.`],
+    link: `/comunicacion.html#t=${token}`, buttonLabel: 'Abrir la comunicación', pdf, fileName: docMail.safeFileName(body.fileName, 'Comunicacion.pdf'),
+  });
+  if (!r.delivered && r.mode === 'brevo-error') return sendJson(res, 502, { error: 'No se pudo enviar el correo. Intenta de nuevo más tarde.' });
+  db.prepare(`UPDATE discipline_cases SET email_token_hash = ?, email_token_expires = ?, email_sent_at = datetime('now', '-5 hours'), email_sent_to = ?,
+    sent_at = COALESCE(sent_at, datetime('now', '-5 hours')), sent_by = COALESCE(sent_by, ?),
+    status = CASE WHEN status = 'generado' THEN 'enviado' ELSE status END WHERE id = ?`).run(sha256Hex(token), expires, to, req.user.id, c.id);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'discipline.email', resourceType: 'employee', resourceId: String(c.employee_id), ip: getClientIp(req),
+    metadata: { colaborador: emp.name, tipo: TYPE_LABEL[c.rule_type], correo: to, adjunto: !!pdf, vence: expires } });
+  sendJson(res, 200, { ok: true, to, delivered: !!r.delivered, mode: r.mode });
+}
+
 // GET /api/discipline/:id/signature -> imagen de la firma del colaborador (para el PDF)
 function caseSignature(req, res, params) {
   const orgId = resolveOrgId(req, {});
@@ -396,8 +436,11 @@ async function saveConfig(req, res) {
 function caseByToken(token) {
   const t = String(token || '');
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(t)) return null;
-  const c = db.prepare('SELECT * FROM discipline_cases WHERE token_hash = ?').get(sha256Hex(t));
-  if (!c || !c.token_expires || c.token_expires < todayISOInBogota()) return null;
+  const h = sha256Hex(t);
+  const c = db.prepare('SELECT * FROM discipline_cases WHERE token_hash = ? OR email_token_hash = ?').get(h, h);
+  if (!c) return null;
+  const exp = c.token_hash === h ? c.token_expires : c.email_token_expires; // enlace del WhatsApp o del correo
+  if (!exp || exp < todayISOInBogota()) return null;
   return c;
 }
 function publicView(req, res, params) {
@@ -522,4 +565,4 @@ function bellItems(orgId, sinceSql) {
   return pend.concat(signed);
 }
 
-module.exports = { publicSign, caseSignature, bellItems, listCases, draftCase, decideCase, createLink, saveConfig, publicView, publicAck, scanOrg, TYPE_LABEL };
+module.exports = { emailCase, publicSign, caseSignature, bellItems, listCases, draftCase, decideCase, createLink, saveConfig, publicView, publicAck, scanOrg, TYPE_LABEL };
