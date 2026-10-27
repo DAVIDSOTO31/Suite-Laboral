@@ -124,7 +124,7 @@
         <div><label class="block font-semibold text-slate-500 mb-1">Organización</label><select id="auditOrg" data-search class="p-2 border border-slate-300 rounded-lg bg-white min-w-[170px]"><option value="">Todas</option><option value="plataforma">Plataforma (Super Admin)</option></select></div>
         <div><label class="block font-semibold text-slate-500 mb-1">Persona</label><select id="auditUser" data-search class="p-2 border border-slate-300 rounded-lg bg-white min-w-[170px] max-w-[240px]"><option value="">Todas</option></select></div>
         <div><label class="block font-semibold text-slate-500 mb-1">Tipo de acción</label>
-          <select id="auditCategory" class="p-2 border border-slate-300 rounded-lg bg-white">
+          <select id="auditCategory" multiple data-multi class="p-2 border border-slate-300 rounded-lg bg-white">
             <option value="">Todas</option><option value="Configuración">Organizaciones</option><option>Usuarios</option><option>Sesión</option>
           </select>
         </div>
@@ -603,10 +603,10 @@ async function loadAudit() {
   }
   const params = new URLSearchParams({ from: fromEl.value, to: toEl.value });
   const org = document.getElementById('auditOrg').value, u = document.getElementById('auditUser').value;
-  const c = document.getElementById('auditCategory').value, q = document.getElementById('auditSearch').value.trim();
+  const c = msVals('auditCategory'), q = document.getElementById('auditSearch').value.trim();
   if (org) params.set('organization_id', org);
   if (u) params.set('userId', u);
-  if (c) params.set('category', c);
+  if (c.length) params.set('category', JSON.stringify(c));
   if (q) params.set('q', q);
   body.innerHTML = '<tr><td colspan="5" class="px-4 py-6 text-center text-slate-400">Cargando…</td></tr>';
   try {
@@ -662,5 +662,6 @@ async function logout() { await api('/api/auth/logout', { method: 'POST' }); loc
 boot();
 </script>
 <script src="/search-select.js"></script>
+<script src="/multi-select.js"></script>
 </body>
 </html>

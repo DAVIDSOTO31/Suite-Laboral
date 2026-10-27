@@ -448,7 +448,7 @@
                             </div>
                             <div>
                                 <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Área</label>
-                                <select id="indArea" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[160px]"><option value="">Todas las áreas</option></select>
+                                <select id="indArea" multiple data-multi data-multi-unit="áreas" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[160px]"><option value="">Todas las áreas</option></select>
                             </div>
                             <button onclick="attendanceLoadIndicators()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
                             <button id="indExportXlsBtn" onclick="exportIndicatorsXLSX()" title="Todos los indicadores del periodo" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-excel text-emerald-600"></i> <span id="indExportXlsLabel">Exportar Excel</span></button>
@@ -809,7 +809,7 @@
                             <input type="text" id="empSearchInput" oninput="filterEmployeeList()" placeholder="Buscar colaborador..." class="w-full text-xs p-2 pl-7 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500">
                             <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-slate-400 text-xs"></i>
                         </div>
-                        <select id="empAreaFilter" onchange="appState.empAreaFilter = this.value; filterEmployeeList()" title="Ver solo los colaboradores de un área" class="w-full text-xs p-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+                        <select id="empAreaFilter" multiple data-multi data-multi-unit="áreas" onchange="appState.empAreaFilter = msVals(this); filterEmployeeList()" title="Ver solo los colaboradores de estas áreas" class="w-full text-xs p-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
                             <option value="">Todas las áreas</option>
                         </select>
 
@@ -1020,7 +1020,7 @@
                             <div class="flex flex-wrap items-end gap-2">
                                 <div>
                                     <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Área</label>
-                                    <select id="attTodayArea" onchange="renderTodayBoard()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[180px]"><option value="">Todas las áreas</option></select>
+                                    <select id="attTodayArea" multiple data-multi data-multi-unit="áreas" onchange="renderTodayBoard()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[180px]"><option value="">Todas las áreas</option></select>
                                 </div>
                                 <button onclick="attendanceLoadToday()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-rotate"></i> Actualizar</button>
                             </div>
@@ -1055,7 +1055,7 @@
                         </div>
                         <!-- Filtros de la tabla: área y colaborador (también filtran el Excel) -->
                         <div class="flex flex-wrap items-center gap-2 mb-2">
-                            <select id="attNovArea" onchange="renderNovedadesTable()" title="Área" class="text-xs py-1.5 px-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 w-48">
+                            <select id="attNovArea" multiple data-multi data-multi-unit="áreas" onchange="renderNovedadesTable()" title="Área" class="text-xs py-1.5 px-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 w-48">
                                 <option value="">Todas las áreas</option>
                             </select>
                             <select id="attNovEmp" data-search onchange="renderNovedadesTable()" title="Colaborador" class="text-xs py-1.5 px-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 w-56">
@@ -1106,7 +1106,7 @@
                         <p class="text-xs text-slate-500 mb-4">Solo se guarda una plantilla matemática del rostro, nunca la fotografía. Requiere el consentimiento explícito del colaborador (Ley 1581 de 2012, Habeas Data).</p>
                         <!-- Filtros de la tabla: área y colaborador -->
                         <div class="flex flex-wrap items-center gap-2 mb-2">
-                            <select id="attBioArea" onchange="renderBioTable()" title="Área" class="text-xs py-1.5 px-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 w-48">
+                            <select id="attBioArea" multiple data-multi data-multi-unit="áreas" onchange="renderBioTable()" title="Área" class="text-xs py-1.5 px-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 w-48">
                                 <option value="">Todas las áreas</option>
                             </select>
                             <select id="attBioEmp" data-search onchange="renderBioTable()" title="Colaborador" class="text-xs py-1.5 px-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 w-56">
@@ -1326,7 +1326,7 @@
                                 <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-2xs"></i>
                                 <input type="search" id="attWorkdaysSearch" oninput="renderWorkdaysTable()" placeholder="Buscar colaborador" title="Nombre o documento" autocomplete="off" class="text-xs py-1.5 pl-7 pr-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 w-52">
                             </div>
-                            <select id="attWorkdaysArea" onchange="renderWorkdaysTable()" title="Área" class="text-xs py-1.5 px-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 w-48">
+                            <select id="attWorkdaysArea" multiple data-multi data-multi-unit="áreas" onchange="renderWorkdaysTable()" title="Área" class="text-xs py-1.5 px-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 w-48">
                                 <option value="">Todas las áreas</option>
                             </select>
                         </div>
@@ -1369,7 +1369,7 @@
                             </div>
                             <div>
                                 <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Área</label>
-                                <select id="attAbsArea" onchange="attendanceLoadAbsences()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white w-44">
+                                <select id="attAbsArea" multiple data-multi data-multi-unit="áreas" onchange="attendanceLoadAbsences()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white w-44">
                                     <option value="">Todas las áreas</option>
                                 </select>
                             </div>
@@ -1406,7 +1406,7 @@
                             </div>
                             <div>
                                 <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Área</label>
-                                <select id="attHistoryArea" onchange="attendanceFillHistoryEmployees(); attendanceLoadHistory()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[170px]">
+                                <select id="attHistoryArea" multiple data-multi data-multi-unit="áreas" onchange="attendanceFillHistoryEmployees(); attendanceLoadHistory()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white min-w-[170px]">
                                     <option value="">Todas las áreas</option>
                                 </select>
                             </div>
@@ -1468,13 +1468,13 @@
                             </div>
                             <div>
                                 <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Área</label>
-                                <select id="attAlertsArea" onchange="attendanceLoadAlerts()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white w-44">
+                                <select id="attAlertsArea" multiple data-multi data-multi-unit="áreas" onchange="attendanceLoadAlerts()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white w-44">
                                     <option value="">Todas</option>
                                 </select>
                             </div>
                             <div>
                                 <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Tipo</label>
-                                <select id="attAlertsType" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white">
+                                <select id="attAlertsType" multiple data-multi class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white">
                                     <option value="">Todos</option>
                                     <option value="llegada_tarde">Llegada tarde</option>
                                     <option value="exceso_almuerzo">Exceso de almuerzo</option>
@@ -1488,7 +1488,7 @@
                             </div>
                             <div>
                                 <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Gestión</label>
-                                <select id="attAlertsStatus" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white">
+                                <select id="attAlertsStatus" multiple data-multi class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white">
                                     <option value="">Todas</option>
                                     <option value="pendiente">Pendientes</option>
                                     <option value="justificada">Justificadas</option>
@@ -1567,7 +1567,7 @@
                         <div><label class="block font-semibold text-slate-500 mb-1">Hasta</label><input type="date" id="auditTo" class="p-2 border border-slate-300 rounded-lg"></div>
                         <div><label class="block font-semibold text-slate-500 mb-1">Persona</label><select id="auditUser" data-search class="p-2 border border-slate-300 rounded-lg bg-white min-w-[180px]"><option value="">Todas</option></select></div>
                         <div><label class="block font-semibold text-slate-500 mb-1">Tipo de acción</label>
-                            <select id="auditCategory" class="p-2 border border-slate-300 rounded-lg bg-white">
+                            <select id="auditCategory" multiple data-multi class="p-2 border border-slate-300 rounded-lg bg-white">
                                 <option value="">Todas</option><option>Colaboradores</option><option>Turnos</option><option>Asistencia</option>
                                 <option>Liquidación</option><option>Usuarios</option><option>Configuración</option><option>Sesión</option>
                             </select>
@@ -1671,7 +1671,7 @@
                         <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-2xs"></i>
                         <input type="search" id="payrollOtSearch" oninput="renderPayrollOtTableAndKpis()" placeholder="Buscar colaborador" title="Nombre o documento" autocomplete="off" class="text-xs py-1.5 pl-7 pr-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 w-52">
                     </div>
-                    <select id="payrollOtDeptFilter" onchange="renderPayrollOvertimeView()" title="Área / Departamento" class="text-xs py-1.5 px-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 w-48">
+                    <select id="payrollOtDeptFilter" multiple data-multi data-multi-unit="áreas" onchange="renderPayrollOvertimeView()" title="Área / Departamento" class="text-xs py-1.5 px-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 w-48">
                         <option value="_ALL_">Todas las áreas</option>
                     </select>
                 </div>
@@ -1865,7 +1865,7 @@
             <p class="text-xs text-slate-600" id="copyWeekInfo">-</p>
             <div class="text-xs space-y-2">
                 <label class="block font-semibold text-slate-700">Área</label>
-                <select id="copyWeekDept" class="w-full p-2 border rounded-lg bg-white"></select>
+                <select id="copyWeekDept" multiple data-multi data-multi-unit="áreas" class="w-full p-2 border rounded-lg bg-white"></select>
                 <label class="flex items-start gap-2 cursor-pointer mt-2"><input type="radio" name="copyWeekMode" value="empty" checked class="mt-0.5"> <span><strong>Solo días vacíos</strong> (recomendado): no toca lo que ya asignaste esta semana.</span></label>
                 <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="copyWeekMode" value="replace" class="mt-0.5"> <span><strong>Reemplazar la semana</strong>: deja la semana exactamente igual a la anterior.</span></label>
                 <label class="flex items-center gap-2 cursor-pointer mt-2"><input type="checkbox" id="copyWeekAbsences" class="w-4 h-4"> Copiar también vacaciones, incapacidades y "sin horario"</label>
@@ -1916,7 +1916,7 @@
                     <div class="flex flex-wrap items-end gap-2">
                         <div><label class="block font-semibold text-slate-700 mb-1">Desde</label><input type="date" id="rotFrom" class="p-2 border rounded-lg"></div>
                         <div><label class="block font-semibold text-slate-700 mb-1">Hasta</label><input type="date" id="rotTo" class="p-2 border rounded-lg"></div>
-                        <div><label class="block font-semibold text-slate-700 mb-1">Área</label><select id="rotDept" onchange="renderRotationEmployees()" class="p-2 border rounded-lg bg-white"></select></div>
+                        <div><label class="block font-semibold text-slate-700 mb-1">Área</label><select id="rotDept" multiple data-multi data-multi-unit="áreas" onchange="renderRotationEmployees()" class="p-2 border rounded-lg bg-white"></select></div>
                     </div>
                     <div class="flex items-center justify-between">
                         <label class="block font-semibold text-slate-700">Colaboradores</label>
@@ -2077,7 +2077,7 @@
                 <button onclick="closeModal('modalLeave')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
             <div class="flex flex-wrap items-center gap-2 px-4 py-2 border-b bg-slate-50 text-xs">
-                <select id="leaveArea" onchange="renderLeaveTable()" class="p-2 border border-slate-300 rounded-lg bg-white"></select>
+                <select id="leaveArea" multiple data-multi data-multi-unit="áreas" onchange="renderLeaveTable()" class="p-2 border border-slate-300 rounded-lg bg-white"></select>
                 <input id="leaveSearch" oninput="renderLeaveTable()" placeholder="Buscar colaborador..." class="p-2 border border-slate-300 rounded-lg w-52">
                 <button type="button" onclick="exportLeaveExcel()" class="ml-auto px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5"><i class="fa-solid fa-file-excel"></i> Excel</button>
             </div>
@@ -4114,7 +4114,7 @@
         async function openLeaveModal() {
             const sel = document.getElementById('leaveArea');
             const hasOther = appState.employees.some(e => empAreaKey(e) === '_otras');
-            sel.innerHTML = '<option value="">Todas las áreas</option>' + (appState.departments || []).map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}</option>`).join('') + (hasOther ? '<option value="_otras">Otras áreas / No asignados</option>' : '');
+            msFill(sel, '<option value="">Todas las áreas</option>' + (appState.departments || []).map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}</option>`).join('') + (hasOther ? '<option value="_otras">Otras áreas / No asignados</option>' : ''));
             document.getElementById('leaveTableBody').innerHTML = '<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>';
             openModal('modalLeave');
             setLeaveTab(leaveTab);
@@ -4124,11 +4124,11 @@
         function leaveRows() {
             const src = leaveTab === 'vac' ? vacData : leaveData;
             if (!src) return [];
-            const area = document.getElementById('leaveArea').value;
+            const areas = msVals('leaveArea');
             const q = (document.getElementById('leaveSearch').value || '').trim().toLowerCase();
             return src.employees.filter(e => {
                 const emp = appState.employees.find(x => Number(x.id) === Number(e.id)) || e;
-                return (!area || empAreaKey(emp) === area) && (!q || e.name.toLowerCase().includes(q));
+                return (!areas.length || areas.includes(empAreaKey(emp))) && (!q || e.name.toLowerCase().includes(q));
             });
         }
         function leaveMovements(e) {
@@ -6673,16 +6673,16 @@
 
         function filterEmployeeList() {
             let q = document.getElementById('empSearchInput')?.value.toLowerCase() || '';
-            const area = document.getElementById('empAreaFilter')?.value || '';
+            const areas = msVals('empAreaFilter');
             let visibleActive = 0;
             document.querySelectorAll('#employeesListContainer > div').forEach(card => {
                 let text = card.innerText.toLowerCase();
-                const show = text.includes(q) && (!area || card.dataset.empDept === area);
+                const show = text.includes(q) && (!areas.length || areas.includes(card.dataset.empDept));
                 card.style.display = show ? '' : 'none';
                 if (show && card.dataset.empActive === '1') visibleActive++;
             });
             const badge = document.getElementById('empCountBadge');
-            if (badge) badge.innerText = area ? `${visibleActive} de ${activeEmployees().length}` : activeEmployees().length;
+            if (badge) badge.innerText = areas.length ? `${visibleActive} de ${activeEmployees().length}` : activeEmployees().length;
         }
         // Área de un colaborador para el filtro (misma regla del cuadro de turnos).
         function empAreaKey(emp) {
@@ -6692,12 +6692,12 @@
         function renderEmpAreaFilter() {
             const sel = document.getElementById('empAreaFilter');
             if (!sel) return;
-            const cur = appState.empAreaFilter || '';
+            const cur = Array.isArray(appState.empAreaFilter) ? appState.empAreaFilter : (appState.empAreaFilter ? [appState.empAreaFilter] : []);
             const hasOther = appState.employees.some(e => empAreaKey(e) === '_otras');
             sel.innerHTML = '<option value="">Todas las áreas</option>'
                 + (appState.departments || []).map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}</option>`).join('')
                 + (hasOther ? '<option value="_otras">Otras áreas / No asignados</option>' : '');
-            sel.value = [...sel.options].some(o => o.value === cur) ? cur : '';
+            msSet(sel, cur);
         }
 
         function setShiftsSubTab(tab) {
@@ -7103,15 +7103,7 @@
         function renderPayrollOtDeptFilter() {
             const select = document.getElementById('payrollOtDeptFilter');
             if (!select) return;
-            const currentVal = select.value || '_ALL_';
-            select.innerHTML = '<option value="_ALL_">Todas las áreas</option>';
-            appState.departments.forEach(d => {
-                const opt = document.createElement('option');
-                opt.value = d.name;
-                opt.innerText = d.name;
-                select.appendChild(opt);
-            });
-            select.value = currentVal;
+            msFill(select, '<option value="_ALL_">Todas las áreas</option>' + appState.departments.map(d => `<option value="${escapeHtml(d.name)}">${escapeHtml(d.name)}</option>`).join(''));
         }
 
         // Ubica el rango de fechas (min/max) presente en la planilla, para precargar el periodo con datos reales
@@ -7202,8 +7194,8 @@
 
             const startDate = startInput.value;
             const endDate = endInput.value;
-            const deptFilter = document.getElementById('payrollOtDeptFilter')?.value || '_ALL_';
-            const calc = await computePayrollOt(startDate, endDate, deptFilter);
+            const deptSel = msVals('payrollOtDeptFilter');
+            const calc = await computePayrollOt(startDate, endDate, deptSel.length ? deptSel : '_ALL_');
             appState._payrollOtPending = { days: calc.pendingDays, upcoming: calc.upcomingDays, includeEstimates: calc.includeEstimates, confirmedAbsences: calc.confirmedAbsences };
             appState._payrollOtAdjHistory = calc.adjHistory;
             appState._payrollOtOpenMissing = calc.openNotIncluded;
@@ -7220,6 +7212,8 @@
         // lo usan la pantalla de Liquidación y el indicador "Extras y recargos" del
         // Tablero Gerencial, para que ambos den siempre el mismo valor.
         async function computePayrollOt(startDate, endDate, deptFilter = '_ALL_') {
+            // Áreas: '_ALL_' (todas), un nombre o una lista de nombres.
+            const deptSet = Array.isArray(deptFilter) ? (deptFilter.length ? new Set(deptFilter) : null) : (deptFilter && deptFilter !== '_ALL_' ? new Set([deptFilter]) : null);
             // Periodo anterior a la ventana de turnos cargada: se traen esos turnos.
             if (startDate && !shiftsLoaded(startDate)) {
                 try { await ensureShiftsLoaded(startDate); } catch (e) { showAppToast('No se pudieron cargar los turnos del periodo: ' + e.message); }
@@ -7283,7 +7277,7 @@
             filteredShifts.forEach(s => {
                 const emp = appState.employees.find(e => e.id === s.empId);
                 if (!emp) return;
-                if (deptFilter !== '_ALL_' && emp.department !== deptFilter) return;
+                if (deptSet && !deptSet.has(emp.department)) return;
 
                 if (!byEmp[emp.id]) {
                     byEmp[emp.id] = {
@@ -7412,7 +7406,7 @@
 
             // --- Saldo negativo de extras diurnas -------------------------------
             // Colaboradores con saldo anterior aunque no tengan turnos en este periodo.
-            const deptOk = (emp) => deptFilter === '_ALL_' || emp.department === deptFilter;
+            const deptOk = (emp) => !deptSet || deptSet.has(emp.department);
             const blankRow = (emp) => ({
                 emp, shiftsCount: 0, hourlyRate: (emp.salary || appState.settings.smlmv2026) / legalMonthlyDividerForDate(endDate),
                 hon: 0, hed: 0, hen: 0, honPay: 0, hedPay: 0, henPay: 0, domPay: 0, domHours: 0, detail: [],
@@ -8220,6 +8214,7 @@
         function fillDeptSelect(id) {
             const sel = document.getElementById(id);
             sel.innerHTML = '<option value="_ALL_">Todas las áreas</option>' + appState.departments.map(d => `<option value="${escapeHtml(d.name)}">${escapeHtml(d.name)}</option>`).join('');
+            msSet(sel, []); // al abrir: todas las áreas
         }
         function openCopyWeekModal() {
             const mon = appState.rosterCurrentMonday, prev = addDays(mon, -7);
@@ -8250,9 +8245,9 @@
             if (!shiftsLoaded(prevMon)) { try { await ensureShiftsLoaded(prevMon); } catch (e) { showAppToast(e.message); return; } }
             const mode = document.querySelector('input[name="copyWeekMode"]:checked').value;
             const withAbs = document.getElementById('copyWeekAbsences').checked;
-            const dept = document.getElementById('copyWeekDept').value;
+            const depts = msVals('copyWeekDept');
             const mon = appState.rosterCurrentMonday, prev = addDays(mon, -7);
-            const emps = activeEmployees().filter(e => dept === '_ALL_' || e.department === dept);
+            const emps = activeEmployees().filter(e => !depts.length || depts.includes(e.department));
             let copied = 0, skipped = 0;
             for (const emp of emps) {
                 for (let i = 0; i < rosterDayCount(); i++) {
@@ -8304,8 +8299,8 @@
             renderRotationDays();
         }
         function renderRotationEmployees() {
-            const dept = document.getElementById('rotDept').value;
-            const emps = activeEmployees().filter(e => dept === '_ALL_' || e.department === dept).sort((a, b) => a.name.localeCompare(b.name));
+            const depts = msVals('rotDept');
+            const emps = activeEmployees().filter(e => !depts.length || depts.includes(e.department)).sort((a, b) => a.name.localeCompare(b.name));
             document.getElementById('rotEmployees').innerHTML = emps.map(e => `<label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" value="${e.id}" class="w-3.5 h-3.5"> ${escapeHtml(e.name)}</label>`).join('') || '<span class="text-slate-400">Sin colaboradores en esta área.</span>';
         }
         function openRotationModal() {
@@ -10579,9 +10574,9 @@
             switchView('attendance');
             document.getElementById('attAlertsFrom').value = it.date;
             document.getElementById('attAlertsTo').value = it.date;
-            document.getElementById('attAlertsType').value = it.type;
-            document.getElementById('attAlertsStatus').value = '';
-            document.getElementById('attAlertsArea').value = '';
+            msSet('attAlertsType', [it.type]);
+            msSet('attAlertsStatus', []);
+            msSet('attAlertsArea', []);
             const sel = document.getElementById('attAlertsEmployee');
             if (![...sel.options].some(o => o.value === String(it.employeeId))) sel.add(new Option(it.employeeName, String(it.employeeId)));
             sel.value = String(it.employeeId);
@@ -10594,9 +10589,9 @@
             const from = (notifData.items && notifData.items.length) ? notifData.items[notifData.items.length - 1].date : today;
             document.getElementById('attAlertsFrom').value = from < today ? from : today;
             document.getElementById('attAlertsTo').value = today;
-            document.getElementById('attAlertsType').value = '';
-            document.getElementById('attAlertsStatus').value = '';
-            document.getElementById('attAlertsArea').value = '';
+            msSet('attAlertsType', []);
+            msSet('attAlertsStatus', []);
+            msSet('attAlertsArea', []);
             document.getElementById('attAlertsEmployee').value = '';
             attendanceSetSubTab('alerts');
         }
@@ -10675,9 +10670,9 @@
                 fromEl.value = formatDateISO(d); toEl.value = today;
             }
             const params = new URLSearchParams({ from: fromEl.value, to: toEl.value });
-            const u = document.getElementById('auditUser').value, c = document.getElementById('auditCategory').value, q = document.getElementById('auditSearch').value.trim();
+            const u = document.getElementById('auditUser').value, c = msVals('auditCategory'), q = document.getElementById('auditSearch').value.trim();
             if (u) params.set('userId', u);
-            if (c) params.set('category', c);
+            if (c.length) params.set('category', JSON.stringify(c));
             if (q) params.set('q', q);
             body.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">Cargando…</td></tr>';
             try {
@@ -11343,19 +11338,18 @@
             // Área: las del cuadro de turnos (+ "Otras áreas" si hay colaboradores sin área).
             const areaSel = document.getElementById('attHistoryArea');
             if (areaSel) {
-                const curArea = areaSel.value;
                 const hasOther = appState.employees.some(e => empAreaKey(e) === '_otras');
-                areaSel.innerHTML = '<option value="">Todas las áreas</option>' +
+                msFill(areaSel, '<option value="">Todas las áreas</option>' +
                     (appState.departments || []).map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}</option>`).join('') +
-                    (hasOther ? '<option value="_otras">Otras áreas / sin área</option>' : '');
-                areaSel.value = [...areaSel.options].some(o => o.value === curArea) ? curArea : '';
+                    (hasOther ? '<option value="_otras">Otras áreas / sin área</option>' : ''));
             }
-            const area = areaSel ? areaSel.value : '';
+            const areas = areaSel ? msVals(areaSel) : [];
+            const area = areas.length > 0;
             const sel = document.getElementById('attHistoryEmployee');
             if (!sel) return;
             const current = sel.value;
-            const emps = [...appState.employees].filter(e => !area || empAreaKey(e) === area).sort((a, b) => a.name.localeCompare(b.name));
-            sel.innerHTML = '<option value="">' + (area ? 'Todos los de esta área' : 'Todos los colaboradores') + '</option>' +
+            const emps = [...appState.employees].filter(e => !area || areas.includes(empAreaKey(e))).sort((a, b) => a.name.localeCompare(b.name));
+            sel.innerHTML = '<option value="">' + (area ? (areas.length > 1 ? 'Todos los de estas áreas' : 'Todos los de esta área') : 'Todos los colaboradores') + '</option>' +
                 emps.map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
             sel.value = emps.some(e => String(e.id) === String(current)) ? current : '';
         }
@@ -11412,8 +11406,8 @@
         function workdaysShown() {
             const nrm = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
             const q = nrm(document.getElementById('attWorkdaysSearch')?.value).trim();
-            const area = document.getElementById('attWorkdaysArea')?.value || '';
-            return lastWorkdaysReport.filter(a => (!area || (a.emp.department || '') === area)
+            const areas = msVals('attWorkdaysArea');
+            return lastWorkdaysReport.filter(a => (!areas.length || areas.includes(a.emp.department || ''))
                 && (!q || nrm(a.emp.name).includes(q) || String(a.emp.documentNumber || '').includes(q)));
         }
         function renderWorkdaysTable() {
@@ -11421,10 +11415,8 @@
             const foot = document.getElementById('attWorkdaysFoot');
             const sel = document.getElementById('attWorkdaysArea');
             if (sel) {
-                const cur = sel.value;
                 const areas = [...new Set(appState.departments.map(d => d.name).concat(lastWorkdaysReport.map(a => a.emp.department).filter(Boolean)))];
-                sel.innerHTML = '<option value="">Todas las áreas</option>' + areas.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
-                sel.value = areas.includes(cur) ? cur : '';
+                msFill(sel, '<option value="">Todas las áreas</option>' + areas.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join(''));
             }
             if (!lastWorkdaysReport.length) return;
             const list = workdaysShown();
@@ -11476,11 +11468,10 @@
         function attAbsFillFilters() {
             const areaSel = document.getElementById('attAbsArea');
             const empSel = document.getElementById('attAbsEmp');
-            const curA = areaSel.value, curE = empSel.value;
+            const curE = empSel.value;
             const areas = [...new Set(appState.departments.map(d => d.name).concat(appState.employees.map(e => e.department).filter(Boolean)))].sort((x, y) => x.localeCompare(y, 'es'));
-            areaSel.innerHTML = '<option value="">Todas las áreas</option>' + areas.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
-            areaSel.value = areas.includes(curA) ? curA : '';
-            const emps = appState.employees.filter(e => !areaSel.value || (e.department || '') === areaSel.value)
+            const picked = msFill(areaSel, '<option value="">Todas las áreas</option>' + areas.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join(''));
+            const emps = appState.employees.filter(e => !picked.length || picked.includes(e.department || ''))
                 .slice().sort((x, y) => x.name.localeCompare(y.name, 'es'));
             empSel.innerHTML = '<option value="">Todos los colaboradores</option>' + emps.map(e => `<option value="${e.id}">${escapeHtml(e.name)}${e.status === 'retirado' ? ' (retirado)' : ''}</option>`).join('');
             empSel.value = emps.some(e => String(e.id) === curE) ? curE : '';
@@ -11498,8 +11489,8 @@
             document.getElementById('attAbsFoot').innerHTML = '';
             body.innerHTML = '<tr><td class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>';
             const qs = new URLSearchParams({ from: fromEl.value, to: toEl.value });
-            const area = document.getElementById('attAbsArea').value, emp = document.getElementById('attAbsEmp').value;
-            if (area) qs.set('area', area);
+            const areas = msVals('attAbsArea'), emp = document.getElementById('attAbsEmp').value;
+            if (areas.length) qs.set('area', JSON.stringify(areas));
             if (emp) qs.set('employeeId', emp);
             try {
                 lastAbsReport = await apiFetch(`/api/attendance/absences-report?${qs}`);
@@ -11588,8 +11579,8 @@
                 const qs = `from=${from}&to=${to}` + (empId ? `&employeeId=${encodeURIComponent(empId)}` : '');
                 let { rows } = await apiFetch(`/api/attendance/history?${qs}`);
                 if (document.getElementById('attHistoryOnlyNovelty')?.checked) rows = rows.filter(attDayHasNovelty);
-                const histArea = document.getElementById('attHistoryArea')?.value || '';
-                if (histArea) rows = rows.filter(r => { const e = appState.employees.find(x => Number(x.id) === Number(r.employee_id)); return e && empAreaKey(e) === histArea; });
+                const histAreas = msVals('attHistoryArea');
+                if (histAreas.length) rows = rows.filter(r => { const e = appState.employees.find(x => Number(x.id) === Number(r.employee_id)); return e && histAreas.includes(empAreaKey(e)); });
                 body.innerHTML = rows.map(r => `
                     <tr class="border-t border-slate-100">
                         <td class="px-3 py-2 font-medium">${escapeHtml(r.employee_name)}${r.evidence_count ? evidenceBtn(r.employee_id, r.shift_date, r.employee_name, r.evidence_env_diff > 0) : ''}</td>
@@ -11647,26 +11638,24 @@
             }
             // Área: limita la lista de colaboradores y las alertas que se muestran (y el Excel).
             const areaSel = document.getElementById('attAlertsArea');
-            const curArea = areaSel.value;
             const areas = [...new Set(appState.departments.map(d => d.name).concat(appState.employees.map(e => e.department || 'Sin área')))].sort((x, y) => x.localeCompare(y, 'es'));
-            areaSel.innerHTML = '<option value="">Todas</option>' + areas.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
-            areaSel.value = areas.includes(curArea) ? curArea : '';
-            const area = areaSel.value;
+            const pickedAreas = msFill(areaSel, '<option value="">Todas</option>' + areas.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join(''));
+            const area = pickedAreas.length > 0;
             const empArea = new Map(appState.employees.map(e => [Number(e.id), e.department || 'Sin área']));
             const empSel = document.getElementById('attAlertsEmployee');
             const curEmp = empSel.value;
-            const empList = [...appState.employees].filter(e => !area || (e.department || 'Sin área') === area).sort((a, b) => a.name.localeCompare(b.name));
+            const empList = [...appState.employees].filter(e => !area || pickedAreas.includes(e.department || 'Sin área')).sort((a, b) => a.name.localeCompare(b.name));
             empSel.innerHTML = '<option value="">Todos</option>' + empList
                 .map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
             empSel.value = (!area || empList.some(e => String(e.id) === curEmp)) ? curEmp : '';
             const qs = new URLSearchParams({ from: fromEl.value, to: toEl.value });
-            const type = document.getElementById('attAlertsType').value; if (type) qs.set('type', type);
-            const st = document.getElementById('attAlertsStatus').value; if (st) qs.set('status', st);
+            const types = msVals('attAlertsType'); if (types.length) qs.set('type', JSON.stringify(types));
+            const sts = msVals('attAlertsStatus'); if (sts.length) qs.set('status', JSON.stringify(sts));
             if (empSel.value) qs.set('employeeId', empSel.value);
             body.innerHTML = `<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
             try {
                 const { rows: all } = await apiFetch(`/api/attendance/alerts?${qs.toString()}`);
-                const rows = area ? all.filter(r => empArea.get(Number(r.employee_id)) === area) : all;
+                const rows = area ? all.filter(r => pickedAreas.includes(empArea.get(Number(r.employee_id)))) : all;
                 lastAlertRows = rows;
                 body.innerHTML = rows.map(r => `
                     <tr class="border-t border-slate-100 align-top">
@@ -12053,17 +12042,16 @@
         }
         // Filtros de Novedades por colaborador (área y colaborador): filtran la tabla y el Excel.
         function novedadesShown() {
-            const area = document.getElementById('attNovArea').value, emp = document.getElementById('attNovEmp').value;
-            return lastNovedades.filter(r => (!area || (r.department || 'Sin área') === area) && (!emp || String(r.employeeId) === emp));
+            const areas = msVals('attNovArea'), emp = document.getElementById('attNovEmp').value;
+            return lastNovedades.filter(r => (!areas.length || areas.includes(r.department || 'Sin área')) && (!emp || String(r.employeeId) === emp));
         }
         function renderNovedadesTable() {
             const body = document.getElementById('attNovBody');
             const areaSel = document.getElementById('attNovArea'), empSel = document.getElementById('attNovEmp');
-            const curA = areaSel.value, curE = empSel.value;
+            const curE = empSel.value;
             const areas = [...new Set(appState.departments.map(d => d.name).concat(lastNovedades.map(r => r.department || 'Sin área')))].sort((x, y) => x.localeCompare(y, 'es'));
-            areaSel.innerHTML = '<option value="">Todas las áreas</option>' + areas.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
-            areaSel.value = areas.includes(curA) ? curA : '';
-            const inArea = lastNovedades.filter(r => !areaSel.value || (r.department || 'Sin área') === areaSel.value).slice().sort((x, y) => x.name.localeCompare(y.name, 'es'));
+            const picked = msFill(areaSel, '<option value="">Todas las áreas</option>' + areas.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join(''));
+            const inArea = lastNovedades.filter(r => !picked.length || picked.includes(r.department || 'Sin área')).slice().sort((x, y) => x.name.localeCompare(y.name, 'es'));
             empSel.innerHTML = '<option value="">Todos los colaboradores</option>' + inArea.map(r => `<option value="${r.employeeId}">${escapeHtml(r.name)}</option>`).join('');
             empSel.value = inArea.some(r => String(r.employeeId) === curE) ? curE : '';
             const rows = novedadesShown();
@@ -12093,9 +12081,9 @@
         function openEmployeeAlerts(employeeId) {
             document.getElementById('attAlertsFrom').value = document.getElementById('attNovFrom').value;
             document.getElementById('attAlertsTo').value = document.getElementById('attNovTo').value;
-            document.getElementById('attAlertsType').value = '';
-            document.getElementById('attAlertsStatus').value = '';
-            document.getElementById('attAlertsArea').value = '';
+            msSet('attAlertsType', []);
+            msSet('attAlertsStatus', []);
+            msSet('attAlertsArea', []);
             const sel = document.getElementById('attAlertsEmployee');
             if (![...sel.options].some(o => o.value === String(employeeId))) sel.add(new Option('', String(employeeId)));
             sel.value = String(employeeId);
@@ -12242,23 +12230,22 @@
         async function attendanceLoadIndicators(initial, quiet) {
             const fromEl = document.getElementById('indFrom'), toEl = document.getElementById('indTo');
             if (!fromEl.value || !toEl.value) indApplyPreset();
-            const area = document.getElementById('indArea').value;
+            const areaList = msVals('indArea');
             if (!quiet) document.getElementById('indCards').innerHTML = '<p class="text-xs text-slate-400 py-4">Calculando…</p>';
             try {
                 const qs = new URLSearchParams({ from: fromEl.value, to: toEl.value });
-                if (area) qs.set('area', area);
+                if (areaList.length) qs.set('area', JSON.stringify(areaList));
                 const d = await apiFetch(`/api/attendance/indicators?${qs.toString()}`);
                 // "Extras y recargos": lo que la empresa debe pagar, con el MISMO cálculo de la Liquidación.
                 if (CAN('reports.view')) {
                     try {
-                        const [cur, prev] = await Promise.all([computePayrollOt(d.from, d.to, area || '_ALL_'), computePayrollOt(d.prevFrom, d.prevTo, area || '_ALL_')]);
+                        const [cur, prev] = await Promise.all([computePayrollOt(d.from, d.to, areaList.length ? areaList : '_ALL_'), computePayrollOt(d.prevFrom, d.prevTo, areaList.length ? areaList : '_ALL_')]);
                         d.liq = indLiqSummary(cur); d.liqPrev = indLiqSummary(prev);
                     } catch (e) { d.liq = null; }
                 }
                 lastIndicators = d;
                 const sel = document.getElementById('indArea');
-                sel.innerHTML = '<option value="">Todas las áreas</option>' + d.areasAll.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
-                sel.value = area;
+                msFill(sel, '<option value="">Todas las áreas</option>' + d.areasAll.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join(''));
                 renderIndicators(d);
             } catch (e) {
                 if (!quiet) document.getElementById('indCards').innerHTML = `<p class="text-xs text-slate-400 py-4">${escapeHtml(e.message)}</p>`;
@@ -12464,7 +12451,7 @@
             if (!X[2].length || (indSelectedCard === 'costo' && X[2].length <= 1)) { showAppToast(`"${IND_CARD_TITLES[indSelectedCard]}" no tiene registros en este periodo.`); return; }
             try {
                 const safe = X[0].replace(/\s+/g, '_');
-                await downloadXLSX(`${safe}_${d.from}_al_${d.to}${d.area ? '_' + d.area.replace(/\s+/g, '_') : ''}.xlsx`, X[1], X[2], X[0].slice(0, 30));
+                await downloadXLSX(`${safe}_${d.from}_al_${d.to}${d.area ? '_' + d.area.replace(/[\s,]+/g, '_') : ''}.xlsx`, X[1], X[2], X[0].slice(0, 30));
             } catch (e) { showAppToast('No se pudo generar el Excel: ' + e.message); }
         }
         // ---- Incapacidades (dentro de Indicadores) ----
@@ -12736,9 +12723,9 @@
             switchView('attendance');
             document.getElementById('attAlertsFrom').value = lastIndicators ? lastIndicators.from : document.getElementById('indFrom').value;
             document.getElementById('attAlertsTo').value = lastIndicators ? lastIndicators.to : document.getElementById('indTo').value;
-            document.getElementById('attAlertsType').value = '';
-            document.getElementById('attAlertsStatus').value = '';
-            document.getElementById('attAlertsArea').value = '';
+            msSet('attAlertsType', []);
+            msSet('attAlertsStatus', []);
+            msSet('attAlertsArea', []);
             const sel = document.getElementById('attAlertsEmployee');
             if (![...sel.options].some(o => o.value === String(employeeId))) sel.add(new Option('', String(employeeId)));
             sel.value = String(employeeId);
@@ -13010,10 +12997,8 @@
             try {
                 lastTodayBoard = await apiFetch('/api/attendance/today');
                 const sel = document.getElementById('attTodayArea');
-                const cur = sel.value;
                 const areaNames = [...new Set(lastTodayBoard.areas.map(a => a.name).concat(lastTodayBoard.absences.map(a => a.department)))].sort((a, b) => a.localeCompare(b, 'es'));
-                sel.innerHTML = '<option value="">Todas las áreas</option>' + areaNames.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
-                sel.value = areaNames.includes(cur) ? cur : '';
+                msFill(sel, '<option value="">Todas las áreas</option>' + areaNames.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join(''));
                 renderTodayBoard();
                 const badge = document.getElementById('attBadge-today');
                 const k = lastTodayBoard.counters.noLlego + lastTodayBoard.counters.sinCerrar;
@@ -13025,10 +13010,10 @@
         function renderTodayBoard() {
             const b = lastTodayBoard;
             if (!b) return;
-            const area = document.getElementById('attTodayArea').value;
-            const areas = b.areas.filter(a => !area || a.name === area);
+            const picked = msVals('attTodayArea');
+            const areas = b.areas.filter(a => !picked.length || picked.includes(a.name));
             const people = areas.flatMap(a => a.people.map(p => ({ ...p, area: a.name })));
-            const absences = b.absences.filter(a => !area || a.department === area);
+            const absences = b.absences.filter(a => !picked.length || picked.includes(a.department));
             const cnt = (fn) => people.filter(fn).length;
             const PRESENT = ['presente', 'tarde', 'almuerzo', 'almuerzo_largo'];
             const c = {
@@ -13139,11 +13124,10 @@
             const body = document.getElementById('attBioTableBody');
             const areaSel = document.getElementById('attBioArea');
             const empSel = document.getElementById('attBioEmp');
-            const curA = areaSel.value, curE = empSel.value;
+            const curE = empSel.value;
             const areas = [...new Set(attBioList.map(e => e.department || 'Sin área'))].sort((x, y) => x.localeCompare(y, 'es'));
-            areaSel.innerHTML = '<option value="">Todas las áreas</option>' + areas.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
-            areaSel.value = areas.includes(curA) ? curA : '';
-            const inArea = attBioList.filter(e => !areaSel.value || (e.department || 'Sin área') === areaSel.value);
+            const picked = msFill(areaSel, '<option value="">Todas las áreas</option>' + areas.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join(''));
+            const inArea = attBioList.filter(e => !picked.length || picked.includes(e.department || 'Sin área'));
             empSel.innerHTML = '<option value="">Todos los colaboradores</option>' + inArea.map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
             empSel.value = inArea.some(e => String(e.id) === curE) ? curE : '';
             const list = inArea.filter(e => !empSel.value || String(e.id) === empSel.value);
@@ -13647,5 +13631,6 @@
         }
     </script>
 <script src="/search-select.js"></script>
+<script src="/multi-select.js"></script>
 </body>
 </html>

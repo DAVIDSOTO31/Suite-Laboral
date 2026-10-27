@@ -686,9 +686,13 @@ function listAlerts(req, res, query) {
   // siguen calculando para la Liquidacion, pero no se muestran aqui).
   // Filtros opcionales: tipo, colaborador y estado de gestion.
   const types = ['llegada_tarde', 'exceso_almuerzo', 'salida_anticipada', 'marcacion_manual', 'inasistencia', 'turno_sin_cerrar', 'etapa_extendida', 'entorno_diferente'];
-  const type = query.type && types.includes(query.type) ? query.type : null;
+  // Tipo y gestion: uno o varios (JSON). Sin filtro = todos.
+  const { parseListParam } = require('../lib/list-param');
+  const typeSet = parseListParam(query.type);
+  const typeList = typeSet ? types.filter(t => typeSet.has(t)) : types;
   const employeeId = query.employeeId ? Number(query.employeeId) : null;
-  const status = ['pendiente', 'justificada', 'injustificada'].includes(query.status) ? query.status : null;
+  const statusSet = parseListParam(query.status);
+  const statusList = statusSet ? ['pendiente', 'justificada', 'injustificada'].filter(t => statusSet.has(t)) : null;
   const rows = db.prepare(`
     SELECT a.*, e.name as employee_name,
            COALESCE(m.status, 'pendiente') AS mgmt_status, m.category AS mgmt_category, m.note AS mgmt_note,
@@ -703,12 +707,11 @@ function listAlerts(req, res, query) {
     LEFT JOIN alert_management m ON m.alert_id = a.id
     LEFT JOIN users u ON u.id = m.managed_by
     WHERE a.organization_id = ? AND a.shift_date BETWEEN ? AND ?
-      AND a.alert_type IN (${types.map(() => '?').join(',')})
-      AND (? IS NULL OR a.alert_type = ?)
+      AND a.alert_type IN (${(typeList.length ? typeList : ['__ninguno__']).map(() => '?').join(',')})
       AND (? IS NULL OR a.employee_id = ?)
-      AND (? IS NULL OR COALESCE(m.status, 'pendiente') = ?)
+      ${statusList ? `AND COALESCE(m.status, 'pendiente') IN (${(statusList.length ? statusList : ['__ninguno__']).map(() => '?').join(',')})` : ''}
     ORDER BY a.created_at DESC
-  `).all(orgId, from, to, ...types, type, type, employeeId, employeeId, status, status);
+  `).all(orgId, from, to, ...(typeList.length ? typeList : ['__ninguno__']), employeeId, employeeId, ...(statusList ? (statusList.length ? statusList : ['__ninguno__']) : []));
   sendJson(res, 200, { rows, from, to });
 }
 
@@ -2365,6 +2368,8 @@ const AUSENTISMO_NOVEDADES_DESDE = '2026-10-16';
 // presento" (alerta), separadas en justificadas, injustificadas y pendientes.
 // ---------------------------------------------------------------------------
 const ABS_REPORT_EXCLUDED = ['abs_descanso_acumulado'];
+// Filtro de areas de los informes: una o varias (ver lib/list-param).
+const parseAreasParam = (v) => require('../lib/list-param').parseListParam(v);
 function absencesReport(req, res, query) {
   const orgId = resolveOrgId(req, query);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
@@ -2372,12 +2377,12 @@ function absencesReport(req, res, query) {
   const from = ISO.test(query.from || '') ? query.from : bogota.todayISOInBogota().slice(0, 8) + '01';
   const to = ISO.test(query.to || '') ? query.to : bogota.todayISOInBogota();
   if (to < from) return sendJson(res, 400, { error: 'La fecha final no puede ser anterior a la inicial.' });
-  const area = String(query.area || '');
+  const areaSet = parseAreasParam(query.area);
   const empFilter = query.employeeId ? Number(query.employeeId) : null;
   const { isHolidayCO } = require('../lib/holidays-co');
   const isBiz = (d) => new Date(d + 'T00:00:00Z').getUTCDay() !== 0 && !isHolidayCO(d);
   const emps = new Map(db.prepare('SELECT id, name, department, document_type, document_number, status FROM employees WHERE organization_id = ?').all(orgId).map(e => [Number(e.id), e]));
-  const okEmp = (id) => { const e = emps.get(Number(id)); return e && (!area || (e.department || 'Sin área') === area) && (!empFilter || Number(id) === empFilter); };
+  const okEmp = (id) => { const e = emps.get(Number(id)); return e && (!areaSet || areaSet.has(e.department || 'Sin área')) && (!empFilter || Number(id) === empFilter); };
   // Nombres de las inasistencias creadas por la organizacion.
   const custom = new Map();
   for (const r of db.prepare('SELECT data_json FROM shift_presets WHERE organization_id = ?').all(orgId)) {
@@ -2579,7 +2584,7 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
     if (s.date < from || s.date > to || s.date > today) continue;
     if (data.dayZero && s.date <= data.dayZero) continue;
     const emp = data.employees.get(Number(s.empId));
-    if (!emp || (area && emp.department !== area)) continue;
+    if (!emp || (area && !area.has(emp.department))) continue;
     // Turno EN CURSO: las llegadas tarde y los excesos de almuerzo cuentan al
     // instante (si ya marco la entrada). La ausencia solo se cuenta cuando el
     // turno termina (puede estar llegando tarde).
@@ -2620,7 +2625,7 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
     if (x.date < from || x.date > to || x.date > today) continue;
     if (data.dayZero && x.date <= data.dayZero) continue;
     const emp = data.employees.get(x.empId);
-    if (!emp || (area && emp.department !== area)) continue;
+    if (!emp || (area && !area.has(emp.department))) continue;
     for (const b of bucketsFor(emp)) { if (x.kind === 'incapacidad') b.ausIncapacidad++; else b.ausOtras++; }
     if (det) det.ausencias.push({ employeeId: emp.id, name: emp.name, area: emp.department, date: x.date, turno: x.label, estado: 'novedad' });
   }
@@ -2629,7 +2634,7 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
     if (d.shift_date < from || d.shift_date > to || d.status !== 'turno_finalizado') continue;
     if (data.dayZero && d.shift_date <= data.dayZero) continue;
     const emp = data.employees.get(d.employee_id);
-    if (!emp || (area && emp.department !== area)) continue;
+    if (!emp || (area && !area.has(emp.department))) continue;
     // hed_min ya trae descontada la salida anticipada (puede ser negativo):
     // asi se mide lo que la empresa realmente paga en extras.
     const hed = d.hed_min || 0, hen = Math.max(0, d.hen_min || 0), salida = Math.max(0, d.salida_anticipada_min || 0);
@@ -2660,7 +2665,7 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
   for (const a of data.alerts) {
     if (a.shift_date < from || a.shift_date > to) continue;
     const emp = data.employees.get(a.employee_id);
-    if (!emp || (area && emp.department !== area)) continue;
+    if (!emp || (area && !area.has(emp.department))) continue;
     if (a.alert_type === 'turno_sin_cerrar') for (const b of bucketsFor(emp)) b.sinCerrar++;
     if (a.alert_type === 'marcacion_manual') for (const b of bucketsFor(emp)) b.manuales++;
     if (det && (a.alert_type === 'turno_sin_cerrar' || a.alert_type === 'marcacion_manual')) {
@@ -2674,7 +2679,7 @@ function computeIndicators(data, from, to, area, now, withDetails = false) {
     if (c.shift_date < from || c.shift_date > to) continue;
     if (data.dayZero && c.shift_date <= data.dayZero) continue;
     const emp = data.employees.get(c.employee_id);
-    if (!emp || (area && emp.department !== area)) continue;
+    if (!emp || (area && !area.has(emp.department))) continue;
     const k = `${c.employee_id}|${c.shift_date}`;
     if (!corrByDay.has(k)) corrByDay.set(k, { emp, date: c.shift_date, marks: new Map(), reasons: [], by: new Set() });
     const g = corrByDay.get(k);
@@ -2724,7 +2729,7 @@ function computeIncapacities(data, from, to, area, now) {
   const total = { dias: 0, episodios: 0, colaboradores: 0, costoSalario: 0, diasEmpresa: 0, valorEmpresa: 0 };
   for (const ep of data.incapacityEpisodes) {
     const emp = data.employees.get(ep.empId);
-    if (!emp || (area && emp.department !== area)) continue;
+    if (!emp || (area && !area.has(emp.department))) continue;
     const inRange = ep.days.filter(d => d.date >= from && d.date <= end && !(data.dayZero && d.date <= data.dayZero));
     if (!inRange.length) continue;
     const daily = (Number(emp.salary) || 0) / 30;
@@ -2805,7 +2810,7 @@ function indicators(req, res, query) {
   const from = ISO_D.test(query.from || '') ? query.from : to.slice(0, 8) + '01';
   if (from > to) return sendJson(res, 400, { error: 'La fecha inicial no puede ser mayor que la final.' });
   if (daysBetween(from, to) > 400) return sendJson(res, 400, { error: 'El rango máximo es de 13 meses.' });
-  const area = query.area ? String(query.area) : '';
+  const area = parseAreasParam(query.area);
 
   // Periodo anterior de la misma duracion, para comparar.
   const len = daysBetween(from, to) + 1;
@@ -2855,7 +2860,7 @@ function indicators(req, res, query) {
   for (const a of data.alerts) {
     if (a.shift_date < from || a.shift_date > to) continue;
     const emp = data.employees.get(a.employee_id);
-    if (!emp || (area && emp.department !== area)) continue;
+    if (!emp || (area && !area.has(emp.department))) continue;
     if (!top.has(emp.id)) top.set(emp.id, { employeeId: emp.id, name: emp.name, department: emp.department, total: 0, injustificada: 0, justificada: 0, pendiente: 0 });
     const t = top.get(emp.id);
     t.total++; t[a.mgmt] = (t[a.mgmt] || 0) + 1;
@@ -2864,7 +2869,7 @@ function indicators(req, res, query) {
   const areasAll = [...new Set([...data.employees.values()].map(e => e.department))].sort((a, b) => a.localeCompare(b, 'es'));
 
   sendJson(res, 200, {
-    from, to, area, prevFrom, prevTo, dayZero: data.dayZero,
+    from, to, area: area ? [...area].join(', ') : '', areaList: area ? [...area] : [], prevFrom, prevTo, dayZero: data.dayZero,
     total: current.total, areas: current.areas, previous, trend, top: topList, areasAll, details: current.details,
     goals: getIndicatorGoals(orgId),
     incapacities: { total: incap.total, previous: incapPrev, employees: incap.employees },
