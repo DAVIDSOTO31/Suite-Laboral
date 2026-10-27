@@ -1461,6 +1461,17 @@
                                 <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Hasta</label>
                                 <input type="date" id="attAlertsTo" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
                             </div>
+                            <div class="flex gap-1">
+                                <button type="button" onclick="attAlertsQuick('q1')" class="px-2 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-2xs font-semibold text-slate-600">Quincena 1</button>
+                                <button type="button" onclick="attAlertsQuick('q2')" class="px-2 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-2xs font-semibold text-slate-600">Quincena 2</button>
+                                <button type="button" onclick="attAlertsQuick('mes')" class="px-2 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-2xs font-semibold text-slate-600">Mes</button>
+                            </div>
+                            <div>
+                                <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Área</label>
+                                <select id="attAlertsArea" onchange="attendanceLoadAlerts()" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white w-44">
+                                    <option value="">Todas</option>
+                                </select>
+                            </div>
                             <div>
                                 <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Tipo</label>
                                 <select id="attAlertsType" class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white">
@@ -10568,6 +10579,7 @@
             document.getElementById('attAlertsTo').value = it.date;
             document.getElementById('attAlertsType').value = it.type;
             document.getElementById('attAlertsStatus').value = '';
+            document.getElementById('attAlertsArea').value = '';
             const sel = document.getElementById('attAlertsEmployee');
             if (![...sel.options].some(o => o.value === String(it.employeeId))) sel.add(new Option(it.employeeName, String(it.employeeId)));
             sel.value = String(it.employeeId);
@@ -10582,6 +10594,7 @@
             document.getElementById('attAlertsTo').value = today;
             document.getElementById('attAlertsType').value = '';
             document.getElementById('attAlertsStatus').value = '';
+            document.getElementById('attAlertsArea').value = '';
             document.getElementById('attAlertsEmployee').value = '';
             attendanceSetSubTab('alerts');
         }
@@ -11612,6 +11625,16 @@
             }
         }
 
+        // Botones rápidos de Alertas: quincena 1, quincena 2 o mes completo del mes de "Desde".
+        function attAlertsQuick(kind) {
+            const fromEl = document.getElementById('attAlertsFrom');
+            const base = (fromEl.value || bogotaTodayISO()).slice(0, 8);
+            const [y, m] = base.split('-').map(Number);
+            const last = String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0');
+            fromEl.value = base + (kind === 'q2' ? '16' : '01');
+            document.getElementById('attAlertsTo').value = base + (kind === 'q1' ? '15' : last);
+            attendanceLoadAlerts();
+        }
         async function attendanceLoadAlerts() {
             const body = document.getElementById('attAlertsTableBody');
             const fromEl = document.getElementById('attAlertsFrom'), toEl = document.getElementById('attAlertsTo');
@@ -11620,18 +11643,28 @@
                 fromEl.value = addDaysISOClient(today, -7);
                 toEl.value = today;
             }
+            // Área: limita la lista de colaboradores y las alertas que se muestran (y el Excel).
+            const areaSel = document.getElementById('attAlertsArea');
+            const curArea = areaSel.value;
+            const areas = [...new Set(appState.departments.map(d => d.name).concat(appState.employees.map(e => e.department || 'Sin área')))].sort((x, y) => x.localeCompare(y, 'es'));
+            areaSel.innerHTML = '<option value="">Todas</option>' + areas.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+            areaSel.value = areas.includes(curArea) ? curArea : '';
+            const area = areaSel.value;
+            const empArea = new Map(appState.employees.map(e => [Number(e.id), e.department || 'Sin área']));
             const empSel = document.getElementById('attAlertsEmployee');
             const curEmp = empSel.value;
-            empSel.innerHTML = '<option value="">Todos</option>' + [...appState.employees].sort((a, b) => a.name.localeCompare(b.name))
+            const empList = [...appState.employees].filter(e => !area || (e.department || 'Sin área') === area).sort((a, b) => a.name.localeCompare(b.name));
+            empSel.innerHTML = '<option value="">Todos</option>' + empList
                 .map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
-            empSel.value = curEmp;
+            empSel.value = (!area || empList.some(e => String(e.id) === curEmp)) ? curEmp : '';
             const qs = new URLSearchParams({ from: fromEl.value, to: toEl.value });
             const type = document.getElementById('attAlertsType').value; if (type) qs.set('type', type);
             const st = document.getElementById('attAlertsStatus').value; if (st) qs.set('status', st);
             if (empSel.value) qs.set('employeeId', empSel.value);
             body.innerHTML = `<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">Cargando…</td></tr>`;
             try {
-                const { rows } = await apiFetch(`/api/attendance/alerts?${qs.toString()}`);
+                const { rows: all } = await apiFetch(`/api/attendance/alerts?${qs.toString()}`);
+                const rows = area ? all.filter(r => empArea.get(Number(r.employee_id)) === area) : all;
                 lastAlertRows = rows;
                 body.innerHTML = rows.map(r => `
                     <tr class="border-t border-slate-100 align-top">
@@ -12060,6 +12093,7 @@
             document.getElementById('attAlertsTo').value = document.getElementById('attNovTo').value;
             document.getElementById('attAlertsType').value = '';
             document.getElementById('attAlertsStatus').value = '';
+            document.getElementById('attAlertsArea').value = '';
             const sel = document.getElementById('attAlertsEmployee');
             if (![...sel.options].some(o => o.value === String(employeeId))) sel.add(new Option('', String(employeeId)));
             sel.value = String(employeeId);
@@ -12702,6 +12736,7 @@
             document.getElementById('attAlertsTo').value = lastIndicators ? lastIndicators.to : document.getElementById('indTo').value;
             document.getElementById('attAlertsType').value = '';
             document.getElementById('attAlertsStatus').value = '';
+            document.getElementById('attAlertsArea').value = '';
             const sel = document.getElementById('attAlertsEmployee');
             if (![...sel.options].some(o => o.value === String(employeeId))) sel.add(new Option('', String(employeeId)));
             sel.value = String(employeeId);
