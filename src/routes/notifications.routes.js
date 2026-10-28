@@ -47,6 +47,14 @@ function listNotifications(req, res) {
       items = ll.concat(items).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, MAX_ITEMS);
     } catch (e) { /* sin llamados */ }
   }
+  // Contratos a termino fijo por vencer o vencidos sin decision (solo Administrador).
+  if (req.user.isSuperAdmin || req.user.permissions.has('employees.edit_payroll')) {
+    try {
+      const cc = require('./contracts.routes').bellItems(orgId).map(x => ({ ...x, unread: !seenUntil || x.createdAt > seenUntil }));
+      unreadAll += cc.filter(x => x.unread).length;
+      items = cc.concat(items).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, MAX_ITEMS);
+    } catch (e) { /* sin contratos */ }
+  }
   sendJson(res, 200, {
     items,
     unread: unreadAll, seenUntil, now: bogotaNowSql(),

@@ -59,6 +59,10 @@ for (const col of ['annulled_at', 'annulled_by', 'annul_reason',
   'closed_at', 'closed_by', 'close_decision', 'close_note']) if (!dcCols.includes(col)) db.exec(`ALTER TABLE discipline_cases ADD COLUMN ${col} TEXT NULL`);
 
 const TYPES = ['llegada_tarde', 'exceso_almuerzo', 'inasistencia', 'turno_sin_cerrar'];
+// Otros documentos que usan el mismo flujo (enlace, "Recibido", firma y envío),
+// pero NO son llamados de atención: no los propone la suite ni cuentan para reincidencia.
+const NOTICE_TYPE = 'preaviso';
+const EXTRA_LABEL = { preaviso: 'Preaviso de no renovación del contrato' };
 const TYPE_LABEL = { llegada_tarde: 'Llegadas tarde', exceso_almuerzo: 'Exceso en el tiempo de almuerzo', inasistencia: 'Inasistencia sin justificar', turno_sin_cerrar: 'Turnos sin marcar la salida' };
 const DEFAULT_RULES = {
   llegada_tarde: { on: true, count: 3, days: 30 },
@@ -297,7 +301,7 @@ function caseOut(c, emp) {
     id: c.id, employeeId: c.employee_id, name: emp ? emp.name : '', area: emp ? (emp.department || '') : '', role: emp ? (emp.role || '') : '',
     phone: emp && emp.phone_number ? `${String(emp.phone_country || '+57').replace(/[^\d]/g, '')}${String(emp.phone_number).replace(/[^\d]/g, '')}` : '',
     email: emp && emp.email ? String(emp.email) : '', emailSentAt: c.email_sent_at || '', emailSentTo: c.email_sent_to || '',
-    type: c.rule_type, typeLabel: TYPE_LABEL[c.rule_type] || c.rule_type, status: c.status,
+    type: c.rule_type, typeLabel: TYPE_LABEL[c.rule_type] || EXTRA_LABEL[c.rule_type] || c.rule_type, status: c.status, isNotice: c.rule_type === NOTICE_TYPE,
     count: (() => { try { return JSON.parse(c.alert_ids).length; } catch { return 0; } })(),
     from: c.window_from, to: c.window_to, createdAt: c.created_at,
     decidedBy: c.decided_by_email || '', decidedAt: c.decided_at, discardReason: c.discard_reason || '',
@@ -322,7 +326,7 @@ function listCases(req, res, query) {
   sendJson(res, 200, {
     cases: rows.map(c => {
       const o = caseOut(c, emps.get(c.employee_id));
-      if (c.status !== 'descartado') o.reincidence = reincidenceOf(c, rows, cfg.reincidenceDays);
+      if (c.status !== 'descartado' && c.rule_type !== NOTICE_TYPE) o.reincidence = reincidenceOf(c, rows, cfg.reincidenceDays);
       if (c.status === 'propuesto') { o.novedades = caseAlerts(c).map(noveltyLine); }
       return o;
     }),
@@ -409,7 +413,7 @@ async function createLink(req, res, params) {
   db.prepare(`UPDATE discipline_cases SET token_hash = ?, token_expires = ?, sent_at = COALESCE(sent_at, datetime('now', '-5 hours')), sent_by = COALESCE(sent_by, ?),
     status = CASE WHEN status = 'generado' THEN 'enviado' ELSE status END WHERE id = ?`).run(sha256Hex(token), expires, req.user.id, c.id);
   const emp = db.prepare('SELECT name FROM employees WHERE id = ?').get(c.employee_id) || {};
-  logAction({ organizationId: orgId, userId: req.user.id, action: 'discipline.send', resourceType: 'employee', resourceId: String(c.employee_id), ip: getClientIp(req), metadata: { colaborador: emp.name, tipo: TYPE_LABEL[c.rule_type], vence: expires } });
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'discipline.send', resourceType: 'employee', resourceId: String(c.employee_id), ip: getClientIp(req), metadata: { colaborador: emp.name, tipo: TYPE_LABEL[c.rule_type] || EXTRA_LABEL[c.rule_type], vence: expires } });
   sendJson(res, 200, { ok: true, token, expires });
 }
 
@@ -433,11 +437,16 @@ async function emailCase(req, res, params) {
   const token = randomToken(24);
   const expires = addDaysISO(todayISOInBogota(), LINK_DAYS);
   const first = String(emp.name || '').split(' ')[0];
+  const isNotice = c.rule_type === NOTICE_TYPE;
   const r = await docMail.sendDocEmail({
-    to, orgName: org, subject: `${org}: comunicación sobre ${String(TYPE_LABEL[c.rule_type] || '').toLowerCase()}`,
-    lines: [`Hola ${first},`, `${org} te envía una comunicación sobre: ${String(TYPE_LABEL[c.rule_type] || '').toLowerCase()}.`,
-      'Ábrela con el botón, pulsa "Recibido" y luego firma el documento con el dedo o el mouse (no tienes que imprimir nada). Allí también puedes escribir tus descargos.',
-      `El enlace vence el ${expires.split('-').reverse().join('/')}.`],
+    to, orgName: org, subject: isNotice ? `${org}: preaviso de no renovación de tu contrato` : `${org}: comunicación sobre ${String(TYPE_LABEL[c.rule_type] || '').toLowerCase()}`,
+    lines: isNotice
+      ? [`Hola ${first},`, `${org} te envía el preaviso de no renovación de tu contrato de trabajo a término fijo.`,
+        'Ábrelo con el botón, pulsa "Recibido" y luego fírmalo con el dedo o el mouse (no tienes que imprimir nada).',
+        `El enlace vence el ${expires.split('-').reverse().join('/')}.`]
+      : [`Hola ${first},`, `${org} te envía una comunicación sobre: ${String(TYPE_LABEL[c.rule_type] || '').toLowerCase()}.`,
+        'Ábrela con el botón, pulsa "Recibido" y luego firma el documento con el dedo o el mouse (no tienes que imprimir nada). Allí también puedes escribir tus descargos.',
+        `El enlace vence el ${expires.split('-').reverse().join('/')}.`],
     link: `/comunicacion.html#t=${token}`, buttonLabel: 'Abrir la comunicación', pdf, fileName: docMail.safeFileName(body.fileName, 'Comunicacion.pdf'),
   });
   if (!r.delivered && r.mode === 'brevo-error') return sendJson(res, 502, { error: 'No se pudo enviar el correo. Intenta de nuevo más tarde.' });
@@ -445,7 +454,7 @@ async function emailCase(req, res, params) {
     sent_at = COALESCE(sent_at, datetime('now', '-5 hours')), sent_by = COALESCE(sent_by, ?),
     status = CASE WHEN status = 'generado' THEN 'enviado' ELSE status END WHERE id = ?`).run(sha256Hex(token), expires, to, req.user.id, c.id);
   logAction({ organizationId: orgId, userId: req.user.id, action: 'discipline.email', resourceType: 'employee', resourceId: String(c.employee_id), ip: getClientIp(req),
-    metadata: { colaborador: emp.name, tipo: TYPE_LABEL[c.rule_type], correo: to, adjunto: !!pdf, vence: expires } });
+    metadata: { colaborador: emp.name, tipo: TYPE_LABEL[c.rule_type] || EXTRA_LABEL[c.rule_type], correo: to, adjunto: !!pdf, vence: expires } });
   sendJson(res, 200, { ok: true, to, delivered: !!r.delivered, mode: r.mode });
 }
 
@@ -523,7 +532,8 @@ function publicView(req, res, params) {
   if (c.annulled_at) return sendJson(res, 200, { org: st.org_name || '', nit: orgNit(c.organization_id), logo: st.logo_base64 || null, annulled: true, annulledAt: c.annulled_at });
   sendJson(res, 200, { org: st.org_name || '', nit: orgNit(c.organization_id), logo: st.logo_base64 || null, name: emp.name || '', title: c.doc_title, body: c.doc_body, docDate: c.doc_date,
     descargosUntil: c.descargos_until, receivedAt: c.received_at, descargos: c.descargos_text || '', descargosAt: c.descargos_at || '',
-    signedAt: c.signed_at || '', signature: c.signature_png || '', signedDoc: c.signed_doc_number || '', verifyCode: verifyCode(c.doc_hash) });
+    signedAt: c.signed_at || '', signature: c.signature_png || '', signedDoc: c.signed_doc_number || '', verifyCode: verifyCode(c.doc_hash),
+    kind: c.rule_type === NOTICE_TYPE ? 'preaviso' : 'llamado' });
 }
 // POST /api/public/comunicacion/:token/sign { signature: dataURL PNG, documento }
 async function publicSign(req, res, params) {
@@ -612,7 +622,7 @@ function notifySigned(c, emp) {
   const nice = s === s.toUpperCase() ? s.toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, sp, ch) => sp + ch.toUpperCase()) : s;
   push.sendToOrgAdmins(c.organization_id, {
     title: `✍️ ${nice}`,
-    body: `Firmó el llamado de atención\n${TYPE_LABEL[c.rule_type]}\nÁrea: ${e.department}`,
+    body: c.rule_type === NOTICE_TYPE ? `Firmó el preaviso de no renovación del contrato\nÁrea: ${e.department}` : `Firmó el llamado de atención\n${TYPE_LABEL[c.rule_type]}\nÁrea: ${e.department}`,
     tag: `llamado-firmado-${c.id}`, url: '/app.html#llamados-historial',
     actions: [{ action: 'ver', title: 'Ver llamado' }],
   }).catch(err => console.error('[llamados]', err.message));
@@ -631,10 +641,33 @@ function bellItems(orgId, sinceSql) {
   const signed = db.prepare(`SELECT c.id, c.employee_id, c.rule_type, c.signed_at, c.descargos_text, e.name AS employee_name, COALESCE(e.department, 'Sin área') AS department
     FROM discipline_cases c JOIN employees e ON e.id = c.employee_id
     WHERE c.organization_id = ? AND c.signed_at IS NOT NULL AND c.signed_at >= ? AND c.annulled_at IS NULL ORDER BY c.signed_at DESC`).all(orgId, sinceSql)
-    .map(r => ({ id: 'firma:' + r.id, caseId: r.id, type: 'llamado_firmado', label: 'Llamado firmado', employeeId: r.employee_id, employeeName: r.employee_name, department: r.department,
+    .map(r => ({ id: 'firma:' + r.id, caseId: r.id, type: 'llamado_firmado', notice: r.rule_type === NOTICE_TYPE, label: r.rule_type === NOTICE_TYPE ? 'Preaviso firmado' : 'Llamado firmado', employeeId: r.employee_id, employeeName: r.employee_name, department: r.department,
       date: String(r.signed_at).slice(0, 10), createdAt: r.signed_at, mgmt: 'llamado_firmado',
-      text: `Firmó electrónicamente el llamado por ${String(TYPE_LABEL[r.rule_type] || '').toLowerCase()}${r.descargos_text ? ' y envió descargos' : ''}.` }));
+      text: r.rule_type === NOTICE_TYPE ? 'Firmó electrónicamente el preaviso de no renovación de su contrato.' : `Firmó electrónicamente el llamado por ${String(TYPE_LABEL[r.rule_type] || '').toLowerCase()}${r.descargos_text ? ' y envió descargos' : ''}.` }));
   return pend.concat(signed);
 }
 
-module.exports = { closeCase, emailCase, publicSign, caseSignature, bellItems, listCases, draftCase, decideCase, createLink, saveConfig, publicView, publicAck, scanOrg, TYPE_LABEL };
+// Preaviso de no renovación (lo crea el módulo de contratos): queda "generado",
+// listo para enviar, con el mismo enlace, "Recibido" y firma de los llamados.
+function noticeVars(orgId, emp, extra) {
+  const cfg = getConfig(orgId);
+  const st = db.prepare('SELECT org_name FROM org_settings WHERE organization_id = ?').get(orgId) || {};
+  const fecha = longDate(todayISOInBogota());
+  return {
+    empresa: st.org_name || 'La empresa',
+    ciudad_fecha: ((orgLocation(orgId) || cfg.city) ? (orgLocation(orgId) || cfg.city) + ', ' : '') + fecha.charAt(0).toUpperCase() + fecha.slice(1),
+    nombre: emp.name, documento: `${emp.document_type || 'C.C.'} ${emp.document_number || ''}`.trim(),
+    cargo: emp.role || '-', area: emp.department || '-',
+    firmante: signerText(orgId, cfg), nit: orgNit(orgId) || '(sin NIT registrado)', ...extra,
+  };
+}
+function createNoticeCase(orgId, employeeId, title, body, userId) {
+  const id = uid('disc');
+  const today = todayISOInBogota();
+  db.prepare(`INSERT INTO discipline_cases (id, organization_id, employee_id, rule_type, status, alert_ids, window_from, window_to, decided_by, decided_at, doc_title, doc_body, doc_date)
+              VALUES (?, ?, ?, ?, 'generado', '[]', ?, ?, ?, datetime('now', '-5 hours'), ?, ?, ?)`)
+    .run(id, orgId, employeeId, NOTICE_TYPE, today, today, userId, String(title).slice(0, 200), String(body).slice(0, 20000), today);
+  return id;
+}
+
+module.exports = { noticeVars, fillTemplate, createNoticeCase, NOTICE_TYPE, longDate, closeCase, emailCase, publicSign, caseSignature, bellItems, listCases, draftCase, decideCase, createLink, saveConfig, publicView, publicAck, scanOrg, TYPE_LABEL };

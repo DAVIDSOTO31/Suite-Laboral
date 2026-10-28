@@ -1469,6 +1469,7 @@ function employeeHistoryCheck(req, res, params, query) {
 }
 
 module.exports = {
+  bumpDataVersion,
   getShiftsRange, saveDataRetention,
   retireEmployee, reactivateEmployee, deleteEmployeePermanent, employeeHistoryCheck,
   setDayZero, saveOpeningBalance, deleteOpeningBalance,

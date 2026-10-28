@@ -20,6 +20,7 @@ const SCOPE_RULES = [
   [/^\/api\/org\/(sync|seed-demo|settings|departments|shift-presets|rotation-patterns|data-retention)$/, ['data']],
   [/^\/api\/org\/day-zero$/, ['data', 'payroll']],
   [/^\/api\/shifts\/publish$/, ['data']],
+  [/^\/api\/contracts\/[^/]+\/renew$/, ['data']],
   [/^\/api\/employees\/[^/]+\/(retire|reactivate|delete-permanent)$/, ['data', 'users']],
   [/^\/api\/payroll\/opening-balance/, ['data', 'payroll']],
   [/^\/api\/payroll\//, ['payroll']],
