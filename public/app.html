@@ -13910,7 +13910,7 @@
             parts.push(h.status === 'en_linea' ? `Última señal ${minutesAgoLabel(h.lastSeenMin)}` : `Sin señal ${minutesAgoLabel(h.lastSeenMin)} (${h.lastSeenAt})`);
             if (h.battery != null) parts.push(`<span class="${h.warnings.includes('bateria_baja') ? 'text-rose-700 font-bold' : ''}"><i class="fa-solid ${h.charging ? 'fa-plug' : 'fa-battery-half'}"></i> ${h.battery} %${h.charging ? ' cargando' : ''}</span>`);
             parts.push(`<span class="${h.warnings.includes('camara') ? 'text-rose-700 font-bold' : ''}">${CAMERA_LABELS[h.camera] || h.camera}</span>`);
-            parts.push(`<span class="${h.warnings.includes('voz') ? 'text-rose-700 font-bold' : ''}" title="${escapeHtml(h.voiceName ? 'Voz elegida: ' + h.voiceName : 'Confirmación por voz')}"><i class="fa-solid fa-volume-${h.warnings.includes('voz') ? 'xmark' : 'high'}"></i> ${VOICE_LABELS[h.voice] || 'Voz: sin verificar'}</span>`);
+            parts.push(`<span class="${h.warnings.includes('voz') ? 'text-rose-700 font-bold' : ''}" title="${escapeHtml(h.voiceName ? 'Voz elegida: ' + h.voiceName : 'Confirmación por voz')}"><i class="fa-solid fa-volume-${h.warnings.includes('voz') ? 'xmark' : 'high'}"></i> ${VOICE_LABELS[h.voice] || 'Voz: sin verificar'}${h.voiceName ? ` (${escapeHtml(h.voiceName)})` : ''}</span>`);
             if (h.pending) parts.push(`<span class="text-amber-700 font-bold">${h.pending} marcación(es) pendiente(s) por enviar</span>`);
             if (h.cacheMin != null) {
                 const stale = h.cacheMin > 24 * 60;
