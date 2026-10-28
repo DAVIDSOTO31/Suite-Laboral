@@ -2392,99 +2392,107 @@
         </div>
     </div>
 
-    <!-- MODAL 2: Vincular Colaborador -->
-    <div id="modalAddEmp" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
-        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-200">
-            <div class="flex justify-between items-center border-b pb-3">
+    <!-- MODAL 2: Vincular / editar colaborador (dos columnas; los botones siempre visibles) -->
+    <div id="modalAddEmp" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-2 sm:p-4">
+        <div class="bg-white rounded-xl max-w-3xl w-full shadow-2xl border border-slate-200 flex flex-col max-h-[94vh]">
+            <div class="flex justify-between items-center border-b px-5 py-3 shrink-0">
                 <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
                     <i class="fa-solid fa-user-plus text-sky-600"></i> <span id="empModalTitle">Vincular Nuevo Colaborador</span>
                 </h3>
-                <button onclick="closeModal('modalAddEmp')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+                <button onclick="closeModal('modalAddEmp')" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" aria-label="Cerrar"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
             <input type="hidden" id="editEmpId" value="">
-            <div class="space-y-3 text-xs">
-                <div>
-                    <label class="block font-semibold text-slate-700 mb-1">Nombre Completo</label>
-                    <input type="text" id="newEmpName" placeholder="Ej. Mateo Valencia Arango" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="block font-semibold text-slate-700 mb-1">Departamento / Área</label>
-                        <select id="newEmpDepartment" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium text-slate-700">
-                            <!-- Injected dynamically -->
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block font-semibold text-slate-700 mb-1">Cargo / Puesto</label>
-                        <input type="text" id="newEmpRole" placeholder="Ej. Cocinero, Camarero, Técnico..." class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    </div>
-                </div>
-                <div class="grid grid-cols-3 gap-2">
-                    <div>
-                        <label class="block font-semibold text-slate-700 mb-1">Tipo de documento</label>
-                        <select id="newEmpDocType" class="w-full p-2 border rounded-lg bg-white">
-                            <option value="CC">CC</option><option value="CE">CE</option><option value="PPT">PPT</option><option value="PA">Pasaporte</option><option value="TI">TI</option>
-                        </select>
-                    </div>
-                    <div class="col-span-2">
-                        <label class="block font-semibold text-slate-700 mb-1">Número de documento <span class="font-normal text-slate-400">(opcional)</span></label>
-                        <input type="text" id="newEmpDocNumber" maxlength="20" inputmode="numeric" placeholder="Ej. 1023456789" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    </div>
-                </div>
-                <p class="text-3xs text-slate-400 -mt-2">Aparece en el volante de liquidación, los Excel y los PDF de cierre.</p>
-                <div>
-                    <label class="block font-semibold text-slate-700 mb-1">Correo electrónico <span class="font-normal text-slate-400">(opcional)</span></label>
-                    <input type="email" id="newEmpEmail" maxlength="160" placeholder="Ej. maria.lopez@gmail.com" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    <p class="text-3xs text-slate-400 mt-1">Si luego se invita a la suite con este mismo correo, su usuario queda vinculado automáticamente a esta ficha.</p>
-                </div>
-                <div>
-                    <label class="block font-semibold text-slate-700 mb-1">Celular / WhatsApp <span class="font-normal text-slate-400">(opcional)</span></label>
-                    <div class="flex gap-2">
-                        <input type="text" id="newEmpPhoneCountry" value="+57" maxlength="5" inputmode="tel" title="Indicativo del país (Colombia: +57)" aria-label="Indicativo del país" class="w-20 p-2 border rounded-lg text-center font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                        <input type="tel" id="newEmpPhone" maxlength="18" inputmode="tel" placeholder="Ej. 300 123 4567" aria-label="Número de celular" class="flex-1 min-w-0 p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    </div>
-                    <p class="text-3xs text-slate-400 mt-1">Más adelante se usará para enviar por WhatsApp los llamados de atención y demás avisos al colaborador.</p>
-                </div>
-                <div>
-                    <label class="block font-semibold text-slate-700 mb-1">Tipo de contrato</label>
-                    <select id="newEmpContractType" onchange="onEmpContractTypeChange()" class="w-full p-2 border rounded-lg bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                        <option value="indefinido">Término indefinido</option>
-                        <option value="fijo">Término fijo</option>
-                        <option value="servicios">Prestación de servicios</option>
-                    </select>
-                    <p class="text-3xs text-slate-400 mt-1" id="newEmpContractHint"></p>
-                    <div id="newEmpContractDates" class="hidden grid grid-cols-2 gap-2 mt-2">
+            <div class="overflow-y-auto px-5 py-4 text-xs">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                    <!-- Columna 1: datos del colaborador -->
+                    <section class="space-y-3">
+                        <p class="text-3xs font-bold uppercase tracking-wide text-slate-400 flex items-center gap-1.5"><i class="fa-regular fa-id-card"></i> Datos del colaborador</p>
                         <div>
-                            <label class="block text-3xs font-semibold text-slate-600 mb-1">Inicio <span class="font-normal text-slate-400">(opcional)</span></label>
-                            <input type="date" id="newEmpContractStart" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                            <label class="block font-semibold text-slate-700 mb-1">Nombre completo</label>
+                            <input type="text" id="newEmpName" placeholder="Ej. Mateo Valencia Arango" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block font-semibold text-slate-700 mb-1">Área</label>
+                                <select id="newEmpDepartment" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium text-slate-700">
+                                    <!-- Injected dynamically -->
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block font-semibold text-slate-700 mb-1">Cargo</label>
+                                <input type="text" id="newEmpRole" placeholder="Ej. Cocinero" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <div>
+                                <label class="block font-semibold text-slate-700 mb-1">Documento</label>
+                                <select id="newEmpDocType" class="w-full p-2 border rounded-lg bg-white">
+                                    <option value="CC">CC</option><option value="CE">CE</option><option value="PPT">PPT</option><option value="PA">Pasaporte</option><option value="TI">TI</option>
+                                </select>
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block font-semibold text-slate-700 mb-1">Número <span class="font-normal text-slate-400">(opcional)</span></label>
+                                <input type="text" id="newEmpDocNumber" maxlength="20" inputmode="numeric" placeholder="Ej. 1023456789" title="Aparece en el volante de liquidación, los Excel, los PDF de cierre y los documentos laborales" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                            </div>
                         </div>
                         <div>
-                            <label class="block text-3xs font-semibold text-slate-600 mb-1">Terminación <span class="font-normal text-slate-400">(opcional)</span></label>
-                            <input type="date" id="newEmpContractEnd" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                            <label class="block font-semibold text-slate-700 mb-1">Correo electrónico <span class="font-normal text-slate-400">(opcional)</span></label>
+                            <input type="email" id="newEmpEmail" maxlength="160" placeholder="Ej. maria.lopez@gmail.com" title="Si luego se invita a la suite con este mismo correo, su usuario queda vinculado a esta ficha. También se usa para enviarle documentos." class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
                         </div>
-                    </div>
-                </div>
-                <div>
-                    <label class="block font-semibold text-slate-700 mb-1">Salario Mensual Base ($ COP)</label>
-                    <input type="number" id="newEmpSalary" value="1750905" min="0" step="1000" class="w-full p-2 border rounded-lg font-mono font-bold focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    <p class="text-3xs text-slate-400 mt-1" id="newEmpSalaryHint">Por defecto el salario mínimo vigente (SMLMV). Puede modificarse si el colaborador devenga un salario diferente.</p>
-                </div>
-                <div data-perm="employees.edit_payroll" class="bg-purple-50/60 border border-purple-200 rounded-lg p-3">
-                    <label class="flex items-center gap-2 font-semibold text-purple-900 cursor-pointer">
-                        <input type="checkbox" id="newEmpNightSurcharge" checked class="w-4 h-4 accent-purple-600"
-                            onchange="document.getElementById('newEmpNightReasonBox').classList.toggle('hidden', this.checked)">
-                        Aplica recargo nocturno (+35%, 19:00 - 06:00)
-                    </label>
-                    <div id="newEmpNightReasonBox" class="hidden mt-2">
-                        <label class="block text-3xs font-semibold text-slate-600 mb-1">Motivo por el que NO aplica (obligatorio, queda en auditoría)</label>
-                        <input type="text" id="newEmpNightReason" maxlength="300" placeholder="Ej. Cargo de dirección, confianza y manejo" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-purple-400 focus:outline-none">
-                    </div>
+                        <div>
+                            <label class="block font-semibold text-slate-700 mb-1">Celular / WhatsApp <span class="font-normal text-slate-400">(opcional)</span></label>
+                            <div class="flex gap-2">
+                                <input type="text" id="newEmpPhoneCountry" value="+57" maxlength="5" inputmode="tel" title="Indicativo del país (Colombia: +57)" aria-label="Indicativo del país" class="w-16 p-2 border rounded-lg text-center font-semibold focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                                <input type="tel" id="newEmpPhone" maxlength="18" inputmode="tel" placeholder="Ej. 300 123 4567" aria-label="Número de celular" title="Para enviarle por WhatsApp los llamados, certificados y demás documentos" class="flex-1 min-w-0 p-2 border rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                            </div>
+                        </div>
+                        <p class="text-3xs text-slate-400">El correo y el celular se usan para enviarle documentos (llamados, certificados, preavisos). Si se invita a la suite con el mismo correo, su usuario queda vinculado a esta ficha.</p>
+                    </section>
+                    <!-- Columna 2: contrato y pago -->
+                    <section class="space-y-3 md:border-l md:border-slate-100 md:pl-6">
+                        <p class="text-3xs font-bold uppercase tracking-wide text-slate-400 flex items-center gap-1.5"><i class="fa-regular fa-file-lines"></i> Contrato y pago</p>
+                        <div>
+                            <label class="block font-semibold text-slate-700 mb-1">Tipo de contrato</label>
+                            <select id="newEmpContractType" onchange="onEmpContractTypeChange()" class="w-full p-2 border rounded-lg bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                                <option value="indefinido">Término indefinido</option>
+                                <option value="fijo">Término fijo</option>
+                                <option value="servicios">Prestación de servicios</option>
+                            </select>
+                            <p class="text-3xs text-slate-400 mt-1" id="newEmpContractHint"></p>
+                        </div>
+                        <div id="newEmpContractDates" class="hidden grid grid-cols-2 gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                            <div>
+                                <label class="block text-3xs font-semibold text-slate-600 mb-1">Inicio</label>
+                                <input type="date" id="newEmpContractStart" class="w-full p-1.5 border rounded-lg bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-3xs font-semibold text-slate-600 mb-1">Terminación</label>
+                                <input type="date" id="newEmpContractEnd" class="w-full p-1.5 border rounded-lg bg-white focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                            </div>
+                            <p class="col-span-2 text-3xs text-slate-500">Con la terminación, la suite avisa 35 días antes para renovar o enviar el preaviso.</p>
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-700 mb-1">Salario mensual base ($ COP)</label>
+                            <input type="number" id="newEmpSalary" value="1750905" min="0" step="1000" class="w-full p-2 border rounded-lg font-mono font-bold focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                            <p class="text-3xs text-slate-400 mt-1" id="newEmpSalaryHint">Por defecto el salario mínimo vigente (SMLMV). Puede modificarse si el colaborador devenga un salario diferente.</p>
+                        </div>
+                        <div data-perm="employees.edit_payroll" class="bg-purple-50/60 border border-purple-200 rounded-lg p-3">
+                            <label class="flex items-center gap-2 font-semibold text-purple-900 cursor-pointer">
+                                <input type="checkbox" id="newEmpNightSurcharge" checked class="w-4 h-4 accent-purple-600"
+                                    onchange="document.getElementById('newEmpNightReasonBox').classList.toggle('hidden', this.checked)">
+                                Aplica recargo nocturno (+35%, 19:00 - 06:00)
+                            </label>
+                            <div id="newEmpNightReasonBox" class="hidden mt-2">
+                                <label class="block text-3xs font-semibold text-slate-600 mb-1">Motivo por el que NO aplica (obligatorio, queda en auditoría)</label>
+                                <input type="text" id="newEmpNightReason" maxlength="300" placeholder="Ej. Cargo de dirección, confianza y manejo" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-purple-400 focus:outline-none">
+                            </div>
+                        </div>
+                    </section>
                 </div>
             </div>
-
-            <div class="flex justify-end gap-2 border-t pt-3">
-                <button onclick="closeModal('modalAddEmp')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
-                <button onclick="saveNewEmployee()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow"><span id="empModalSaveLabel">Guardar Colaborador</span></button>
+            <div class="flex justify-end gap-2 border-t px-5 py-3 shrink-0 bg-slate-50 rounded-b-xl">
+                <button onclick="closeModal('modalAddEmp')" class="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                <button onclick="saveNewEmployee()" class="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold shadow"><span id="empModalSaveLabel">Guardar Colaborador</span></button>
             </div>
         </div>
     </div>
@@ -6157,7 +6165,7 @@
         // ---- Tipo de contrato ----
         const CONTRACT_INFO = {
             indefinido: { label: 'Término indefinido', hint: 'Jornada de 42 horas semanales, con recargo nocturno.', applied: 'Se activó el recargo nocturno y no se contabilizan los días laborados.' },
-            fijo: { label: 'Término fijo', hint: 'Jornada de 42 horas semanales, con recargo nocturno. Las fechas son opcionales.', applied: 'Se activó el recargo nocturno y no se contabilizan los días laborados.' },
+            fijo: { label: 'Término fijo', hint: 'Jornada de 42 horas semanales, con recargo nocturno.', applied: 'Se activó el recargo nocturno y no se contabilizan los días laborados.' },
             servicios: { label: 'Prestación de servicios', hint: 'Sin recargo nocturno; se contabilizan los días trabajados (Asistencia → Días laborados). Las horas extra se calculan con el salario de la ficha.', applied: 'Se quitó el recargo nocturno y se contabilizan los días laborados.' },
         };
         function empContractType(emp) { return emp && CONTRACT_INFO[emp.contractType] ? emp.contractType : 'indefinido'; }
