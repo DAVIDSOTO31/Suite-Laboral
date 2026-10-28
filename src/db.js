@@ -760,6 +760,8 @@ for (const [col, def] of [
   ['offline_since_ms', 'INTEGER NULL'], ['offline_notified', 'INTEGER NOT NULL DEFAULT 0'], ['battery_notified_date', 'TEXT NULL'],
   // Copia para trabajar sin internet: cuándo se actualizó, cuántos rostros tiene y tipo de almacenamiento.
   ['hb_cache_at_ms', 'INTEGER NULL'], ['hb_cache_faces', 'INTEGER NULL'], ['hb_storage', 'TEXT NULL'],
+  // Voz de confirmación del kiosco: estado y voz elegida.
+  ['hb_voice', 'TEXT NULL'], ['hb_voice_name', 'TEXT NULL'],
 ]) {
   if (!devCols.includes(col)) db.exec(`ALTER TABLE attendance_devices ADD COLUMN ${col} ${def}`);
 }

@@ -6,7 +6,7 @@
 //   (o a la cola sin conexión que ya maneja kiosk.html).
 // IMPORTANTE: cada vez que se modifique kiosk.html, subir KIOSK_SW_VERSION
 // para que las tablets instaladas se actualicen solas.
-const KIOSK_SW_VERSION = '2026.10-local2';
+const KIOSK_SW_VERSION = '2026.10-voz3';
 const CORE_CACHE = 'kiosco-core-' + KIOSK_SW_VERSION;
 const CDN_CACHE = 'kiosco-cdn-v1'; // librerías y modelo facial: se conservan entre versiones
 
@@ -18,6 +18,7 @@ const CORE_FILES = [
   '/kiosk-icons/apple-touch-icon.png',
   '/kiosk-icons/favicon-32.png',
   '/tw.css',
+  '/search-select.js', // buscador de la selección manual
 ];
 // Se piden igual que las pide la página (<script>/<link> sin CORS).
 const CDN_FILES = [

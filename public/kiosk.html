@@ -91,7 +91,7 @@
     </div>
     <div id="voicePanel" class="hidden mt-2 bg-slate-900/80 border border-slate-700 rounded-xl p-3 text-xs space-y-2">
       <select id="voiceSelect" onchange="saveVoiceSettings()" class="w-full px-2 py-2 rounded-lg bg-slate-800 border border-slate-600"></select>
-      <button onclick="speakConfirmation({ employeeName: 'David Soto', markType: 'entrada', isSplit: false }, true)" class="w-full py-2 rounded-lg bg-slate-700 hover:bg-slate-600 font-semibold">Probar voz</button>
+      <button onclick="primeSpeech(); speakConfirmation({ employeeName: 'David Soto', markType: 'entrada', isSplit: false }, true)" class="w-full py-2 rounded-lg bg-slate-700 hover:bg-slate-600 font-semibold">Probar voz</button>
     </div>
 
     <div id="installBoxMark" class="hidden mt-3 bg-slate-900/80 border border-sky-800 rounded-xl p-3 text-xs text-slate-300"></div>
@@ -131,9 +131,26 @@ let spanishVoices = [];
 const hasSpeech = 'speechSynthesis' in window;
 const isFemaleVoice = (v) => FEMALE_VOICE_HINTS.some(h => (v.name + ' ' + v.voiceURI).toLowerCase().includes(h));
 const regionRank = (lang) => (/es-CO/i.test(lang) ? 0 : /es-(MX|US|419)/i.test(lang) ? 1 : /es-ES/i.test(lang) ? 2 : 3);
+// Estado de la voz (se reporta en la señal del kiosco -> Asistencia -> Dispositivos):
+// ok = ya habló · lista = hay voz en español, aún no ha hablado · sin_voz_es = el
+// equipo no tiene voces en español · no_disponible = el navegador no tiene voz ·
+// falla = intentó hablar y no sonó (ni reintentando).
+let voiceState = hasSpeech ? 'desconocido' : 'no_disponible';
+let voiceChecks = 0;
+function setVoiceState(st) {
+  if (st === voiceState) return;
+  const was = voiceState;
+  voiceState = st;
+  renderVoicePanel();
+  // Un cambio importante se avisa en la siguiente señal corta (no hay que esperar el minuto).
+  if ((st === 'falla' || (was === 'falla' && st === 'ok')) && typeof scheduleQuickHeartbeat === 'function') scheduleQuickHeartbeat();
+}
 function loadSpanishVoices() {
   if (!hasSpeech) return;
+  voiceChecks++;
   spanishVoices = speechSynthesis.getVoices().filter(v => /^es/i.test(v.lang));
+  if (spanishVoices.length) { if (voiceState === 'desconocido' || voiceState === 'sin_voz_es') voiceState = 'lista'; }
+  else if (voiceChecks >= 2 && voiceState !== 'ok' && voiceState !== 'falla') voiceState = 'sin_voz_es';
   spanishVoices.sort((a, b) => (isFemaleVoice(b) - isFemaleVoice(a)) || (regionRank(a.lang) - regionRank(b.lang)) || a.name.localeCompare(b.name));
   renderVoicePanel();
 }
@@ -150,7 +167,7 @@ function renderVoicePanel() {
   if (!label) return;
   if (!hasSpeech) { label.textContent = 'no disponible en este navegador'; return; }
   const v = chosenVoice();
-  label.textContent = v ? v.name : 'voz del sistema';
+  label.textContent = (v ? v.name : 'voz del sistema') + (voiceState === 'falla' ? ' · ⚠ no está sonando' : '');
   sel.innerHTML = spanishVoices.length
     ? spanishVoices.map(x => `<option value="${escapeHtml(x.voiceURI)}" ${v && x.voiceURI === v.voiceURI ? 'selected' : ''}>${escapeHtml(x.name)} (${escapeHtml(x.lang)})${isFemaleVoice(x) ? ' · femenina' : ''}</option>`).join('')
     : '<option value="">Este equipo no tiene voces en español instaladas</option>';
@@ -184,28 +201,41 @@ function confirmationText(r) {
   const fem = /^(entrada|salida)$/i.test(label);
   return `${spokenName(r.employeeName)}. ${label} ${fem ? 'confirmada' : 'confirmado'}.`;
 }
+function makeUtterance(text) {
+  const u = new SpeechSynthesisUtterance(text);
+  const v = chosenVoice();
+  if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'es-CO'; }
+  u.rate = VOICE_RATE; u.pitch = VOICE_PITCH;
+  return u;
+}
+// Habla de forma resistente: "despierta" el motor de voz (en Android, después de
+// muchas horas abierto, se queda pegado y deja de sonar), espera un instante
+// tras cancelar y, si en 2 s no empezó a hablar, lo reintenta una vez.
+let sayToken = 0;
+function sayNow(text, attempt = 1) {
+  if (!hasSpeech) return;
+  const my = ++sayToken;
+  try {
+    if (speechSynthesis.paused) speechSynthesis.resume();
+    speechSynthesis.cancel();
+    const u = makeUtterance(text);
+    let started = false;
+    u.onstart = () => { started = true; setVoiceState('ok'); };
+    u.onend = () => { if (!started) { started = true; setVoiceState('ok'); } };
+    setTimeout(() => { if (my !== sayToken) return; try { speechSynthesis.resume(); speechSynthesis.speak(u); } catch (e) { /* sin voz */ } }, 80);
+    setTimeout(() => {
+      if (my !== sayToken || started) return; // ya habló, o llegó otra frase
+      if (attempt === 1) sayNow(text, 2); else { try { speechSynthesis.cancel(); } catch (e) { /* nada */ } setVoiceState('falla'); }
+    }, 2000);
+  } catch (e) { setVoiceState('falla'); }
+}
 function speakText(text) {
   if (!voiceEnabled()) return;
-  try {
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    const v = chosenVoice();
-    if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'es-CO'; }
-    u.rate = VOICE_RATE; u.pitch = VOICE_PITCH;
-    speechSynthesis.speak(u);
-  } catch (e) { /* sin voz */ }
+  sayNow(text); // si falla la voz, la marcación ya quedó registrada
 }
 function speakConfirmation(r, force) {
   if (!hasSpeech || (!force && !voiceEnabled())) return;
-  try {
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(confirmationText(r));
-    const v = chosenVoice();
-    if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'es-CO'; }
-    u.rate = VOICE_RATE;
-    u.pitch = VOICE_PITCH;
-    speechSynthesis.speak(u);
-  } catch (e) { /* si falla la voz, la marcación ya quedó registrada */ }
+  sayNow(confirmationText(r));
 }
 if (hasSpeech) {
   speechSynthesis.onvoiceschanged = loadSpanishVoices;
@@ -874,7 +904,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-local2';
+const KIOSK_VERSION = '2026.10-voz3';
 // Privacidad: el letrero con el resultado de la marcación (nombre, tipo,
 // llegada tarde, etc.) desaparece solo a los 18 segundos. Cada letrero nuevo
 // reinicia el tiempo.
@@ -933,7 +963,8 @@ async function sendHeartbeat() {
   try { await Promise.race([storageReady, new Promise(r => setTimeout(r, 3000))]); } catch (e) { /* nada */ }
   const cc = getOfflineCache();
   const body = { camera: cameraState, pending: offlineQueue().length, version: KIOSK_VERSION + (isInstalledApp() ? ' · app' : ' · web'),
-    cacheAt: cc && cc.savedAt ? cc.savedAt : null, cacheFaces: cc && Array.isArray(cc.employees) ? cc.employees.filter(e => Array.isArray(e.descriptor)).length : 0, storage: storageMode };
+    cacheAt: cc && cc.savedAt ? cc.savedAt : null, cacheFaces: cc && Array.isArray(cc.employees) ? cc.employees.filter(e => Array.isArray(e.descriptor)).length : 0, storage: storageMode,
+    voice: { state: voiceState, name: (() => { try { const v = chosenVoice(); return v ? `${v.name} (${v.lang})` : ''; } catch (e) { return ''; } })(), spanish: spanishVoices.length } };
   try {
     if (!batteryRef && navigator.getBattery) batteryRef = await navigator.getBattery();
     if (batteryRef) body.battery = { level: batteryRef.level, charging: batteryRef.charging };
