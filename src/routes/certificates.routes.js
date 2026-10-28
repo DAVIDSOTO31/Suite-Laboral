@@ -54,7 +54,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_work_cert_token ON work_certificates(token
 `);
 // Envio por correo: enlace propio (no anula el del WhatsApp), fecha y destino.
 const wcCols = db.prepare('PRAGMA table_info(work_certificates)').all().map(c => c.name);
-for (const col of ['email_token_hash', 'email_token_expires', 'email_sent_at', 'email_sent_to']) if (!wcCols.includes(col)) db.exec(`ALTER TABLE work_certificates ADD COLUMN ${col} TEXT NULL`);
+for (const col of ['email_token_hash', 'email_token_expires', 'email_sent_at', 'email_sent_to',
+  // Enlace propio para que el colaborador lo abra desde su portal (no anula los otros).
+  'portal_token_hash', 'portal_token_expires']) if (!wcCols.includes(col)) db.exec(`ALTER TABLE work_certificates ADD COLUMN ${col} TEXT NULL`);
+// Solicitudes de certificado hechas por el colaborador desde su portal.
+db.exec(`CREATE TABLE IF NOT EXISTS certificate_requests (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  employee_id INTEGER NOT NULL,
+  requested_by TEXT,
+  addressed_to TEXT,
+  status TEXT NOT NULL DEFAULT 'pendiente' CHECK (status IN ('pendiente', 'expedido', 'rechazado')),
+  certificate_id TEXT, reject_reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', '-5 hours')),
+  resolved_at TEXT, resolved_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_cert_req_org ON certificate_requests(organization_id, status, created_at);`);
 const stCols = db.prepare('PRAGMA table_info(org_settings)').all().map(c => c.name);
 if (!stCols.includes('certificate_config')) db.exec('ALTER TABLE org_settings ADD COLUMN certificate_config TEXT NULL');
 
@@ -302,7 +317,12 @@ function listCertificates(req, res, query) {
   for (const e of emps.values()) { const h = hireDateOf(orgId, e); if (h) hireDates[e.id] = h; }
   const sc = signerConfig(orgId);
   const cfg = getConfig(orgId);
+  const requests = db.prepare(`SELECT r.*, c.number AS cert_number FROM certificate_requests r LEFT JOIN work_certificates c ON c.id = r.certificate_id
+      WHERE r.organization_id = ? AND (r.status = 'pendiente' OR r.created_at >= datetime('now', '-5 hours', '-60 days')) ORDER BY r.created_at DESC LIMIT 200`).all(orgId)
+    .map(r => { const e = emps.get(Number(r.employee_id)) || {}; return { id: r.id, employeeId: r.employee_id, name: e.name || '', area: e.department || '', retired: e.status === 'retirado',
+      addressedTo: r.addressed_to || '', status: r.status, createdAt: r.created_at, resolvedAt: r.resolved_at || '', certificateId: r.certificate_id || '', certNumber: r.cert_number || '', rejectReason: r.reject_reason || '' }; });
   sendJson(res, 200, {
+    requests,
     certificates: rows.map(c => certOut(c, emps.get(Number(c.employee_id)))),
     hireDates,
     config: { templates: cfg.templates, defaults: DEFAULT_TEMPLATES, nit: orgNit(orgId), city: orgLocation(orgId) || sc.city, signer: sc.signer || orgAdminName(orgId), signerRole: sc.signerRole, signerSignature: sc.signerSignature },
@@ -359,6 +379,11 @@ async function createCertificate(req, res) {
   } catch (e) { try { db.exec('ROLLBACK'); } catch { /* nada */ } throw e; }
   logAction({ organizationId: orgId, userId: req.user.id, action: 'certificate.issue', resourceType: 'employee', resourceId: String(emp.id), ip: getClientIp(req),
     metadata: { colaborador: emp.name, numero: number, tipo: KIND_LABEL[r.kind], dirigidoA: opts.addressedTo || 'A quien interese', conSalario: opts.includeSalary, conFunciones: opts.includeFunctions } });
+  // Si se generó desde una solicitud del colaborador, la solicitud queda "expedida".
+  if (body.requestId) {
+    db.prepare(`UPDATE certificate_requests SET status = 'expedido', certificate_id = ?, resolved_at = datetime('now', '-5 hours'), resolved_by = ?
+                WHERE id = ? AND organization_id = ? AND employee_id = ? AND status = 'pendiente'`).run(id, req.user.id, String(body.requestId), orgId, emp.id);
+  }
   const row = db.prepare('SELECT c.*, u.email AS issued_by_email FROM work_certificates c LEFT JOIN users u ON u.id = c.issued_by WHERE c.id = ?').get(id);
   sendJson(res, 200, { ok: true, certificate: certOut(row, emp) });
 }
@@ -472,8 +497,8 @@ function publicCertificate(req, res, params) {
   const t = String(params.token || '');
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(t)) return sendJson(res, 404, { error: 'Este enlace no es válido.' });
   const h = sha256Hex(t);
-  const c = db.prepare('SELECT * FROM work_certificates WHERE token_hash = ? OR email_token_hash = ?').get(h, h);
-  const exp = c ? (c.token_hash === h ? c.token_expires : c.email_token_expires) : null; // enlace del WhatsApp o del correo
+  const c = db.prepare('SELECT * FROM work_certificates WHERE token_hash = ? OR email_token_hash = ? OR portal_token_hash = ?').get(h, h, h);
+  const exp = c ? (c.token_hash === h ? c.token_expires : c.email_token_hash === h ? c.email_token_expires : c.portal_token_expires) : null; // enlace del WhatsApp, del correo o del portal
   if (!c || !exp || exp < todayISOInBogota()) return sendJson(res, 404, { error: 'Este enlace no es válido o ya venció. Pide uno nuevo a Recursos Humanos.' });
   const st = db.prepare('SELECT org_name, logo_base64 FROM org_settings WHERE organization_id = ?').get(c.organization_id) || {};
   if (c.annulled_at) return sendJson(res, 200, { annulled: true, org: st.org_name || '', nit: orgNit(c.organization_id), logo: st.logo_base64 || null, number: c.number });
@@ -482,7 +507,80 @@ function publicCertificate(req, res, params) {
     issueDate: c.issue_date, signature: sc.signerSignature || '', verifyCode: verifyFormat(c.verify_code) });
 }
 
+// POST /api/certificates/requests/:id/reject { reason }
+async function rejectRequest(req, res, params) {
+  let body; try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  const r = db.prepare('SELECT * FROM certificate_requests WHERE id = ? AND organization_id = ?').get(String(params.id), orgId);
+  if (!r) return sendJson(res, 404, { error: 'Solicitud no encontrada.' });
+  if (r.status !== 'pendiente') return sendJson(res, 409, { error: 'Esta solicitud ya fue atendida.' });
+  const reason = String(body.reason || '').trim().slice(0, 300);
+  if (reason.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo (mínimo 5 caracteres): el colaborador lo verá en su portal.' });
+  db.prepare("UPDATE certificate_requests SET status = 'rechazado', reject_reason = ?, resolved_at = datetime('now', '-5 hours'), resolved_by = ? WHERE id = ?").run(reason, req.user.id, r.id);
+  const emp = db.prepare('SELECT name FROM employees WHERE id = ?').get(r.employee_id) || {};
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'certificate.request_reject', resourceType: 'employee', resourceId: String(r.employee_id), ip: getClientIp(req), metadata: { colaborador: emp.name, motivo: reason } });
+  sendJson(res, 200, { ok: true });
+}
+
+// ---- Portal del colaborador (permiso self.view): pedir y descargar SUS certificados ----
+function selfEmployee(req) {
+  const orgId = req.user.organizationId;
+  const empId = req.user.employeeId != null ? Number(req.user.employeeId) : null;
+  if (!orgId || empId == null) return null;
+  return db.prepare('SELECT * FROM employees WHERE id = ? AND organization_id = ?').get(empId, orgId) || null;
+}
+// GET /api/self/certificates
+function selfCertificates(req, res) {
+  const emp = selfEmployee(req);
+  if (!emp) return sendJson(res, 200, { linked: false, requests: [], certificates: [] });
+  const orgId = emp.organization_id;
+  const requests = db.prepare(`SELECT r.*, c.number AS cert_number, c.annulled_at FROM certificate_requests r LEFT JOIN work_certificates c ON c.id = r.certificate_id
+      WHERE r.organization_id = ? AND r.employee_id = ? ORDER BY r.created_at DESC LIMIT 30`).all(orgId, emp.id)
+    .map(r => ({ id: r.id, addressedTo: r.addressed_to || '', status: r.status, createdAt: r.created_at, resolvedAt: r.resolved_at || '', certificateId: r.certificate_id || '', certNumber: r.cert_number || '', rejectReason: r.reject_reason || '' }));
+  const certificates = db.prepare('SELECT id, number, kind, addressed_to, issue_date, annulled_at FROM work_certificates WHERE organization_id = ? AND employee_id = ? ORDER BY issued_at DESC LIMIT 30').all(orgId, emp.id)
+    .map(c => ({ id: c.id, number: c.number, kindLabel: KIND_LABEL[c.kind] || '', addressedTo: c.addressed_to || '', issueDate: c.issue_date, annulled: !!c.annulled_at }));
+  sendJson(res, 200, { linked: true, name: emp.name, requests, certificates });
+}
+// POST /api/self/certificates/request { addressedTo }
+async function selfRequest(req, res) {
+  let body; try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const emp = selfEmployee(req);
+  if (!emp) return sendJson(res, 400, { error: 'Tu usuario no está vinculado a tu ficha de colaborador. Pídele al administrador que lo vincule.' });
+  const orgId = emp.organization_id;
+  if (db.prepare("SELECT 1 FROM certificate_requests WHERE organization_id = ? AND employee_id = ? AND status = 'pendiente'").get(orgId, emp.id)) {
+    return sendJson(res, 409, { error: 'Ya tienes una solicitud pendiente. Recursos Humanos la atenderá pronto.' });
+  }
+  const to = String(body.addressedTo || '').trim().slice(0, 150);
+  const id = uid('creq');
+  db.prepare('INSERT INTO certificate_requests (id, organization_id, employee_id, requested_by, addressed_to) VALUES (?, ?, ?, ?, ?)').run(id, orgId, emp.id, req.user.id, to || null);
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'certificate.request', resourceType: 'employee', resourceId: String(emp.id), ip: getClientIp(req), metadata: { colaborador: emp.name, dirigidoA: to || 'A quien interese' } });
+  try {
+    const push = require('../lib/push');
+    if (!push.isQuietTime()) push.sendToOrgAdmins(orgId, { title: `📄 ${emp.name}`, body: `Pidió un certificado laboral${to ? ` dirigido a ${to.replace(/\.+$/, '')}` : ''}.`, tag: `cert-req-${id}`, url: '/app.html#certificados-solicitudes' }).catch(() => {});
+  } catch { /* sin avisos */ }
+  sendJson(res, 200, { ok: true, id });
+}
+// POST /api/self/certificates/:id/open -> enlace para ver y descargar su certificado (7 dias)
+async function selfOpen(req, res, params) {
+  const emp = selfEmployee(req);
+  if (!emp) return sendJson(res, 404, { error: 'Certificado no encontrado.' });
+  const c = db.prepare('SELECT * FROM work_certificates WHERE id = ? AND organization_id = ? AND employee_id = ?').get(String(params.id), emp.organization_id, emp.id);
+  if (!c) return sendJson(res, 404, { error: 'Certificado no encontrado.' });
+  if (c.annulled_at) return sendJson(res, 409, { error: 'Este certificado fue anulado.' });
+  const token = randomToken(24);
+  db.prepare('UPDATE work_certificates SET portal_token_hash = ?, portal_token_expires = ? WHERE id = ?').run(sha256Hex(token), addDaysISO(todayISOInBogota(), 7), c.id);
+  sendJson(res, 200, { ok: true, token });
+}
+// Campana del Administrador: solicitudes pendientes.
+function bellItems(orgId) {
+  return db.prepare(`SELECT r.id, r.employee_id, r.addressed_to, r.created_at, e.name, COALESCE(e.department, 'Sin área') AS department
+      FROM certificate_requests r JOIN employees e ON e.id = r.employee_id WHERE r.organization_id = ? AND r.status = 'pendiente' ORDER BY r.created_at DESC`).all(orgId)
+    .map(r => ({ id: 'creq:' + r.id, type: 'cert_solicitud', label: 'Solicitud de certificado', employeeId: r.employee_id, employeeName: r.name, department: r.department,
+      date: String(r.created_at).slice(0, 10), createdAt: r.created_at, mgmt: 'cert_solicitud', text: `Pidió un certificado laboral${r.addressed_to ? ` dirigido a ${String(r.addressed_to).replace(/\.+$/, '')}` : ''}. Genéralo en Documentos laborales → Certificados → Solicitudes.` }));
+}
+
 module.exports = {
+  rejectRequest, selfCertificates, selfRequest, selfOpen, bellItems,
   listCertificates, draftCertificate, createCertificate, annulCertificate, certificateLink, emailCertificate, saveCertificateConfig,
   publicVerify, publicCertificate, pesosEnLetras, numberToWords, DEFAULT_TEMPLATES,
 };
