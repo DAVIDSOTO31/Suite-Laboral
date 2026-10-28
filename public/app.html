@@ -415,6 +415,18 @@
                         </table>
                     </div>
                 </div>
+
+                <!-- Mis certificados laborales: el colaborador los pide y los descarga -->
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 class="font-bold text-slate-800 text-base mb-1"><i class="fa-solid fa-award text-sky-600"></i> Mis certificados laborales</h3>
+                    <p class="text-xs text-slate-500 mb-3">Pide tu certificado laboral. Recursos Humanos lo revisa y lo expide; cuando esté listo, aparece aquí para verlo y descargarlo en PDF.</p>
+                    <div class="flex flex-wrap items-end gap-2 mb-3">
+                        <label class="flex-1 min-w-[220px]"><span class="block text-2xs font-bold text-slate-500 uppercase mb-1">Dirigido a <span class="font-normal normal-case">(opcional)</span></span>
+                            <input id="mineCertTo" maxlength="150" placeholder="A quien interese (o ej. Bancolombia S.A.)" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"></label>
+                        <button type="button" id="mineCertBtn" onclick="mineRequestCert()" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold">Solicitar certificado</button>
+                    </div>
+                    <div id="mineCertList" class="text-xs"></div>
+                </div>
             </div>
 
             <!-- MÓDULO: Tablero gerencial -->
@@ -940,6 +952,7 @@
                 <div id="docsSec_certs" class="hidden bg-white rounded-xl border border-slate-200 shadow-sm">
                     <div class="p-4 border-b">
                         <div class="flex flex-wrap gap-1">
+                            <button type="button" id="certTab_req" onclick="setCertTab('req')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Solicitudes <span id="certReqBadge" class="hidden ml-0.5 px-1.5 rounded-full bg-rose-600 text-white text-3xs"></span></button>
                             <button type="button" id="certTab_new" onclick="setCertTab('new')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Generar</button>
                             <button type="button" id="certTab_hist" onclick="setCertTab('hist')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Historial</button>
                             <button type="button" id="certTab_cfg" onclick="setCertTab('cfg')" class="px-3 py-1.5 rounded-lg text-xs font-bold border">Plantillas</button>
@@ -3741,11 +3754,13 @@
             if (!CAN('employees.edit_payroll')) { setDocsTab('llamados'); return; }
             document.getElementById('certBody').innerHTML = '<p class="text-center text-slate-400 py-6">Cargando…</p>';
             await loadCertData();
+            // Si hay solicitudes de colaboradores por atender, se abre en "Solicitudes".
+            if (certTab === 'new' && !certDraft && certData && (certData.requests || []).some(r => r.status === 'pendiente')) certTab = 'req';
             setCertTab(certTab);
         }
         function setCertTab(t) {
             certTab = t;
-            ['new', 'hist', 'cfg'].forEach(k => {
+            ['req', 'new', 'hist', 'cfg'].forEach(k => {
                 const b = document.getElementById('certTab_' + k);
                 if (b) b.className = `px-3 py-1.5 rounded-lg text-xs font-bold border ${k === t ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`;
             });
@@ -3755,6 +3770,23 @@
         function renderCerts() {
             const box = document.getElementById('certBody');
             if (!certData) { box.innerHTML = '<p class="text-center text-rose-600 py-6">No se pudo cargar la información.</p>'; return; }
+            const reqs = certData.requests || [];
+            const nPend = reqs.filter(r => r.status === 'pendiente').length;
+            const rb = document.getElementById('certReqBadge'); if (rb) { rb.textContent = nPend; rb.classList.toggle('hidden', !nPend); }
+            if (certTab === 'req') {
+                const ST = { pendiente: ['Pendiente', 'bg-amber-100 text-amber-800'], expedido: ['Expedido', 'bg-emerald-100 text-emerald-800'], rechazado: ['Rechazado', 'bg-rose-100 text-rose-800'] };
+                box.innerHTML = `<p class="text-3xs text-slate-500 mb-2">Los colaboradores piden su certificado desde su portal (Mi horario). Pulsa "Preparar" para generarlo con sus datos: cuando lo generes, aparece en su portal para descargarlo. También puedes enviarlo por WhatsApp, PDF o correo desde el Historial.</p>` + (reqs.length ? `<div class="overflow-x-auto"><table class="w-full"><thead class="text-3xs uppercase text-slate-500 font-bold bg-slate-50"><tr>
+                    <th class="text-left px-2 py-2">Solicitado</th><th class="text-left px-2 py-2">Colaborador</th><th class="text-left px-2 py-2">Dirigido a</th><th class="text-left px-2 py-2">Estado</th><th class="px-2 py-2"></th></tr></thead>
+                    <tbody class="divide-y divide-slate-100">${reqs.map(r => `<tr>
+                        <td class="px-2 py-2 text-slate-500 whitespace-nowrap">${certFmt(r.createdAt)} ${String(r.createdAt).slice(11, 16)}</td>
+                        <td class="px-2 py-2 font-semibold text-slate-800">${escapeHtml(r.name)}<span class="block text-3xs font-normal text-slate-500">${escapeHtml(r.area)}${r.retired ? ' · retirado' : ''}</span></td>
+                        <td class="px-2 py-2">${escapeHtml(r.addressedTo || 'A quien interese')}</td>
+                        <td class="px-2 py-2"><span class="px-2 py-0.5 rounded-full text-3xs font-bold ${ST[r.status][1]}">${ST[r.status][0]}</span>${r.certNumber ? `<span class="block text-3xs text-slate-500 mt-0.5">${escapeHtml(r.certNumber)} · ${certFmt(r.resolvedAt)}</span>` : ''}${r.rejectReason ? `<span class="block text-3xs text-rose-700 mt-0.5">${escapeHtml(r.rejectReason)}</span>` : ''}</td>
+                        <td class="px-2 py-2 text-right whitespace-nowrap">${r.status === 'pendiente' ? `<button type="button" onclick="certFromRequest('${r.id}')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-900 text-white font-bold">Preparar</button>
+                            <button type="button" onclick="certRejectRequest('${r.id}')" class="px-2 py-1 rounded bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 font-semibold">Rechazar</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
+                    : '<p class="text-center text-slate-400 py-8">No hay solicitudes de los colaboradores.</p>');
+                return;
+            }
             if (certTab === 'hist') {
                 const list = certData.certificates;
                 box.innerHTML = list.length ? `<div class="overflow-x-auto"><table class="w-full"><thead class="text-3xs uppercase text-slate-500 font-bold bg-slate-50"><tr>
@@ -3865,11 +3897,29 @@
             const emp = appState.employees.find(x => Number(x.id) === certDraft.opts.employeeId) || {};
             if (!confirm(`¿Generar el certificado de ${emp.name}?\n\nSe le asigna número consecutivo y queda en el historial (si sale con un error, se puede anular).`)) return;
             try {
-                const r = await apiFetch('/api/certificates', { method: 'POST', body: JSON.stringify({ ...certDraft.opts, title: t.title, body: t.body }) });
+                const r = await apiFetch('/api/certificates', { method: 'POST', body: JSON.stringify({ ...certDraft.opts, title: t.title, body: t.body, requestId: certRequestId && certRequestEmp === certDraft.opts.employeeId ? certRequestId : null }) });
+                certRequestId = null; certRequestEmp = null;
                 showAppToast(`Certificado ${r.certificate.number} generado.`);
                 await loadCertData(); certDraft = null; setCertTab('hist');
                 certViewPdf(r.certificate.id);
             } catch (e) { showAppToast(e.message); }
+        }
+        // Desde una solicitud del colaborador: abre "Generar" con su nombre y el "Dirigido a".
+        let certRequestId = null, certRequestEmp = null;
+        function certFromRequest(id) {
+            const r = (certData.requests || []).find(x => x.id === id); if (!r) return;
+            setCertTab('new');
+            certRequestId = id; certRequestEmp = Number(r.employeeId);
+            const sel = document.getElementById('certEmp'); sel.value = String(r.employeeId); certEmpChanged();
+            document.getElementById('certTo').value = r.addressedTo || '';
+            showAppToast(`Solicitud de ${r.name}: revisa las opciones y pulsa "Preparar certificado".`);
+        }
+        async function certRejectRequest(id) {
+            const r = (certData.requests || []).find(x => x.id === id); if (!r) return;
+            const reason = (prompt(`¿Rechazar la solicitud de certificado de ${r.name}?\n\nEscribe el motivo (el colaborador lo verá en su portal):`) || '').trim();
+            if (!reason) return;
+            try { await apiFetch(`/api/certificates/requests/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }); showAppToast('Solicitud rechazada.'); await loadCertData(); setCertTab('req'); }
+            catch (e) { showAppToast(e.message); }
         }
         async function certViewPdf(id) {
             const c = certData.certificates.find(x => x.id === id); if (!c) return;
@@ -10517,7 +10567,42 @@
             mineMonday = delta === 0 ? getMondayOfDate(new Date()) : addDays(mineMonday || getMondayOfDate(new Date()), delta * 7);
             renderMyView(false);
         }
+        // ---- Mis certificados laborales (portal del colaborador) ----
+        let mineCerts = null;
+        async function loadMyCertificates() {
+            const box = document.getElementById('mineCertList'); if (!box || !CAN('self.view')) return;
+            try { mineCerts = await apiFetch('/api/self/certificates'); } catch (e) { box.innerHTML = `<p class="text-slate-400">${escapeHtml(e.message)}</p>`; return; }
+            const f = (d) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : '';
+            const pend = mineCerts.requests.find(r => r.status === 'pendiente');
+            document.getElementById('mineCertBtn').disabled = !mineCerts.linked || !!pend;
+            document.getElementById('mineCertBtn').classList.toggle('opacity-50', !mineCerts.linked || !!pend);
+            if (!mineCerts.linked) { box.innerHTML = '<p class="text-amber-800">Tu usuario no está vinculado a tu ficha de colaborador: pídele al administrador que lo vincule.</p>'; return; }
+            const ST = { pendiente: ['En revisión', 'bg-amber-100 text-amber-800'], expedido: ['Expedido', 'bg-emerald-100 text-emerald-800'], rechazado: ['No expedido', 'bg-rose-100 text-rose-800'] };
+            const reqs = mineCerts.requests.filter(r => r.status !== 'expedido').map(r => `<div class="flex flex-wrap items-center justify-between gap-2 py-2 border-t border-slate-100">
+                    <div><span class="px-2 py-0.5 rounded-full text-3xs font-bold ${ST[r.status][1]}">${ST[r.status][0]}</span> <span class="text-slate-600">Solicitado el ${f(r.createdAt)} · ${escapeHtml(r.addressedTo || 'A quien interese')}</span>
+                    ${r.rejectReason ? `<span class="block text-3xs text-rose-700 mt-0.5">Motivo: ${escapeHtml(r.rejectReason)}</span>` : ''}</div></div>`).join('');
+            const certs = mineCerts.certificates.map(c => `<div class="flex flex-wrap items-center justify-between gap-2 py-2 border-t border-slate-100">
+                    <div><strong class="font-mono text-slate-800">${escapeHtml(c.number)}</strong> <span class="text-slate-600">· ${escapeHtml(c.kindLabel)} · ${f(c.issueDate)} · ${escapeHtml(c.addressedTo || 'A quien interese')}</span></div>
+                    ${c.annulled ? '<span class="px-2 py-0.5 rounded-full text-3xs font-bold bg-rose-100 text-rose-800">Anulado</span>' : `<button type="button" onclick="mineOpenCert('${c.id}')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold"><i class="fa-regular fa-file-pdf"></i> Ver / descargar</button>`}</div>`).join('');
+            box.innerHTML = (reqs || certs) ? reqs + certs : '<p class="text-slate-400">Aún no tienes certificados.</p>';
+        }
+        async function mineRequestCert() {
+            const to = document.getElementById('mineCertTo').value.trim();
+            if (!confirm(`¿Solicitar tu certificado laboral${to ? ' dirigido a ' + to : ''}?\n\nRecursos Humanos lo revisa y, cuando esté listo, aparece aquí para descargarlo.`)) return;
+            try { await apiFetch('/api/self/certificates/request', { method: 'POST', body: JSON.stringify({ addressedTo: to }) }); document.getElementById('mineCertTo').value = ''; showAppToast('Solicitud enviada a Recursos Humanos.'); }
+            catch (e) { showAppToast(e.message); }
+            loadMyCertificates();
+        }
+        async function mineOpenCert(id) {
+            const w = window.open('about:blank', '_blank'); // se abre ya (los celulares bloquean ventanas abiertas después de esperar)
+            try {
+                const r = await apiFetch(`/api/self/certificates/${id}/open`, { method: 'POST', body: '{}' });
+                const url = `/certificado.html#t=${r.token}`;
+                if (w) w.location.href = url; else location.href = url;
+            } catch (e) { if (w) w.close(); showAppToast(e.message); }
+        }
         async function renderMyView(loadHistory = true) {
+            loadMyCertificates();
             if (!mineMonday) mineMonday = getMondayOfDate(new Date());
             if (!shiftsLoaded(formatDateISO(mineMonday))) { try { await ensureShiftsLoaded(formatDateISO(mineMonday)); } catch (e) { /* sin conexion */ } }
             const emp = myEmployee();
@@ -10767,6 +10852,7 @@
             llamado: { icon: 'fa-file-signature', cls: 'bg-amber-100 text-amber-800' },
             llamado_firmado: { icon: 'fa-signature', cls: 'bg-emerald-100 text-emerald-700' },
             contrato: { icon: 'fa-file-contract', cls: 'bg-violet-100 text-violet-800' },
+            cert_solicitud: { icon: 'fa-award', cls: 'bg-sky-100 text-sky-800' },
             llegada_tarde: { icon: 'fa-clock', cls: 'bg-rose-100 text-rose-700' },
             exceso_almuerzo: { icon: 'fa-utensils', cls: 'bg-orange-100 text-orange-700' },
             salida_anticipada: { icon: 'fa-person-walking-arrow-right', cls: 'bg-amber-100 text-amber-800' },
@@ -10886,7 +10972,7 @@
                     <p class="text-sm font-semibold text-slate-700">Sin alertas recientes</p><p class="text-xs text-slate-500">Aquí aparecerán las llegadas tarde, ausencias y demás novedades.</p></div>`;
                 return;
             }
-            const EST = { justificada: ['Justificada', 'text-emerald-700'], injustificada: ['Injustificada', 'text-rose-700'], pendiente: ['Pendiente', 'text-slate-500'], llamado: ['Por revisar · Colaboradores → Llamados de atención', 'text-amber-700'], llamado_firmado: ['Firmado · Ver en el historial de llamados', 'text-emerald-700'], contrato: ['Decide en Documentos laborales → Contratos', 'text-violet-700'] };
+            const EST = { justificada: ['Justificada', 'text-emerald-700'], injustificada: ['Injustificada', 'text-rose-700'], pendiente: ['Pendiente', 'text-slate-500'], llamado: ['Por revisar · Colaboradores → Llamados de atención', 'text-amber-700'], llamado_firmado: ['Firmado · Ver en el historial de llamados', 'text-emerald-700'], contrato: ['Decide en Documentos laborales → Contratos', 'text-violet-700'], cert_solicitud: ['Genéralo en Documentos laborales → Certificados', 'text-sky-700'] };
             list.innerHTML = items.map(it => {
                 const ui = NOTIF_TYPE_UI[it.type] || { icon: 'fa-bell', cls: 'bg-slate-100 text-slate-600' };
                 const est = EST[it.mgmt] || EST.pendiente;
@@ -10995,6 +11081,7 @@
             const it = (notifData.items || []).find(x => x.id === id);
             closeNotifPanel();
             if (it && it.type === 'contrato') { docsTab = 'contratos'; switchView('docs'); return; }
+            if (it && it.type === 'cert_solicitud') { docsTab = 'certs'; certTab = 'req'; switchView('docs'); return; }
             if (it && it.type === 'llamado_firmado' && it.notice) { docsTab = 'contratos'; switchView('docs'); return; }
             if (it && it.type === 'llamado') { docsTab = 'llamados'; discTab = 'rev'; switchView('docs'); return; }
             if (it && it.type === 'llamado_firmado') { docsTab = 'llamados'; discTab = 'hist'; switchView('docs'); return; }
@@ -11027,6 +11114,7 @@
         async function handleNotifHash(hash) {
             if (!hash) return;
             if (hash === '#llamados-historial' && CAN('employees.view')) { history.replaceState(null, '', location.pathname + location.search); discTab = 'hist'; switchView('docs'); return; }
+            if (hash === '#certificados-solicitudes' && CAN('employees.edit_payroll')) { history.replaceState(null, '', location.pathname + location.search); docsTab = 'certs'; certTab = 'req'; switchView('docs'); return; }
             if (hash === '#llamados' && CAN('employees.view')) { history.replaceState(null, '', location.pathname + location.search); discTab = 'rev'; switchView('docs'); return; }
             if (!CAN('attendance.view_alerts')) return;
             if (!hash.startsWith('#alerta=') && hash !== '#alertas') return;

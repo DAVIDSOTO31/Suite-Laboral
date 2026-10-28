@@ -149,6 +149,11 @@ route('GET', '/api/contracts/:id/notice-draft', [requirePermission('employees.ed
 route('POST', '/api/contracts/:id/renew', [requirePermission('employees.edit_payroll')], (req, res, params) => contracts.renewContract(req, res, params));
 route('POST', '/api/contracts/:id/no-renew', [requirePermission('employees.edit_payroll')], (req, res, params) => contracts.noRenewContract(req, res, params));
 route('POST', '/api/contracts/:id/undo-no-renew', [requirePermission('employees.edit_payroll')], (req, res, params) => contracts.undoNoRenew(req, res, params));
+route('POST', '/api/certificates/requests/:id/reject', [requirePermission('employees.edit_payroll')], (req, res, params) => certificates.rejectRequest(req, res, params));
+// Portal del colaborador: pedir y descargar sus propios certificados.
+route('GET', '/api/self/certificates', [requirePermission('self.view')], (req, res) => certificates.selfCertificates(req, res));
+route('POST', '/api/self/certificates/request', [requirePermission('self.view')], (req, res) => certificates.selfRequest(req, res));
+route('POST', '/api/self/certificates/:id/open', [requirePermission('self.view')], (req, res, params) => certificates.selfOpen(req, res, params));
 route('POST', '/api/certificates/:id/link', [requirePermission('employees.edit_payroll')], (req, res, params) => certificates.certificateLink(req, res, params));
 route('POST', '/api/certificates/:id/email', [requirePermission('employees.edit_payroll')], (req, res, params) => certificates.emailCertificate(req, res, params));
 route('GET', '/api/public/certificado/verificar/:code', [], (req, res, params) => certificates.publicVerify(req, res, params), { auth: false });
