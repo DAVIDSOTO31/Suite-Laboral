@@ -13,6 +13,7 @@ const superadmin = require('./routes/superadmin.routes');
 const org = require('./routes/org.routes');
 const attendance = require('./routes/attendance.routes');
 const notifications = require('./routes/notifications.routes');
+const contracts = require('./routes/contracts.routes');
 const leave = require('./routes/leave.routes');
 const discipline = require('./routes/discipline.routes');
 const certificates = require('./routes/certificates.routes');
@@ -141,6 +142,13 @@ route('PUT', '/api/certificates/config', [requirePermission('employees.edit_payr
 route('POST', '/api/certificates/draft', [requirePermission('employees.edit_payroll')], (req, res) => certificates.draftCertificate(req, res));
 route('POST', '/api/certificates', [requirePermission('employees.edit_payroll')], (req, res) => certificates.createCertificate(req, res));
 route('POST', '/api/certificates/:id/annul', [requirePermission('employees.edit_payroll')], (req, res, params) => certificates.annulCertificate(req, res, params));
+// Contratos a termino fijo: vencimiento, renovacion y preaviso (solo Administrador).
+route('GET', '/api/contracts', [requirePermission('employees.edit_payroll')], (req, res, params, query) => contracts.listContracts(req, res, query));
+route('GET', '/api/contracts/:id', [requirePermission('employees.edit_payroll')], (req, res, params) => contracts.employeeContract(req, res, params));
+route('GET', '/api/contracts/:id/notice-draft', [requirePermission('employees.edit_payroll')], (req, res, params) => contracts.noticeDraft(req, res, params));
+route('POST', '/api/contracts/:id/renew', [requirePermission('employees.edit_payroll')], (req, res, params) => contracts.renewContract(req, res, params));
+route('POST', '/api/contracts/:id/no-renew', [requirePermission('employees.edit_payroll')], (req, res, params) => contracts.noRenewContract(req, res, params));
+route('POST', '/api/contracts/:id/undo-no-renew', [requirePermission('employees.edit_payroll')], (req, res, params) => contracts.undoNoRenew(req, res, params));
 route('POST', '/api/certificates/:id/link', [requirePermission('employees.edit_payroll')], (req, res, params) => certificates.certificateLink(req, res, params));
 route('POST', '/api/certificates/:id/email', [requirePermission('employees.edit_payroll')], (req, res, params) => certificates.emailCertificate(req, res, params));
 route('GET', '/api/public/certificado/verificar/:code', [], (req, res, params) => certificates.publicVerify(req, res, params), { auth: false });

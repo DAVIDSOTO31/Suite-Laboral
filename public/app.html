@@ -923,6 +923,7 @@
                     <div class="flex flex-wrap gap-1 mt-3 border-b border-slate-200">
                         <button type="button" id="docsTab_llamados" onclick="setDocsTab('llamados')" class="px-3 py-2 text-xs font-bold border-b-2 -mb-px border-rose-600 text-rose-700"><i class="fa-solid fa-file-signature"></i> Llamados de atención</button>
                         <button type="button" id="docsTab_certs" onclick="setDocsTab('certs')" data-perm="employees.edit_payroll" class="px-3 py-2 text-xs font-bold border-b-2 -mb-px border-transparent text-slate-500"><i class="fa-solid fa-award"></i> Certificados laborales</button>
+                        <button type="button" id="docsTab_contratos" onclick="setDocsTab('contratos')" data-perm="employees.edit_payroll" class="px-3 py-2 text-xs font-bold border-b-2 -mb-px border-transparent text-slate-500"><i class="fa-solid fa-file-contract"></i> Contratos <span id="contractsBadge" class="hidden ml-0.5 px-1.5 rounded-full bg-rose-600 text-white text-3xs"></span></button>
                     </div>
                 </div>
                 <div id="docsSec_llamados" class="bg-white rounded-xl border border-slate-200 shadow-sm">
@@ -946,6 +947,13 @@
                         <p class="text-2xs text-slate-500 mt-1.5">Certificación del <strong>tiempo de servicio, el cargo y el salario</strong> (numeral 7 del artículo 57 del CST). Se expide cuando el colaborador la pida, también si ya se retiró. Cada certificado lleva número consecutivo y código de verificación.</p>
                     </div>
                     <div id="certBody" class="p-4 text-xs"></div>
+                </div>
+                <div id="docsSec_contratos" class="hidden bg-white rounded-xl border border-slate-200 shadow-sm">
+                    <div class="p-4 border-b">
+                        <p class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-file-contract text-rose-600"></i> Contratos a término fijo</p>
+                        <p class="text-2xs text-slate-500 mt-1">Desde <strong>35 días antes</strong> de que venza un contrato, aquí (y en la campana) aparece para decidir si se renueva. Por ley (art. 46 CST), si nadie avisa por escrito que <strong>no</strong> se renueva con al menos <strong>30 días</strong> de anticipación, el contrato se renueva solo por un periodo igual. Los contratos de menos de un año se pueden prorrogar hasta 3 veces por periodos iguales o menores; desde la 4.ª prórroga, mínimo por 1 año.</p>
+                    </div>
+                    <div id="contractsBody" class="p-4 text-xs"></div>
                 </div>
             </div>
 
@@ -2115,6 +2123,49 @@
                 </div>
             </div>
             <iframe id="pdfViewerFrame" title="Documento PDF" class="flex-1 w-full rounded-b-xl bg-slate-100"></iframe>
+        </div>
+    </div>
+
+    <!-- MODAL: Renovar contrato a término fijo -->
+    <div id="modalContractRenew" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-5 shadow-2xl space-y-3 border border-slate-200 text-xs">
+            <div class="flex items-start justify-between gap-2">
+                <div><p class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-rotate text-emerald-600"></i> Renovar contrato</p><p id="crSub" class="text-slate-500"></p></div>
+                <button type="button" onclick="closeModal('modalContractRenew')" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 shrink-0" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <p id="crRule" class="text-slate-600"></p>
+            <label class="flex items-center gap-2"><input type="radio" name="crMode" value="months" onchange="contractRenewPreview()"> <span>Por</span>
+                <input id="crMonths" type="number" min="1" max="60" oninput="contractRenewPreview()" class="w-20 p-1.5 border rounded-lg"> <span>mes(es)</span></label>
+            <label class="flex items-center gap-2"><input type="radio" name="crMode" value="until" onchange="contractRenewPreview()"> <span>Hasta la fecha</span>
+                <input id="crUntil" type="date" oninput="contractRenewPreview()" class="p-1.5 border rounded-lg"></label>
+            <p id="crPreview" class="p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900"></p>
+            <label class="block"><span class="font-semibold text-slate-700">Nota (opcional)</span>
+                <input id="crNote" maxlength="500" placeholder="Ej. Se renueva por buen desempeño" class="mt-1 w-full p-2 border rounded-lg"></label>
+            <p id="crMsg" class="hidden text-rose-600 font-semibold"></p>
+            <button type="button" onclick="contractRenewSave()" class="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm">Renovar</button>
+            <p class="text-3xs text-slate-400">Se actualiza la fecha de terminación en la ficha; la fecha de ingreso no cambia. Queda en el historial y en Auditoría.</p>
+        </div>
+    </div>
+
+    <!-- MODAL: No renovar contrato (con carta de preaviso) -->
+    <div id="modalContractNoRenew" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl max-w-2xl w-full p-5 shadow-2xl space-y-3 border border-slate-200 text-xs max-h-[94vh] overflow-y-auto">
+            <div class="flex items-start justify-between gap-2">
+                <div><p class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-file-circle-xmark text-rose-600"></i> No renovar contrato</p><p id="cnSub" class="text-slate-500"></p></div>
+                <button type="button" onclick="closeModal('modalContractNoRenew')" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 shrink-0" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <p id="cnWarn"></p>
+            <label class="block"><span class="font-semibold text-slate-700">Nota interna (opcional)</span>
+                <input id="cnNote" maxlength="500" placeholder="Ej. Se decidió no renovar por reestructuración del área" class="mt-1 w-full p-2 border rounded-lg"></label>
+            <label class="flex items-center gap-2 font-semibold text-slate-800"><input type="checkbox" id="cnLetter" checked onchange="contractNoRenewToggle()" class="w-4 h-4"> Generar la carta de preaviso</label>
+            <div id="cnLetterBox" class="space-y-1">
+                <input id="cnTitle" maxlength="200" class="w-full p-2 border rounded-lg font-semibold">
+                <textarea id="cnBody" rows="16" class="w-full p-2 border rounded-lg leading-relaxed"></textarea>
+                <p class="text-3xs text-slate-500">Revisa y ajusta el texto si es necesario (valídalo con tu asesor legal). Después se envía por WhatsApp, PDF o correo y el colaborador la recibe y la firma, igual que un llamado.</p>
+                <button type="button" onclick="contractNoRenewPreview()" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 font-semibold"><i class="fa-regular fa-file-pdf text-rose-600"></i> Vista previa del PDF</button>
+            </div>
+            <p id="cnMsg" class="hidden text-rose-600 font-semibold"></p>
+            <button type="button" onclick="contractNoRenewSave()" class="w-full py-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm">Registrar que no se renueva</button>
         </div>
     </div>
 
@@ -3466,6 +3517,8 @@
             const n = discData ? discData.cases.filter(c => c.status === 'propuesto').length : 0;
             const b = document.getElementById('discBadge');
             if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
+            // Las cartas de preaviso se manejan desde Contratos: se refresca esa vista si está abierta.
+            if (typeof docsTab !== 'undefined' && docsTab === 'contratos' && contractsData && !document.getElementById('view-docs').classList.contains('hidden')) renderContracts();
             return discData;
         }
         // Los llamados ahora viven en el módulo "Documentos laborales".
@@ -3486,6 +3539,188 @@
             });
             document.querySelectorAll('[id^="docsSec_"]').forEach(s => s.classList.toggle('hidden', s.id !== 'docsSec_' + t));
             if (t === 'certs') openCertificates();
+            if (t === 'contratos') openContracts();
+        }
+
+        // ---- Contratos a término fijo: vencimiento, renovación y preaviso (solo Administrador) ----
+        let contractsData = null;
+        const cFmt = (iso) => iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '';
+        function cAddDays(iso, n) { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+        function cAddMonths(iso, m) {
+            const [y, mo, d] = iso.split('-').map(Number);
+            const t = new Date(Date.UTC(y, mo - 1 + m, 1));
+            const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+            t.setUTCDate(Math.min(d, last));
+            return t.toISOString().slice(0, 10);
+        }
+        async function loadContracts() {
+            if (!CAN('employees.edit_payroll')) return null;
+            try { contractsData = await apiFetch('/api/contracts'); } catch (e) { contractsData = null; }
+            const n = contractsData ? contractsData.items.filter(x => !x.decision).length : 0;
+            const b = document.getElementById('contractsBadge');
+            if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
+            return contractsData;
+        }
+        async function openContracts() {
+            if (!CAN('employees.edit_payroll')) { setDocsTab('llamados'); return; }
+            document.getElementById('contractsBody').innerHTML = '<p class="text-center text-slate-400 py-6">Cargando…</p>';
+            await Promise.all([loadContracts(), loadDiscData()]);
+            renderContracts();
+        }
+        function renderContracts() {
+            const box = document.getElementById('contractsBody');
+            const d = contractsData;
+            if (!d) { box.innerHTML = '<p class="text-center text-rose-600 py-6">No se pudo cargar la información.</p>'; return; }
+            const daysChip = (x) => {
+                if (x.daysLeft < 0) return `<span class="whitespace-nowrap px-2 py-0.5 rounded-full text-3xs font-bold bg-rose-600 text-white">Venció hace ${-x.daysLeft} día(s)</span>`;
+                if (x.daysLeft === 0) return '<span class="px-2 py-0.5 rounded-full text-3xs font-bold bg-rose-600 text-white">Vence hoy</span>';
+                return `<span class="whitespace-nowrap px-2 py-0.5 rounded-full text-3xs font-bold ${x.daysLeft <= d.noticeDays ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'}">Vence en ${x.daysLeft} día(s)</span>`;
+            };
+            const cases = (discData && discData.cases) || [];
+            const caseOf = (id) => cases.find(c => c.id === id);
+            const noticeState = (c) => !c ? '' : c.annulledAt ? 'Preaviso anulado' : c.signedAt ? `Preaviso firmado ${cFmt(c.signedAt)}` : c.receivedAt ? `Preaviso recibido ${cFmt(c.receivedAt)}` : c.sentAt ? `Preaviso enviado ${cFmt(c.sentAt)}` : 'Preaviso generado, sin enviar';
+            const rows = d.items.map(x => {
+                const c = x.decision && x.decision.noticeCaseId ? caseOf(x.decision.noticeCaseId) : null;
+                const decision = x.decision
+                    ? `<span class="px-2 py-0.5 rounded-full text-3xs font-bold bg-slate-800 text-white">No se renueva</span><span class="block text-3xs text-slate-500 mt-0.5">${escapeHtml(noticeState(c) || 'Sin carta de preaviso')}${x.decision.note ? ' · ' + escapeHtml(x.decision.note) : ''}</span>`
+                    : x.daysLeft < 0 ? '<span class="block text-3xs text-rose-700 font-semibold">Venció sin decisión: por ley se entiende renovado por un periodo igual. Regístralo con "Renovar".</span>'
+                    : x.noticeLate ? `<span class="block text-3xs text-rose-700 font-semibold">El plazo del preaviso venció el ${cFmt(x.noticeDeadline)}: si no se avisó por escrito antes, el contrato se renueva por ley.</span>`
+                    : `<span class="block text-3xs text-slate-500">Preaviso a más tardar el <strong>${cFmt(x.noticeDeadline)}</strong></span>`;
+                const actions = x.decision
+                    ? `${x.daysLeft <= 0 ? `<button type="button" onclick="contractRetire(${x.employeeId})" class="px-2 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white font-bold">Retirar</button>` : ''}
+                       <button type="button" onclick="contractUndo(${x.employeeId})" class="px-2 py-1 rounded bg-white border border-slate-300 hover:bg-slate-50 font-semibold">Deshacer</button>`
+                    : `<button type="button" onclick="contractRenewOpen(${x.employeeId})" class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold"><i class="fa-solid fa-rotate"></i> Renovar</button>
+                       <button type="button" onclick="contractNoRenewOpen(${x.employeeId})" class="px-2 py-1 rounded bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 font-bold">No renovar</button>`;
+                return `<tr class="align-top">
+                    <td class="px-2 py-2 font-semibold text-slate-800">${escapeHtml(x.name)}<span class="block text-3xs font-normal text-slate-500">${escapeHtml(x.area)}${x.role ? ' · ' + escapeHtml(x.role) : ''}</span></td>
+                    <td class="px-2 py-2 text-slate-600">${cFmt(x.periodStart) || '¿?'} – ${cFmt(x.end)}<span class="block text-3xs text-slate-500">${x.prorrogas ? `${x.prorrogas} prórroga(s)` : 'Periodo inicial'}${x.curMonths ? ` · ${x.curMonths} mes(es)` : x.curDays ? ` · ${x.curDays} días` : ''}${x.shortContract ? ' · contrato de menos de 1 año' : ''}</span></td>
+                    <td class="px-2 py-2">${daysChip(x)}</td>
+                    <td class="px-2 py-2">${decision}</td>
+                    <td class="px-2 py-2 text-right whitespace-nowrap">${actions}</td></tr>`;
+            }).join('');
+            const notices = cases.filter(c => c.isNotice && c.status !== 'descartado' || (c.isNotice && c.annulledAt));
+            const noticeRows = notices.map(c => {
+                const st = c.annulledAt ? ['Anulado', 'bg-rose-100 text-rose-800'] : c.signedAt ? ['Firmado', 'bg-emerald-600 text-white'] : (DISC_ST[c.status] || [c.status, 'bg-slate-100']);
+                return `<tr class="align-top">
+                    <td class="px-2 py-2 font-semibold text-slate-800">${escapeHtml(c.name)}<span class="block text-3xs font-normal text-slate-500">${escapeHtml(c.area || '')}</span></td>
+                    <td class="px-2 py-2"><span class="px-2 py-0.5 rounded-full text-3xs font-bold ${st[1]}">${st[0]}</span></td>
+                    <td class="px-2 py-2 text-3xs text-slate-500 leading-tight">Generado ${cFmt(c.docDate)}${c.sentAt ? `<br>Enviado ${cFmt(c.sentAt)}` : ''}${c.emailSentAt ? `<br>Correo ${cFmt(c.emailSentAt)} · ${escapeHtml(c.emailSentTo)}` : ''}${c.receivedAt ? `<br>Recibido ${cFmt(c.receivedAt)}` : ''}${c.signedAt ? `<br><strong class="text-emerald-700">Firmado ${cFmt(c.signedAt)} ${String(c.signedAt).slice(11, 16)}</strong>` : ''}${c.annulledAt ? `<br>Anulado ${cFmt(c.annulledAt)}` : ''}</td>
+                    <td class="px-2 py-2 text-right whitespace-nowrap">
+                        <button type="button" onclick="discPdf('${c.id}')" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold"><i class="fa-regular fa-file-pdf"></i> Ver PDF</button>
+                        ${c.annulledAt ? '' : `<button type="button" onclick="discWhatsApp('${c.id}')" class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold"><i class="fa-brands fa-whatsapp"></i> ${c.sentAt ? 'Reenviar' : 'Enviar'}</button>
+                        <button type="button" onclick="discShare('${c.id}')" class="px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-semibold"><i class="fa-solid fa-share-nodes"></i> PDF</button>
+                        <button type="button" onclick="discEmail('${c.id}')" class="px-2 py-1 rounded bg-sky-600 hover:bg-sky-700 text-white font-bold"><i class="fa-regular fa-envelope"></i> Correo</button>
+                        ${c.status === 'enviado' || c.status === 'recibido' ? `<button type="button" onclick="discAnnul('${c.id}')" class="px-2 py-1 rounded bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 font-semibold">Anular</button>` : ''}`}
+                    </td></tr>`;
+            }).join('');
+            const histRows = d.history.map(h => `<tr class="align-top">
+                    <td class="px-2 py-2 text-3xs text-slate-500 whitespace-nowrap">${cFmt(h.at)}<span class="block">${escapeHtml(h.by)}</span></td>
+                    <td class="px-2 py-2 font-semibold text-slate-800">${escapeHtml(h.name)}</td>
+                    <td class="px-2 py-2">${h.kind === 'renovacion' ? `<span class="font-bold text-emerald-700">Renovado</span> · prórroga n.º ${h.prorroga}<span class="block text-3xs text-slate-500">Terminaba el ${cFmt(h.periodEnd)} → ahora termina el <strong>${cFmt(h.newEnd)}</strong>${h.months ? ` (${h.months} mes(es))` : ''}</span>` : `<span class="font-bold text-rose-700">No se renueva</span><span class="block text-3xs text-slate-500">Termina el ${cFmt(h.periodEnd)}${h.noticeCaseId ? ' · con carta de preaviso' : ''}</span>`}</td>
+                    <td class="px-2 py-2 text-slate-600">${escapeHtml(h.note || '')}</td></tr>`).join('');
+            const th = (t, cls = 'text-left') => `<th class="${cls} px-2 py-2">${t}</th>`;
+            box.innerHTML = `
+                <p class="font-bold text-slate-800 mb-1">Por vencer y pendientes</p>
+                ${rows ? `<div class="overflow-x-auto border border-slate-200 rounded-lg mb-2"><table class="w-full"><thead class="text-3xs uppercase text-slate-500 font-bold bg-slate-50"><tr>${th('Colaborador')}${th('Periodo actual')}${th('Vencimiento')}${th('Preaviso / decisión')}${th('')}</tr></thead><tbody class="divide-y divide-slate-100">${rows}</tbody></table></div>` : `<p class="text-slate-400 mb-2">Ningún contrato a término fijo vence en los próximos ${d.alertDays} días.</p>`}
+                ${d.missing.length ? `<p class="text-3xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mb-2"><i class="fa-solid fa-triangle-exclamation"></i> Sin fecha de terminación (no se pueden avisar): ${d.missing.map(m => escapeHtml(m.name)).join(', ')}. Complétala en la ficha del colaborador.</p>` : ''}
+                <p class="font-bold text-slate-800 mt-4 mb-1">Cartas de preaviso</p>
+                <p class="text-3xs text-slate-500 mb-1">Se envían, se reciben y se firman igual que los llamados de atención. La firma con fecha sirve de prueba de que el preaviso se entregó a tiempo.</p>
+                ${noticeRows ? `<div class="overflow-x-auto border border-slate-200 rounded-lg"><table class="w-full"><thead class="text-3xs uppercase text-slate-500 font-bold bg-slate-50"><tr>${th('Colaborador')}${th('Estado')}${th('Fechas')}${th('')}</tr></thead><tbody class="divide-y divide-slate-100">${noticeRows}</tbody></table></div>` : '<p class="text-slate-400">Aún no se han generado cartas de preaviso.</p>'}
+                <p class="font-bold text-slate-800 mt-4 mb-1">Historial de renovaciones y decisiones</p>
+                ${histRows ? `<div class="overflow-x-auto border border-slate-200 rounded-lg"><table class="w-full"><thead class="text-3xs uppercase text-slate-500 font-bold bg-slate-50"><tr>${th('Fecha')}${th('Colaborador')}${th('Decisión')}${th('Nota')}</tr></thead><tbody class="divide-y divide-slate-100">${histRows}</tbody></table></div>` : '<p class="text-slate-400">Aún no hay renovaciones ni decisiones registradas.</p>'}`;
+        }
+        // Renovar
+        let contractEditing = null;
+        function contractRenewOpen(empId) {
+            const x = contractsData.items.find(i => i.employeeId === empId); if (!x) return;
+            contractEditing = x;
+            document.getElementById('crSub').textContent = `${x.name} · periodo actual ${cFmt(x.periodStart) || '¿?'} – ${cFmt(x.end)}`;
+            document.getElementById('crNote').value = '';
+            const months = x.suggestedMonths || (x.curDays ? null : 12);
+            document.getElementById('crMonths').value = months || '';
+            document.getElementById('crUntil').value = months ? '' : cAddDays(x.end, x.suggestedDays || 30);
+            document.querySelector(`input[name="crMode"][value="${months ? 'months' : 'until'}"]`).checked = true;
+            document.getElementById('crRule').innerHTML = x.minMonths
+                ? `<strong class="text-rose-700">Prórroga n.º ${x.nextProrroga} de un contrato de menos de 1 año:</strong> por ley debe ser por mínimo 1 año.`
+                : `Será la prórroga n.º ${x.nextProrroga}.${x.shortContract ? ` El contrato inicial es de menos de 1 año: se puede prorrogar por periodos iguales o menores hasta 3 veces (van ${x.prorrogas}).` : ''}`;
+            document.getElementById('crMsg').classList.add('hidden');
+            contractRenewPreview();
+            openModal('modalContractRenew');
+        }
+        function contractRenewPreview() {
+            const x = contractEditing; if (!x) return;
+            const mode = (document.querySelector('input[name="crMode"]:checked') || {}).value;
+            document.getElementById('crMonths').disabled = mode !== 'months';
+            document.getElementById('crUntil').disabled = mode !== 'until';
+            const start = cAddDays(x.end, 1);
+            let end = '';
+            if (mode === 'months') { const m = Math.round(Number(document.getElementById('crMonths').value)); if (m >= 1 && m <= 60) end = cAddDays(cAddMonths(start, m), -1); }
+            else end = document.getElementById('crUntil').value;
+            document.getElementById('crPreview').innerHTML = end && end > x.end
+                ? `Nuevo periodo: <strong>${cFmt(start)}</strong> al <strong>${cFmt(end)}</strong>`
+                : '<span class="text-slate-400">Elige la duración o la nueva fecha de terminación.</span>';
+        }
+        async function contractRenewSave() {
+            const x = contractEditing; if (!x) return;
+            const mode = (document.querySelector('input[name="crMode"]:checked') || {}).value;
+            const payload = { note: document.getElementById('crNote').value };
+            if (mode === 'months') payload.months = Number(document.getElementById('crMonths').value); else payload.until = document.getElementById('crUntil').value;
+            const m = document.getElementById('crMsg');
+            try {
+                const r = await apiFetch(`/api/contracts/${x.employeeId}/renew`, { method: 'POST', body: JSON.stringify(payload) });
+                if (r.dataVersion != null) appState.dataVersion = Number(r.dataVersion);
+                const emp = appState.employees.find(e => Number(e.id) === Number(x.employeeId)); if (emp) emp.contractEnd = r.newEnd;
+                closeModal('modalContractRenew');
+                showAppToast(`Contrato renovado (prórroga n.º ${r.prorroga}): ahora termina el ${cFmt(r.newEnd)}.`);
+                await openContracts();
+            } catch (e) { m.textContent = e.message; m.classList.remove('hidden'); }
+        }
+        // No renovar
+        async function contractNoRenewOpen(empId) {
+            const x = contractsData.items.find(i => i.employeeId === empId); if (!x) return;
+            contractEditing = x;
+            document.getElementById('cnSub').textContent = `${x.name} · el contrato termina el ${cFmt(x.end)}`;
+            document.getElementById('cnWarn').innerHTML = x.noticeLate
+                ? `<i class="fa-solid fa-triangle-exclamation"></i> Faltan ${x.daysLeft} día(s): el preaviso debía entregarse a más tardar el ${cFmt(x.noticeDeadline)} (30 días antes). Si no se avisó por escrito a tiempo, por ley el contrato se renueva por un periodo igual. Consulta con tu asesor legal.`
+                : `El preaviso debe quedar entregado a más tardar el <strong>${cFmt(x.noticeDeadline)}</strong> (30 días antes de la terminación). Envíalo y pide que lo firme: la firma con fecha es la prueba.`;
+            document.getElementById('cnWarn').className = `text-xs rounded-lg px-3 py-2 ${x.noticeLate ? 'bg-rose-50 border border-rose-200 text-rose-800' : 'bg-sky-50 border border-sky-200 text-sky-900'}`;
+            document.getElementById('cnNote').value = '';
+            document.getElementById('cnLetter').checked = true;
+            document.getElementById('cnMsg').classList.add('hidden');
+            document.getElementById('cnTitle').value = ''; document.getElementById('cnBody').value = 'Cargando…';
+            contractNoRenewToggle();
+            openModal('modalContractNoRenew');
+            try { const dr = await apiFetch(`/api/contracts/${empId}/notice-draft`); document.getElementById('cnTitle').value = dr.title; document.getElementById('cnBody').value = dr.body; }
+            catch (e) { document.getElementById('cnBody').value = ''; showAppToast(e.message); }
+        }
+        function contractNoRenewToggle() { document.getElementById('cnLetterBox').classList.toggle('hidden', !document.getElementById('cnLetter').checked); }
+        async function contractNoRenewPreview() {
+            const x = contractEditing; if (!x) return;
+            await buildDiscPdf({ title: document.getElementById('cnTitle').value, body: document.getElementById('cnBody').value, name: x.name, employeeId: x.employeeId, docDate: bogotaTodayISO(), adminSignature: (discData && discData.config.signerSignature) || '' }, true);
+        }
+        async function contractNoRenewSave() {
+            const x = contractEditing; if (!x) return;
+            const withLetter = document.getElementById('cnLetter').checked;
+            const payload = { note: document.getElementById('cnNote').value, notice: withLetter ? { title: document.getElementById('cnTitle').value, body: document.getElementById('cnBody').value } : null };
+            const m = document.getElementById('cnMsg');
+            try {
+                await apiFetch(`/api/contracts/${x.employeeId}/no-renew`, { method: 'POST', body: JSON.stringify(payload) });
+                closeModal('modalContractNoRenew');
+                showAppToast(withLetter ? 'Registrado. La carta de preaviso quedó lista: envíala desde "Cartas de preaviso".' : 'Registrado: el contrato no se renueva.');
+                await openContracts();
+            } catch (e) { m.textContent = e.message; m.classList.remove('hidden'); }
+        }
+        async function contractUndo(empId) {
+            const x = contractsData.items.find(i => i.employeeId === empId); if (!x) return;
+            if (!confirm(`¿Deshacer la decisión de no renovar el contrato de ${x.name}?\n\nSi la carta de preaviso no se ha enviado, se descarta. Si ya se envió, primero hay que anularla.`)) return;
+            try { await apiFetch(`/api/contracts/${empId}/undo-no-renew`, { method: 'POST', body: '{}' }); showAppToast('Decisión deshecha.'); await openContracts(); }
+            catch (e) { showAppToast(e.message); }
+        }
+        async function contractRetire(empId) {
+            const x = contractsData.items.find(i => i.employeeId === empId); if (!x) return;
+            await openRetireEmployee(empId);
+            document.getElementById('retireDate').value = x.end;
+            const sel = document.getElementById('retireReason'); sel.value = 'Vencimiento del contrato';
         }
 
         // ---- Certificados laborales (solo Administrador) ----
@@ -3773,7 +4008,7 @@
             const canEdit = CAN('employees.edit');
             const fmt = (d) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : '';
             if (discTab === 'rev') {
-                const list = discData.cases.filter(c => c.status === 'propuesto' || (c.status === 'generado' && discEditing === c.id));
+                const list = discData.cases.filter(c => !c.isNotice && (c.status === 'propuesto' || (c.status === 'generado' && discEditing === c.id)));
                 box.innerHTML = list.length ? list.map(c => discEditing === c.id ? discEditorHtml(c) : `
                     <div class="border border-amber-200 bg-amber-50/40 rounded-lg p-3 mb-2">
                         <div class="flex flex-wrap items-start justify-between gap-2">
@@ -3790,7 +4025,7 @@
                 return;
             }
             if (discTab === 'hist') {
-                const list = discData.cases.filter(c => c.status !== 'propuesto');
+                const list = discData.cases.filter(c => c.status !== 'propuesto' && !c.isNotice);
                 box.innerHTML = list.length ? `<table class="w-full"><thead class="text-3xs uppercase text-slate-500 font-bold bg-slate-50"><tr>
                     <th class="text-left px-2 py-2">Colaborador</th><th class="text-left px-2 py-2">Falta</th><th class="text-left px-2 py-2">Estado</th><th class="text-left px-2 py-2">Fechas</th><th class="px-2 py-2"></th></tr></thead>
                     <tbody class="divide-y divide-slate-100">${list.map(c => {
@@ -3949,7 +4184,7 @@
             const c = discData.cases.find(x => x.id === id); if (!c) return;
             const reason = (prompt(`¿Anular la comunicación enviada a ${c.name}?\n\nSi abre el enlace verá que fue anulada y ya no podrá enviar descargos. Queda en el historial.\n\nEscribe el motivo de la anulación:`) || '').trim();
             if (!reason) return;
-            try { await apiFetch(`/api/discipline/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: 'anular', reason }) }); showAppToast('Llamado anulado.'); await loadDiscData(); setDiscTab('hist'); }
+            try { await apiFetch(`/api/discipline/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: 'anular', reason }) }); showAppToast(c.isNotice ? 'Preaviso anulado.' : 'Llamado anulado.'); await loadDiscData(); setDiscTab('hist'); }
             catch (e) { showAppToast(e.message); }
         }
         function discView(id) {
@@ -4164,7 +4399,7 @@
                 const link = `${location.origin}/comunicacion.html#t=${r.token}`;
                 const first = String(c.name).split(' ')[0];
                 const org = appState.orgName || 'la empresa';
-                const msg = `Hola ${first}, ${org} te envía una comunicación sobre: ${c.typeLabel.toLowerCase()}.\n\nÁbrela aquí: ${link}\n\nAl abrirla, pulsa "Recibido" y luego firma el documento con el dedo (no tienes que imprimir nada). Allí también puedes escribir tus descargos. El enlace vence el ${String(r.expires).split('-').reverse().join('/')}.`;
+                const msg = c.isNotice ? `Hola ${first}, ${org} te envía el preaviso de no renovación de tu contrato de trabajo.\n\nÁbrelo aquí: ${link}\n\nAl abrirlo, pulsa "Recibido" y luego fírmalo con el dedo (no tienes que imprimir nada). El enlace vence el ${String(r.expires).split('-').reverse().join('/')}.` : `Hola ${first}, ${org} te envía una comunicación sobre: ${c.typeLabel.toLowerCase()}.\n\nÁbrela aquí: ${link}\n\nAl abrirla, pulsa "Recibido" y luego firma el documento con el dedo (no tienes que imprimir nada). Allí también puedes escribir tus descargos. El enlace vence el ${String(r.expires).split('-').reverse().join('/')}.`;
                 const url = `https://wa.me/${c.phone}?text=${encodeURIComponent(msg)}`;
                 if (w) w.location.href = url; else location.href = url;
                 await loadDiscData(); if (!document.getElementById('view-docs').classList.contains('hidden')) setDiscTab('hist');
@@ -5953,6 +6188,10 @@
             const f = (iso) => iso ? iso.split('-').reverse().join('/') : '';
             let txt = CONTRACT_INFO[t].label;
             if (t === 'fijo' && (emp.contractStart || emp.contractEnd)) txt += ` · ${emp.contractStart ? f(emp.contractStart) : '¿?'} – ${emp.contractEnd ? f(emp.contractEnd) : '¿?'}`;
+            if (t === 'fijo' && emp.contractEnd && emp.status !== 'retirado') {
+                const left = Math.round((Date.parse(emp.contractEnd + 'T00:00:00Z') - Date.parse(bogotaTodayISO() + 'T00:00:00Z')) / 86400000);
+                if (left < 0) txt += ` · ⚠ venció hace ${-left} día(s)`; else if (left <= 35) txt += ` · ⚠ vence en ${left} día(s) (Documentos laborales → Contratos)`;
+            }
             return txt;
         }
 
@@ -10519,6 +10758,7 @@
         const NOTIF_TYPE_UI = {
             llamado: { icon: 'fa-file-signature', cls: 'bg-amber-100 text-amber-800' },
             llamado_firmado: { icon: 'fa-signature', cls: 'bg-emerald-100 text-emerald-700' },
+            contrato: { icon: 'fa-file-contract', cls: 'bg-violet-100 text-violet-800' },
             llegada_tarde: { icon: 'fa-clock', cls: 'bg-rose-100 text-rose-700' },
             exceso_almuerzo: { icon: 'fa-utensils', cls: 'bg-orange-100 text-orange-700' },
             salida_anticipada: { icon: 'fa-person-walking-arrow-right', cls: 'bg-amber-100 text-amber-800' },
@@ -10638,7 +10878,7 @@
                     <p class="text-sm font-semibold text-slate-700">Sin alertas recientes</p><p class="text-xs text-slate-500">Aquí aparecerán las llegadas tarde, ausencias y demás novedades.</p></div>`;
                 return;
             }
-            const EST = { justificada: ['Justificada', 'text-emerald-700'], injustificada: ['Injustificada', 'text-rose-700'], pendiente: ['Pendiente', 'text-slate-500'], llamado: ['Por revisar · Colaboradores → Llamados de atención', 'text-amber-700'], llamado_firmado: ['Firmado · Ver en el historial de llamados', 'text-emerald-700'] };
+            const EST = { justificada: ['Justificada', 'text-emerald-700'], injustificada: ['Injustificada', 'text-rose-700'], pendiente: ['Pendiente', 'text-slate-500'], llamado: ['Por revisar · Colaboradores → Llamados de atención', 'text-amber-700'], llamado_firmado: ['Firmado · Ver en el historial de llamados', 'text-emerald-700'], contrato: ['Decide en Documentos laborales → Contratos', 'text-violet-700'] };
             list.innerHTML = items.map(it => {
                 const ui = NOTIF_TYPE_UI[it.type] || { icon: 'fa-bell', cls: 'bg-slate-100 text-slate-600' };
                 const est = EST[it.mgmt] || EST.pendiente;
@@ -10746,8 +10986,10 @@
         function openNotif(id) {
             const it = (notifData.items || []).find(x => x.id === id);
             closeNotifPanel();
-            if (it && it.type === 'llamado') { discTab = 'rev'; switchView('docs'); return; }
-            if (it && it.type === 'llamado_firmado') { discTab = 'hist'; switchView('docs'); return; }
+            if (it && it.type === 'contrato') { docsTab = 'contratos'; switchView('docs'); return; }
+            if (it && it.type === 'llamado_firmado' && it.notice) { docsTab = 'contratos'; switchView('docs'); return; }
+            if (it && it.type === 'llamado') { docsTab = 'llamados'; discTab = 'rev'; switchView('docs'); return; }
+            if (it && it.type === 'llamado_firmado') { docsTab = 'llamados'; discTab = 'hist'; switchView('docs'); return; }
             if (!it) { openAllNotifAlerts(); return; }
             switchView('attendance');
             document.getElementById('attAlertsFrom').value = it.date;

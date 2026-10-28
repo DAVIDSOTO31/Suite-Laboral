@@ -102,6 +102,8 @@
       setTimeout(function () { $('signBox').scrollIntoView({ block: 'nearest' }); }, 50);
     }
     if (d.receivedAt) { $('ackBtn').classList.add('hidden'); var rh = Number(String(d.receivedAt).slice(11, 13)); $('ackDone').textContent = 'Recibido el ' + fmt(d.receivedAt) + ' a las ' + ((rh % 12) || 12) + ':' + String(d.receivedAt).slice(14, 16) + (rh < 12 ? ' a. m.' : ' p. m.') + '.'; $('ackDone').classList.remove('hidden'); }
+    // Preaviso de no renovación: no lleva descargos (solo Recibido y firma).
+    if (d.kind === 'preaviso') $('descBox').classList.add('hidden');
     $('descHint').textContent = 'Puedes enviarlos por aquí, una sola vez, a más tardar el ' + fmt(d.descargosUntil) + '. También puedes presentarlos directamente ante Recursos Humanos.';
     if (d.descargos) {
       $('descText').classList.add('hidden'); $('descBtn').classList.add('hidden');
