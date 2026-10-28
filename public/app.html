@@ -13217,7 +13217,7 @@
             document.getElementById('attTodayDevices').innerHTML = devs.length ? `<div class="border border-amber-300 bg-amber-50 rounded-lg px-3 py-2 text-xs text-amber-900 space-y-0.5">
                 ${devs.map(x => { const h = x.health; const msg = h.status === 'sin_conexion' || h.status === 'intermitente'
                     ? `sin señal ${minutesAgoLabel(h.lastSeenMin)} — las marcaciones de ese punto podrían no estar llegando`
-                    : [h.warnings.includes('bateria_baja') ? `batería al ${h.battery} % sin cargar` : null, h.warnings.includes('camara') ? (CAMERA_LABELS[h.camera] || 'problema de cámara').toLowerCase() : null, h.pending ? `${h.pending} marcación(es) pendiente(s) por enviar` : null].filter(Boolean).join(' · ');
+                    : [h.warnings.includes('bateria_baja') ? `batería al ${h.battery} % sin cargar` : null, h.warnings.includes('camara') ? (CAMERA_LABELS[h.camera] || 'problema de cámara').toLowerCase() : null, h.warnings.includes('voz') ? (VOICE_LABELS[h.voice] || 'problema con la voz').toLowerCase() : null, h.pending ? `${h.pending} marcación(es) pendiente(s) por enviar` : null].filter(Boolean).join(' · ');
                     return `<p><i class="fa-solid fa-tablet-screen-button"></i> <strong>${escapeHtml(x.name)}</strong>: ${escapeHtml(msg)}</p>`; }).join('')}
                 <p class="text-3xs text-amber-700">Revisa el detalle en Asistencia → Dispositivos.</p></div>` : '';
             // Cada tarjeta es un botón: al hacer clic se despliega debajo la lista de
@@ -13554,6 +13554,7 @@
             sin_datos: ['Sin datos', 'bg-slate-100 text-slate-500', 'bg-slate-400'],
         };
         const CAMERA_LABELS = { ok: 'Cámara OK', denegada: 'Cámara sin permiso', sin_camara: 'Sin cámara', error: 'Error de cámara', desconocido: 'Cámara: sin verificar' };
+        const VOICE_LABELS = { ok: 'Voz OK', lista: 'Voz lista (aún no ha hablado)', sin_voz_es: 'Sin voz en español', no_disponible: 'Navegador sin voz', falla: 'La voz no está sonando', desconocido: 'Voz: sin verificar' };
         function minutesAgoLabel(m) {
             if (m == null) return '';
             if (m < 1) return 'hace menos de 1 min';
@@ -13571,6 +13572,7 @@
             parts.push(h.status === 'en_linea' ? `Última señal ${minutesAgoLabel(h.lastSeenMin)}` : `Sin señal ${minutesAgoLabel(h.lastSeenMin)} (${h.lastSeenAt})`);
             if (h.battery != null) parts.push(`<span class="${h.warnings.includes('bateria_baja') ? 'text-rose-700 font-bold' : ''}"><i class="fa-solid ${h.charging ? 'fa-plug' : 'fa-battery-half'}"></i> ${h.battery} %${h.charging ? ' cargando' : ''}</span>`);
             parts.push(`<span class="${h.warnings.includes('camara') ? 'text-rose-700 font-bold' : ''}">${CAMERA_LABELS[h.camera] || h.camera}</span>`);
+            parts.push(`<span class="${h.warnings.includes('voz') ? 'text-rose-700 font-bold' : ''}" title="${escapeHtml(h.voiceName ? 'Voz elegida: ' + h.voiceName : 'Confirmación por voz')}"><i class="fa-solid fa-volume-${h.warnings.includes('voz') ? 'xmark' : 'high'}"></i> ${VOICE_LABELS[h.voice] || 'Voz: sin verificar'}</span>`);
             if (h.pending) parts.push(`<span class="text-amber-700 font-bold">${h.pending} marcación(es) pendiente(s) por enviar</span>`);
             if (h.cacheMin != null) {
                 const stale = h.cacheMin > 24 * 60;
@@ -13620,7 +13622,7 @@
         const DEVICE_EVENT_LABELS = {
             sin_conexion: ['Sin conexión', 'bg-rose-100 text-rose-700'], reconectado: ['Reconectado', 'bg-emerald-100 text-emerald-700'],
             bateria_baja: ['Batería baja', 'bg-amber-100 text-amber-800'], camara: ['Cámara', 'bg-rose-100 text-rose-700'],
-            camara_ok: ['Cámara OK', 'bg-emerald-100 text-emerald-700'], sincronizado: ['Marcaciones enviadas', 'bg-amber-100 text-amber-800'], aviso_enviado: ['Aviso por correo (anterior)', 'bg-sky-100 text-sky-700'],
+            camara_ok: ['Cámara OK', 'bg-emerald-100 text-emerald-700'], voz: ['Voz', 'bg-rose-100 text-rose-700'], voz_ok: ['Voz OK', 'bg-emerald-100 text-emerald-700'], sincronizado: ['Marcaciones enviadas', 'bg-amber-100 text-amber-800'], aviso_enviado: ['Aviso por correo (anterior)', 'bg-sky-100 text-sky-700'],
         };
         async function attendanceOpenDeviceEvents(deviceId) {
             try {
