@@ -1352,6 +1352,7 @@
                                 <label class="block text-2xs font-bold text-slate-500 uppercase mb-1">Hasta</label>
                                 <input type="date" id="attWorkdaysTo" class="px-3 py-2 rounded-lg border border-slate-300 text-sm">
                             </div>
+                            <button type="button" onclick="attWorkdaysCurrentFortnight()" title="Del 1 al 15 o del 16 al último día del mes en curso" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-calendar-days text-slate-500"></i> Quincena actual</button>
                             <button onclick="attendanceLoadWorkdays()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold">Consultar</button>
                             <button onclick="exportWorkdaysXLSX()" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-file-excel text-emerald-600"></i> Exportar Excel</button>
                         </div>
@@ -11917,6 +11918,15 @@
             } catch (e) {
                 body.innerHTML = `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">${escapeHtml(e.message)}</td></tr>`;
             }
+        }
+        // Botón "Quincena actual": del 1 al 15 o del 16 al último día del mes (igual que en Nómina).
+        function attWorkdaysCurrentFortnight() {
+            const t = bogotaTodayParts();
+            const ym = `${t.y}-${String(t.m).padStart(2, '0')}`;
+            const last = new Date(Date.UTC(t.y, t.m, 0)).getUTCDate();
+            document.getElementById('attWorkdaysFrom').value = `${ym}-${t.d <= 15 ? '01' : '16'}`;
+            document.getElementById('attWorkdaysTo').value = `${ym}-${t.d <= 15 ? '15' : String(last).padStart(2, '0')}`;
+            attendanceLoadWorkdays();
         }
         // Filtros de Días laborados (buscar colaborador y área): filtran la tabla, los totales y el Excel.
         function workdaysShown() {
