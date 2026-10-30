@@ -6807,9 +6807,9 @@
                             // y una marca naranja cuando tiene horas extra programadas.
                             const extraMin = plannedExtraMinutes(shift);
                             const extraBadge = extraMin ? `<span class="text-[9px] px-1 rounded bg-orange-500 text-white font-bold shrink-0" title="${hmLabel(extraMin)} extra programadas">+${hmLabel(extraMin).replace(' h', 'h')}</span>` : '';
-                            const funcBadge = (shift.note
-                                ? `<span class="text-[9px] px-1 rounded bg-white text-slate-900 border border-slate-500 shadow-sm font-bold tracking-tight whitespace-nowrap overflow-hidden text-ellipsis min-w-0" title="Nota del día: ${escapeHtml(shift.note)}"><i class="fa-solid fa-note-sticky"></i> ${escapeHtml(shift.note)}</span>`
-                                : '') + extraBadge;
+                            // La nota va en su propio renglón, a todo el ancho de la casilla, y la
+                            // letra se ajusta sola para que se lea completa (ver fitRosterLabels).
+                            const noteBox = shift.note ? rosterNoteBox(shift.note) : '';
 
                             return `
                                 <td data-rc-emp="${emp.id}" data-rc-date="${d.dateISO}" class="p-1 border-r border-slate-200 text-center align-middle relative">
@@ -6819,12 +6819,14 @@
                                         ${shift.isSplit && shift.splitOut && shift.splitIn ? `
                                         <div class="text-3xs font-black leading-tight">${shift.startTime}-${shift.splitOut} /</div>
                                         <div class="text-3xs font-black leading-tight">${shift.splitIn}-${shift.endTime} <span class="font-bold font-mono text-[9px] opacity-80">${shift.res.totalHours.toFixed(1)}h</span></div>
-                                        <div class="flex justify-center leading-tight">${funcBadge}</div>` : `
+                                        ${extraBadge ? `<div class="flex justify-center leading-tight">${extraBadge}</div>` : ''}
+                                        ${noteBox}` : `
                                         <div class="text-3xs font-black leading-tight">${shiftTimeLabel(shift)}</div>
                                         <div class="flex items-center justify-center gap-0.5 text-4xs leading-tight">
                                             <span class="font-bold font-mono shrink-0 text-[9px]">${shift.res.totalHours.toFixed(1)}h</span>
-                                            ${funcBadge}
-                                        </div>`}
+                                            ${extraBadge}
+                                        </div>
+                                        ${noteBox}`}
                                     </div>
                                 </td>
                             `;
@@ -6838,7 +6840,7 @@
                                         <div class="font-extrabold text-3xs uppercase leading-tight w-full overflow-hidden">
                                             <span class="roster-fit block">${a.label}</span>
                                         </div>
-                                        ${shift.note ? `<span class="text-4xs px-1 rounded bg-white text-slate-900 border border-slate-500 shadow-sm font-bold line-clamp-1 break-all leading-tight mt-0.5"><i class="fa-solid fa-note-sticky"></i> ${escapeHtml(shift.note)}</span>` : ''}
+                                        ${shift.note ? rosterNoteBox(shift.note) : ''}
                                     </div>
                                 </td>
                             `;
@@ -6895,19 +6897,31 @@
         // Etiquetas de novedades del cuadro (Integración, Descanso acumulado...):
         // la letra se reduce sola hasta que el nombre quepa en la casilla (máximo
         // 2 renglones). Se vuelve a ajustar si cambia el tamaño de la pantalla.
+        // Notas del día (.roster-note): igual, pero la letra no baja de 8 px para que se
+        // lea; si aun así no cabe, se corta en 2 renglones con "…" (completa al pasar el mouse).
         function fitRosterLabels(root) {
             (root || document).querySelectorAll('.roster-fit').forEach(el => {
-                el.style.removeProperty('font-size');
-                el.style.removeProperty('word-break');
+                const isNote = el.classList.contains('roster-note');
+                ['font-size', 'word-break', 'display', '-webkit-line-clamp', '-webkit-box-orient', 'overflow'].forEach(p => el.style.removeProperty(p));
                 if (!el.clientWidth) return; // no visible: se ajusta al mostrarse
                 const cs = getComputedStyle(el);
                 let size = parseFloat(cs.fontSize) || 11;
                 const ratio = (parseFloat(cs.lineHeight) || size * 1.25) / size;
                 const tooBig = () => el.scrollWidth > el.clientWidth + 0.5 || el.scrollHeight > size * ratio * 2 + 1;
+                const minSize = isNote ? 8 : 7;
                 let guard = 0;
-                while (tooBig() && size > 7 && guard++ < 40) { size -= 0.5; el.style.setProperty('font-size', size + 'px', 'important'); }
-                if (tooBig()) el.style.wordBreak = 'break-all'; // último recurso: parte la palabra
+                while (tooBig() && size > minSize && guard++ < 40) { size -= 0.5; el.style.setProperty('font-size', size + 'px', 'important'); }
+                if (!tooBig()) return;
+                if (isNote) { // nota muy larga: 2 renglones y "…"
+                    el.style.display = '-webkit-box'; el.style.webkitLineClamp = '2'; el.style.webkitBoxOrient = 'vertical'; el.style.overflow = 'hidden';
+                } else el.style.wordBreak = 'break-all'; // último recurso: parte la palabra
             });
+        }
+        // Recuadro blanco de la nota del día dentro de una casilla del cuadro.
+        function rosterNoteBox(note) {
+            return `<div class="mt-0.5 w-full rounded bg-white text-slate-900 border border-slate-500 shadow-sm px-1 overflow-hidden" title="Nota del día: ${escapeHtml(note)}">
+                <span class="roster-fit roster-note block text-[10px] font-bold leading-tight tracking-tight break-words"><i class="fa-solid fa-note-sticky text-amber-500"></i> ${escapeHtml(note)}</span>
+            </div>`;
         }
         let rosterFitTimer = null;
         window.addEventListener('resize', () => { clearTimeout(rosterFitTimer); rosterFitTimer = setTimeout(() => fitRosterLabels(document.getElementById('rosterTableBody')), 150); });
