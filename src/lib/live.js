@@ -25,6 +25,7 @@ const SCOPE_RULES = [
   [/^\/api\/payroll\/opening-balance/, ['data', 'payroll']],
   [/^\/api\/payroll\//, ['payroll']],
   [/^\/api\/org\/users/, ['users', 'data']],
+  [/^\/api\/attendance\/scheduled-exit$/, ['attendance', 'data']],
   [/^\/api\/attendance\/(mark|mark-by-face|corrections|alerts\/[^/]+\/manage|offline-marks\/[^/]+\/(apply|discard))$/, ['attendance']],
   [/^\/api\/attendance\/(devices|face-profiles|evidence-settings|device-alert-settings|indicator-goals|digest-settings)/, ['attendance']],
 ];

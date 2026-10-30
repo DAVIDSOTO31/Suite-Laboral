@@ -2020,6 +2020,39 @@
         </div>
     </div>
 
+    <!-- MODAL: Adelantar la salida programada de un turno ya finalizado -->
+    <div id="modalEarlyExit" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-200 max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-start border-b pb-3">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-clock-rotate-left text-amber-600"></i> Adelantar salida programada</h3>
+                    <p class="text-xs text-slate-500 mt-0.5" id="eeSubtitle">-</p>
+                </div>
+                <button onclick="closeModal('modalEarlyExit')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <input type="hidden" id="eeEmpId"><input type="hidden" id="eeDate">
+            <div class="grid grid-cols-3 gap-2 text-xs">
+                <div class="bg-slate-50 border border-slate-200 rounded-lg p-2"><p class="text-3xs uppercase font-bold text-slate-500">Entrada prog.</p><p class="font-mono font-bold text-slate-800" id="eeStart">-</p></div>
+                <div class="bg-slate-50 border border-slate-200 rounded-lg p-2"><p class="text-3xs uppercase font-bold text-slate-500">Salida prog.</p><p class="font-mono font-bold text-slate-800" id="eeEnd">-</p></div>
+                <div class="bg-slate-50 border border-slate-200 rounded-lg p-2"><p class="text-3xs uppercase font-bold text-slate-500">Salida marcada</p><p class="font-mono font-bold text-slate-800" id="eeReal">-</p></div>
+            </div>
+            <div class="text-xs">
+                <label class="block font-semibold text-slate-700 mb-1">Nueva salida programada <span class="text-rose-600">*</span></label>
+                <input type="time" id="eeNew" oninput="updateEarlyExitPreview()" class="w-40 p-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                <p class="text-3xs mt-1" id="eePreview"></p>
+            </div>
+            <div class="text-xs">
+                <label class="block font-semibold text-slate-700 mb-1">Motivo <span class="text-rose-600">*</span></label>
+                <textarea id="eeReason" rows="2" maxlength="300" placeholder="Ej. Su jornada de ese día era hasta las 13:00; se quedó apoyando el cierre" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"></textarea>
+                <p class="text-3xs text-slate-400 mt-1">Cambia la salida del turno en el cuadro y recalcula el día con las reglas de siempre (barrera de 30 min, recargo nocturno hasta la salida programada). Las marcaciones no se tocan; el cambio queda en las correcciones del día y en la auditoría.</p>
+            </div>
+            <div class="flex justify-end gap-2 border-t pt-3">
+                <button onclick="closeModal('modalEarlyExit')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                <button id="eeSubmit" onclick="submitEarlyExit()" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shadow">Guardar y recalcular</button>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL: PDF del cuadro de turnos (todas las áreas o algunas) -->
     <div id="modalRosterPdf" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
         <div class="bg-white rounded-xl max-w-sm w-full p-5 shadow-2xl space-y-4 border border-slate-200 max-h-[92vh] overflow-y-auto">
@@ -9655,8 +9688,8 @@
         }
 
         // ---- Corrección de marcaciones de un día (solo Administrador) ----
-        const CORR_LABELS = { entrada: 'Entrada', inicio_almuerzo: 'Inicio de almuerzo', fin_almuerzo: 'Fin de almuerzo', salida: 'Salida' };
-        const CORR_SPLIT_LABELS = { entrada: 'Inicio Etapa 1', inicio_almuerzo: 'Final Etapa 1', fin_almuerzo: 'Inicio Etapa 2', salida: 'Final Etapa 2' };
+        const CORR_LABELS = { entrada: 'Entrada', inicio_almuerzo: 'Inicio de almuerzo', fin_almuerzo: 'Fin de almuerzo', salida: 'Salida', salida_programada: 'Salida programada' };
+        const CORR_SPLIT_LABELS = { entrada: 'Inicio Etapa 1', inicio_almuerzo: 'Final Etapa 1', fin_almuerzo: 'Inicio Etapa 2', salida: 'Final Etapa 2', salida_programada: 'Salida programada' };
         // Historial: al tocar "Corregido" se ve qué marcación se cambió, de qué hora a cuál, por qué, quién y cuándo.
         async function showDayCorrections(empId, dateISO, isSplit) {
             const emp = appState.employees.find(e => Number(e.id) === Number(empId));
@@ -9810,6 +9843,80 @@
             } catch (e) {
                 showAppToast('No se pudo guardar: ' + e.message);
             }
+        }
+
+        // ---- Adelantar la salida programada de un turno ya finalizado ----
+        // El tiempo desde la nueva salida hasta la salida marcada pasa a horas extra
+        // (lo calcula el servidor con las reglas de siempre).
+        let earlyExitCtx = null;
+        async function openEarlyExit(empId, dateISO) {
+            if (!CAN('attendance.mark')) return;
+            const emp = appState.employees.find(e => Number(e.id) === Number(empId));
+            let day = null;
+            try { day = (await apiFetch(`/api/attendance/history?from=${dateISO}&to=${dateISO}&employeeId=${empId}`)).rows[0] || null; } catch (e) { /* nada */ }
+            if (!emp || !day || day.status !== 'turno_finalizado') { showAppToast('Ese turno aún no está finalizado.'); return; }
+            earlyExitCtx = { start: day.scheduled_entrada, end: day.scheduled_salida, real: day.salida_real };
+            document.getElementById('eeEmpId').value = emp.id;
+            document.getElementById('eeDate').value = dateISO;
+            document.getElementById('eeSubtitle').textContent = `${emp.name} · ${dateISO.split('-').reverse().join('/')}`;
+            document.getElementById('eeStart').textContent = day.scheduled_entrada || '-';
+            document.getElementById('eeEnd').textContent = day.scheduled_salida || '-';
+            document.getElementById('eeReal').textContent = day.salida_real || '-';
+            document.getElementById('eeNew').value = '';
+            document.getElementById('eeReason').value = '';
+            updateEarlyExitPreview();
+            openModal('modalEarlyExit');
+        }
+        // Minutos desde la entrada programada (los turnos de noche cruzan la medianoche).
+        function earlyExitRel(clock, start) {
+            const t = (c) => { const [h, m] = String(c || '').split(':').map(Number); return h * 60 + m; };
+            if (!clock || !start) return null;
+            let d = t(clock) - t(start);
+            if (d < 0) d += 1440;
+            return d;
+        }
+        function updateEarlyExitPreview() {
+            const box = document.getElementById('eePreview');
+            const c = earlyExitCtx; const v = document.getElementById('eeNew').value;
+            if (!c || !v) { box.className = 'text-3xs mt-1 text-slate-500'; box.textContent = `Debe ser más temprano que ${c ? c.end : 'la salida programada'}.`; return; }
+            const nw = earlyExitRel(v, c.start), end = earlyExitRel(c.end, c.start), real = earlyExitRel(c.real, c.start);
+            if (!(nw > 0 && nw < end)) { box.className = 'text-3xs mt-1 text-rose-700 font-semibold'; box.textContent = `La nueva salida debe ser más temprano que ${c.end} y después de la entrada.`; return; }
+            const after = real - nw;
+            if (after <= 0) { box.className = 'text-3xs mt-1 text-slate-600'; box.textContent = `Salió a las ${c.real}, antes de la nueva salida: no genera horas extra.`; return; }
+            const ok = after >= 30;
+            box.className = `text-3xs mt-1 font-semibold ${ok ? 'text-emerald-700' : 'text-amber-700'}`;
+            box.textContent = `Desde las ${v} hasta su salida marcada (${c.real}): ${hmLabel(after)}. ` + (ok ? 'Pasa a horas extra (diurna o nocturna según la hora).' : 'No llega a 30 min: no se reconoce como extra (barrera de 30 min).');
+        }
+        async function submitEarlyExit() {
+            const empId = Number(document.getElementById('eeEmpId').value);
+            const date = document.getElementById('eeDate').value;
+            const salida = document.getElementById('eeNew').value;
+            const reason = document.getElementById('eeReason').value.trim();
+            const c = earlyExitCtx;
+            if (!salida) { showAppToast('Elige la nueva hora de salida.'); return; }
+            const nw = earlyExitRel(salida, c.start), end = earlyExitRel(c.end, c.start);
+            if (!(nw > 0 && nw < end)) { showAppToast(`La nueva salida debe ser más temprano que ${c.end}.`); return; }
+            if (reason.length < 5) { showAppToast('Escribe el motivo (mínimo 5 caracteres).'); return; }
+            const btn = document.getElementById('eeSubmit'); btn.disabled = true;
+            try {
+                const r = await apiFetch('/api/attendance/scheduled-exit', { method: 'POST', body: JSON.stringify({ employeeId: empId, date, salida, reason }) });
+                // El cuadro de turnos queda con la nueva salida (sin reenviar nada al servidor).
+                const sh = appState.shifts.find(s => Number(s.empId) === empId && s.date === date && !s.isOffDay);
+                if (sh && r.shift) {
+                    sh.endTime = r.shift.endTime;
+                    const emp = appState.employees.find(e => Number(e.id) === empId);
+                    if (sh.res && emp) sh.res = calculateShift(sh.startTime, sh.endTime, Number(sh.breakM) || 0, Number(sh.limit) || 8, !!sh.res.isSunday, earlyExitRel(sh.endTime, '00:00') <= earlyExitRel(sh.startTime, '00:00'), emp.salary, empNightSurcharge(emp, sh.startTime, sh.date));
+                }
+                if (r.dataVersion != null) appState.dataVersion = Number(r.dataVersion);
+                closeModal('modalEarlyExit');
+                const h = r.hours || {};
+                showAppToast(`Salida cambiada a las ${salida}. Extras del día: diurna ${hmLabel(h.hed_min || 0)}, nocturna ${hmLabel(h.hen_min || 0)}.`);
+                if (!document.getElementById('view-attendance').classList.contains('hidden')) attendanceLoadHistory();
+                if (!document.getElementById('view-payrollot').classList.contains('hidden')) renderPayrollOvertimeView();
+                if (!document.getElementById('view-shifts').classList.contains('hidden')) renderWeeklyRoster();
+            } catch (e) {
+                showAppToast('No se pudo guardar: ' + e.message);
+            } finally { btn.disabled = false; }
         }
 
         // Interruptor de la organización: liquidar recargos dominicales y festivos.
@@ -12169,7 +12276,7 @@
                         <td class="px-3 py-2">${attMinutesLabel(r.hed_min)}</td>
                         <td class="px-3 py-2">${attMinutesLabel(r.hen_min)}</td>
                         <td class="px-3 py-2">${attStatusBadge(r.status, r.is_split)}${r.corrected ? `<button type="button" onclick="showDayCorrections(${r.employee_id}, '${r.shift_date}', ${r.is_split ? 'true' : 'false'})" title="Ver qué se corrigió" class="block mt-0.5 px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white text-3xs font-bold"><i class="fa-solid fa-pen"></i> Corregido</button>` : ''}${r.half_day_mode ? halfDayHistoryBadge(r) : ''}${r.voided_count ? `<button type="button" onclick="openVoidMark(${r.employee_id}, '${r.shift_date}', true)" title="Ver la marcación anulada" class="block mt-0.5 px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-800 text-white text-3xs font-bold"><i class="fa-solid fa-ban"></i> Anulada (${r.voided_count})</button>` : ''}${r.manual_marks ? `<span class="block mt-0.5 text-3xs font-bold text-violet-700" title="Ver motivo en la pestaña Alertas"><i class="fa-solid fa-hand-pointer"></i> Manual (${r.manual_marks})</span>` : ''}${r.offline_marks ? `<span class="block mt-0.5 text-3xs font-bold text-amber-700" title="Marcada en el kiosco sin internet y enviada después, con su hora real"><i class="fa-solid fa-wifi"></i> Sin conexión (${r.offline_marks})</span>` : ''}</td>
-                        <td class="px-3 py-2 text-right" data-perm="attendance.mark">${(r.shift_date < bogotaTodayISO() || (r.shift_date === bogotaTodayISO() && r.entrada_real)) ? `<button onclick="openAttendanceCorrection(${r.employee_id}, '${r.shift_date}')" class="text-2xs font-semibold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200">Corregir</button>` : ''}${(r.entrada_real || r.inicio_almuerzo_real || r.fin_almuerzo_real || r.salida_real) && !r.corrected ? `<button onclick="openVoidMark(${r.employee_id}, '${r.shift_date}')" title="El kiosco le puso una marcación que no era suya" class="mt-1 block ml-auto text-2xs font-semibold px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200">Anular</button>` : ''}</td>
+                        <td class="px-3 py-2 text-right" data-perm="attendance.mark">${(r.shift_date < bogotaTodayISO() || (r.shift_date === bogotaTodayISO() && r.entrada_real)) ? `<button onclick="openAttendanceCorrection(${r.employee_id}, '${r.shift_date}')" class="text-2xs font-semibold px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200">Corregir</button>` : ''}${r.status === 'turno_finalizado' && r.shift_date < bogotaTodayISO() && !r.is_split && r.scheduled_salida ? `<button onclick="openEarlyExit(${r.employee_id}, '${r.shift_date}')" title="Cambiar la salida programada a una hora más temprana: el tiempo hasta su salida marcada pasa a horas extra" class="mt-1 block ml-auto text-2xs font-semibold px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 whitespace-nowrap">Adelantar salida</button>` : ''}${(r.entrada_real || r.inicio_almuerzo_real || r.fin_almuerzo_real || r.salida_real) && !r.corrected ? `<button onclick="openVoidMark(${r.employee_id}, '${r.shift_date}')" title="El kiosco le puso una marcación que no era suya" class="mt-1 block ml-auto text-2xs font-semibold px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200">Anular</button>` : ''}</td>
                     </tr>`).join('') || `<tr><td colspan="15" class="px-3 py-6 text-center text-slate-400">${document.getElementById('attHistoryOnlyNovelty')?.checked ? 'Sin días con novedad en este rango de fechas.' : 'Sin marcaciones en este rango de fechas.'}</td></tr>`;
 
                 const closed = rows.filter(r => r.status === 'turno_finalizado');

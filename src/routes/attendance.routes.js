@@ -1353,6 +1353,35 @@ async function registerCorrection(req, res) {
     final[k] = v;
   }
 
+  const calc = recalcFinishedDay(orgId, employee, shift, date, final, !!day);
+  if (calc.error) return sendJson(res, 400, { error: calc.error });
+  const { cat, hedFinal } = calc;
+  const half = refreshHalfDay(orgId, employee.id, date, { fresh: true });
+
+  const insertCorr = db.prepare(`INSERT INTO attendance_corrections (id, organization_id, employee_id, shift_date, mark_type, original_time, corrected_time, reason, created_by, created_at)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-5 hours'))`);
+  const changes = [];
+  for (const k of rules.MARK_SEQUENCE) {
+    if (current[k] !== final[k]) {
+      insertCorr.run(uid('corr'), orgId, employee.id, date, k, current[k], final[k], reason, req.user.id);
+      changes.push({ marcacion: k, antes: current[k], despues: final[k] });
+    }
+  }
+  logAction({
+    organizationId: orgId, userId: req.user.id, action: 'attendance.correction',
+    resourceType: 'employee', resourceId: String(employee.id), ip: getClientIp(req),
+    metadata: { colaborador: employee.name, fecha: date, cambios: changes, motivo: reason },
+  });
+  let justified = [];
+  try { justified = justifyAlertsFromCorrection(orgId, employee.id, date, changes, reason, req.user.id); } catch (e) { console.error('[correccion->alertas]', e.message); }
+  sendJson(res, 200, { ok: true, changes, justified: justified.length, hours: { hod_min: cat.hod, hon_min: cat.hon, hed_min: hedFinal, hen_min: cat.hen }, halfDay: half ? half.mode : null });
+}
+
+// Recalcula un dia YA FINALIZADO con sus 4 horas (final) y el turno vigente,
+// con las mismas reglas del motor (recargo, barrera de 30 min, salida anticipada).
+// Lo usan la correccion de marcaciones y el cambio de la salida programada.
+function recalcFinishedDay(orgId, employee, shift, date, final, hasDay) {
+
   // Minutos absolutos desde la medianoche del dia del turno (cruza medianoche si hace falta).
   const scheduledEntradaMin = rules.timeToMinutes(shift.startTime);
   // Fin de la jornada ordinaria (con horas extra programadas, antes de la salida del turno).
@@ -1369,7 +1398,7 @@ async function registerCorrection(req, res) {
     abs[k] = m;
     prev = m;
   }
-  if (abs.salida - abs.entrada > 24 * 60) return sendJson(res, 400, { error: 'Las horas no forman una jornada valida (mas de 24 horas).' });
+  if (abs.salida - abs.entrada > 24 * 60) return { error: 'Las horas no forman una jornada valida (mas de 24 horas).' };
 
   const breakMinutes = abs.fin_almuerzo - abs.inicio_almuerzo;
   const nightEnabled = effectiveNightEnabled(orgId, employee, shift, date);
@@ -1393,7 +1422,7 @@ async function registerCorrection(req, res) {
   adeudado = rules.earlyLeaveDeductibleMinutes(adeudado); // tolerancia de 5 min
   const hedFinal = rules.applyEarlyLeaveDeduction(cat.hed, adeudado);
 
-  if (!day) {
+  if (!hasDay) {
     db.prepare(`INSERT INTO attendance_days (id, organization_id, employee_id, shift_date, status, scheduled_entrada, scheduled_salida)
                 VALUES (?, ?, ?, ?, 'pendiente_entrada', ?, ?)`).run(uid('att'), orgId, employee.id, date, shift.startTime, shift.endTime);
   }
@@ -1408,25 +1437,87 @@ async function registerCorrection(req, res) {
   `).run(final.entrada, final.inicio_almuerzo, final.fin_almuerzo, final.salida,
     shift.startTime, shift.endTime, retraso, exceso, adeudado,
     cat.hod, cat.hon, hedFinal, cat.hen, employee.id, date);
-  const half = refreshHalfDay(orgId, employee.id, date, { fresh: true });
+  return { cat, hedFinal };
+}
 
-  const insertCorr = db.prepare(`INSERT INTO attendance_corrections (id, organization_id, employee_id, shift_date, mark_type, original_time, corrected_time, reason, created_by, created_at)
-                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-5 hours'))`);
-  const changes = [];
-  for (const k of rules.MARK_SEQUENCE) {
-    if (current[k] !== final[k]) {
-      insertCorr.run(uid('corr'), orgId, employee.id, date, k, current[k], final[k], reason, req.user.id);
-      changes.push({ marcacion: k, antes: current[k], despues: final[k] });
-    }
+// ---------------------------------------------------------------------------
+// ADELANTAR LA SALIDA PROGRAMADA DE UN TURNO YA FINALIZADO (solo Administrador)
+// POST /api/attendance/scheduled-exit { employeeId, date, salida, reason }
+// - Solo dias anteriores a hoy, con el turno cerrado (4 marcaciones).
+// - Solo MAS TEMPRANO que la salida programada; turno partido no aplica.
+// - Cambia la salida del turno en el cuadro y recalcula el dia: el tiempo
+//   desde la nueva salida hasta la salida marcada pasa a horas extra (con la
+//   barrera de 30 min). Las marcaciones no se tocan. Queda en el historial de
+//   correcciones del dia ("Salida programada") y en la auditoria.
+// ---------------------------------------------------------------------------
+async function changeScheduledExit(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const date = String(body.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: 'Fecha invalida.' });
+  if (date >= bogota.todayISOInBogota()) return sendJson(res, 400, { error: 'Solo se puede cambiar la salida de turnos de dias anteriores, ya finalizados.' });
+  const reason = String(body.reason || '').trim().slice(0, 300);
+  if (reason.length < 5) return sendJson(res, 400, { error: 'Escribe el motivo del cambio (minimo 5 caracteres).' });
+  const salida = String(body.salida || '');
+  if (!HHMM.test(salida)) return sendJson(res, 400, { error: 'Escribe la nueva hora de salida en formato HH:MM.' });
+  const closed = db.prepare(`SELECT closure_type, period_start, period_end FROM payroll_closures
+    WHERE organization_id = ? AND status = 'cerrado' AND period_start <= ? AND period_end >= ?`).all(orgId, date, date);
+  if (closed.length) {
+    const desc = closed.map(c => `${c.closure_type} (${c.period_start} al ${c.period_end})`).join(' y ');
+    return sendJson(res, 409, { error: `Ese dia pertenece a un periodo cerrado de ${desc}. Para cambiarlo, primero reabre el periodo.` });
   }
+  const employee = db.prepare('SELECT * FROM employees WHERE id = ? AND organization_id = ?').get(Number(body.employeeId), orgId);
+  if (!employee) return sendJson(res, 404, { error: 'Colaborador no encontrado.' });
+  const shiftRow = db.prepare('SELECT id, data_json FROM shifts WHERE organization_id = ? AND data_json LIKE ?').all(orgId, `%"date":"${date}"%`)
+    .map(r => { try { return { id: r.id, sh: JSON.parse(r.data_json) }; } catch { return null; } })
+    .find(r => r && Number(r.sh.empId) === Number(employee.id) && r.sh.date === date);
+  const shift = shiftRow && shiftRow.sh;
+  if (!shift || shift.isOffDay || !shift.startTime || !shift.endTime) return sendJson(res, 400, { error: 'Ese dia el colaborador no tiene un turno con horario asignado.' });
+  if (shift.isSplit) return sendJson(res, 400, { error: 'En turno partido no se puede cambiar la salida programada desde aqui.' });
+  const day = db.prepare('SELECT * FROM attendance_days WHERE employee_id = ? AND shift_date = ?').get(employee.id, date);
+  if (!day || day.status !== 'turno_finalizado' || !rules.MARK_SEQUENCE.every(k => day[`${k}_real`])) {
+    return sendJson(res, 400, { error: 'El turno de ese dia aun no esta finalizado (le faltan marcaciones). Corrigelo primero.' });
+  }
+  const startMin = rules.timeToMinutes(shift.startTime);
+  const curEnd = rules.scheduledAbsoluteMinutes(shift.endTime, shift.startTime);
+  const newEnd = rules.scheduledAbsoluteMinutes(salida, shift.startTime);
+  if (!(newEnd < curEnd)) return sendJson(res, 400, { error: `La nueva salida debe ser mas temprano que la programada (${shift.endTime}).` });
+  if (newEnd - startMin <= (Number(shift.breakM) || 0)) return sendJson(res, 400, { error: `La nueva salida debe quedar despues de la entrada (${shift.startTime}) y del almuerzo.` });
+
+  const before = { ...shift };
+  const updated = { ...shift, endTime: salida };
+  const final = {};
+  for (const k of rules.MARK_SEQUENCE) final[k] = day[`${k}_real`];
+  let calc;
+  db.exec('BEGIN');
+  try {
+    db.prepare('UPDATE shifts SET data_json = ? WHERE id = ? AND organization_id = ?').run(JSON.stringify(updated), shiftRow.id, orgId);
+    calc = recalcFinishedDay(orgId, employee, updated, date, final, true);
+    if (calc.error) throw new Error(calc.error);
+    db.prepare("UPDATE attendance_days SET scheduled_salida = ?, corrected = 1, updated_at = datetime('now') WHERE employee_id = ? AND shift_date = ?").run(salida, employee.id, date);
+    db.prepare(`INSERT INTO attendance_corrections (id, organization_id, employee_id, shift_date, mark_type, original_time, corrected_time, reason, created_by, created_at)
+                VALUES (?, ?, ?, ?, 'salida_programada', ?, ?, ?, ?, datetime('now', '-5 hours'))`)
+      .run(uid('corr'), orgId, employee.id, date, before.endTime, salida, reason, req.user.id);
+    db.exec('COMMIT');
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* nada */ }
+    return sendJson(res, 400, { error: e.message || 'No se pudo cambiar la salida.' });
+  }
+  const half = refreshHalfDay(orgId, employee.id, date, { fresh: true });
+  const change = { marcacion: 'salida_programada', antes: before.endTime, despues: salida };
   logAction({
-    organizationId: orgId, userId: req.user.id, action: 'attendance.correction',
+    organizationId: orgId, userId: req.user.id, action: 'attendance.scheduled_exit_changed',
     resourceType: 'employee', resourceId: String(employee.id), ip: getClientIp(req),
-    metadata: { colaborador: employee.name, fecha: date, cambios: changes, motivo: reason },
+    metadata: { colaborador: employee.name, fecha: date, salidaAntes: before.endTime, salidaNueva: salida, salidaMarcada: day.salida_real,
+      extrasAntes: { diurna: day.hed_min || 0, nocturna: day.hen_min || 0 }, extrasDespues: { diurna: calc.hedFinal, nocturna: calc.cat.hen }, motivo: reason },
   });
   let justified = [];
-  try { justified = justifyAlertsFromCorrection(orgId, employee.id, date, changes, reason, req.user.id); } catch (e) { console.error('[correccion->alertas]', e.message); }
-  sendJson(res, 200, { ok: true, changes, justified: justified.length, hours: { hod_min: cat.hod, hon_min: cat.hon, hed_min: hedFinal, hen_min: cat.hen }, halfDay: half ? half.mode : null });
+  try { justified = justifyAlertsFromCorrection(orgId, employee.id, date, [change], reason, req.user.id); } catch (e) { console.error('[salida programada->alertas]', e.message); }
+  const dataVersion = require('./org.routes').bumpDataVersion(orgId);
+  sendJson(res, 200, { ok: true, shift: updated, dataVersion, justified: justified.length, halfDay: half ? half.mode : null,
+    hours: { hod_min: calc.cat.hod, hon_min: calc.cat.hon, hed_min: calc.hedFinal, hen_min: calc.cat.hen } });
 }
 
 // Correccion del MISMO DIA: solo las marcaciones ya hechas. Recalcula el
@@ -1487,12 +1578,13 @@ function registerSameDayCorrection(req, res, { orgId, employee, shift, day, curr
 // desaparece. No se tocan las que una persona ya decidio a mano (justificada /
 // injustificada); si cambian las pendientes y las automaticas de 24 h.
 // ---------------------------------------------------------------------------
-const CORR_MARK_LABELS = { entrada: 'Entrada', inicio_almuerzo: 'Inicio de almuerzo', fin_almuerzo: 'Regreso de almuerzo', salida: 'Salida' };
+const CORR_MARK_LABELS = { entrada: 'Entrada', inicio_almuerzo: 'Inicio de almuerzo', fin_almuerzo: 'Regreso de almuerzo', salida: 'Salida', salida_programada: 'Salida programada' };
 const CORR_ALERT_TYPES = {
   entrada: ['llegada_tarde', 'inasistencia'],
   inicio_almuerzo: ['exceso_almuerzo', 'etapa_extendida'],
   fin_almuerzo: ['exceso_almuerzo'],
   salida: ['salida_anticipada', 'turno_sin_cerrar'],
+  salida_programada: ['salida_anticipada'],
 };
 const CORR_CATEGORY = 'Corrección en Historial';
 // ¿La novedad sigue existiendo con las horas que tiene hoy el dia? true = ya no existe.
@@ -3526,6 +3618,7 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(HOURS_ENGINE_
 }
 
 module.exports = {
+  changeScheduledExit,
   faceQuality,
   listDayMarks, voidMark,
   kioskLiveVersion, kioskOfflineCache,
