@@ -7668,7 +7668,7 @@
             // Guardamos el cálculo vigente para reutilizarlo en las ediciones en vivo y la exportación CSV
             appState._payrollOtCache = {
                 rows: calc.rows, startDate, endDate,
-                closures: { recargos: calc.closedRecargos, extras: calc.closedExtras, all: calc.closureInfo.closures || [], previousExtras: calc.closureInfo.previousExtras, recargosInfo: calc.closureInfo.recargos || null },
+                closures: { recargos: calc.closedRecargos, extras: calc.closedExtras, all: calc.closureInfo.closures || [], previousExtras: calc.closureInfo.previousExtras, recargosInfo: calc.closureInfo.recargos || null, extrasInfo: calc.closureInfo.extras || null },
             };
 
             renderPayrollOtTableAndKpis();
@@ -8422,6 +8422,10 @@
         function extrasOpenBlock(cl, sumExt, money, fmt, canClose) {
             const cache = appState._payrollOtCache;
             const closed = cl.extras;
+            const own = appState._payrollRangeOwner;
+            const recRange = !closed && own && own.who === 'recargos' && own.from === cache.startDate && own.to === cache.endDate;
+            if (recRange) return extrasIdleBlock(cl, fmt);
+            appState._extrasLastRange = { from: cache.startDate, to: cache.endDate }; // para volver a él
             const others = (cl.all || []).filter(c => c.type === 'extras' && c.status === 'cerrado' && !(closed && c.id === closed.id));
             const reopened = (cl.all || []).filter(c => c.type === 'extras' && c.status === 'reabierto' && c.from === cache.startDate && c.to === cache.endDate);
             const withExt = cache.rows.filter(r => Math.abs(r.hedDays || 0) > 0.0001 || r.carryIn || Math.abs(r.hen) > 0.0001)
@@ -8467,6 +8471,31 @@
                         ${withExt.length > shown.length ? `<p class="text-3xs text-amber-700 mt-1">y ${withExt.length - shown.length} más · el detalle completo está en la tabla de abajo.</p>` : ''}`
                     : '<p class="text-3xs text-amber-700 mt-1">Nadie tiene horas extras ni saldo en este rango.</p>'}
                 </div>
+            </div>`;
+        }
+        // El rango en pantalla lo eligió el cuadro de recargos: horas extras muestra SU
+        // periodo (independiente) y no deja cerrar con fechas que no son las suyas.
+        function extrasIdleBlock(cl, fmt) {
+            const cache = appState._payrollOtCache;
+            const next = cl.extrasInfo && cl.extrasInfo.nextStart;
+            const last = appState._extrasLastRange;
+            const from = last ? last.from : (next || cache.startDate);
+            const to = last ? last.to : cache.endDate;
+            return `<div class="rounded-xl border border-amber-200 bg-white p-4">
+                <p class="text-3xs uppercase font-bold text-amber-700">Cierre de horas extras</p>
+                <p class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-lock-open text-slate-400"></i> Periodo abierto desde el ${fmt(from)}</p>
+                <div class="flex flex-wrap items-end gap-2 mt-2">
+                    <div>
+                        <label class="block text-3xs font-bold text-slate-500 uppercase mb-0.5">Desde</label>
+                        <input type="date" id="payrollExtFrom" value="${from}" class="text-xs p-1.5 border border-slate-300 rounded-lg">
+                    </div>
+                    <div>
+                        <label class="block text-3xs font-bold text-slate-500 uppercase mb-0.5">Hasta</label>
+                        <input type="date" id="payrollExtTo" value="${to}" class="text-xs p-1.5 border border-slate-300 rounded-lg">
+                    </div>
+                    <button onclick="applyExtrasRange()" class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-50"><i class="fa-solid fa-eye"></i> Revisar</button>
+                </div>
+                <p class="text-3xs text-slate-500 mt-2">La tabla está mostrando el periodo de <strong>recargos</strong> (del ${fmt(cache.startDate)} al ${fmt(cache.endDate)}). Horas extras se cierra aparte: presiona <strong>Revisar</strong> para ver su vista previa y cerrarlo.</p>
             </div>`;
         }
         function applyExtrasRange() {
@@ -9431,7 +9460,7 @@
                         <label class="block text-3xs font-bold text-slate-500 uppercase mb-0.5">Hasta</label>
                         <input type="date" id="payrollRecCut" value="${toVal}" ${closed ? 'disabled' : `min="${info.nextStart}" max="${info.maxEnd}"`} class="text-xs p-1.5 border border-slate-300 rounded-lg ${closed ? 'bg-slate-50 text-slate-600' : ''}">
                     </div>
-                    ${closed ? '' : `<button onclick="setPayrollRange('${info.nextStart}', document.getElementById('payrollRecCut').value)" class="${btn} border border-purple-300 text-purple-800 hover:bg-purple-50"><i class="fa-solid fa-eye"></i> Revisar</button>`}
+                    ${closed ? '' : `<button onclick="setPayrollRange('${info.nextStart}', document.getElementById('payrollRecCut').value, 'recargos')" class="${btn} border border-purple-300 text-purple-800 hover:bg-purple-50"><i class="fa-solid fa-eye"></i> Revisar</button>`}
                     <button onclick="exportPayrollNightXLSX()" class="${btn} border border-slate-300 text-slate-700 hover:bg-slate-50"><i class="fa-solid fa-file-excel text-emerald-600"></i> Excel</button>
                     ${closed ? `<button onclick="exportClosurePdf('recargos')" class="${btn} bg-rose-600 hover:bg-rose-700 text-white"><i class="fa-solid fa-file-pdf"></i> PDF del cierre</button>
                     <button onclick="openPayslipModal('recargos')" class="${btn} bg-white border border-rose-300 text-rose-700 hover:bg-rose-50"><i class="fa-solid fa-receipt"></i> Colillas de pago</button>` : ''}
@@ -9439,14 +9468,17 @@
                     ${canClose && !closed ? `<button onclick="closeRecargosPeriod()" class="${btn} bg-slate-800 hover:bg-slate-900 text-white"><i class="fa-solid fa-lock"></i> Cerrar periodo</button>` : ''}
                 </div>` : `<p class="text-3xs text-slate-500 mt-1">El periodo abierto empezó hoy; podrás cerrarlo desde mañana.</p>`}
                 ${closed
-                    ? (info.nextStart ? `<p class="text-3xs text-emerald-700 mt-1">El periodo siguiente está abierto desde el ${fmt(info.nextStart)} · <button class="underline" onclick="setPayrollRange('${info.nextStart}', '${info.maxEnd >= info.nextStart ? info.maxEnd : info.nextStart}')">ver</button></p>` : '')
-                    : `<p class="text-3xs text-slate-500 mt-1">${label}. ${info.last ? `Último cierre: del ${fmt(info.last.from)} al ${fmt(info.last.to)} · <button class="underline text-purple-700" onclick="setPayrollRange('${info.last.from}', '${info.last.to}')">ver</button>` : 'Aún no hay cierres de recargos.'}</p>`}
+                    ? (info.nextStart ? `<p class="text-3xs text-emerald-700 mt-1">El periodo siguiente está abierto desde el ${fmt(info.nextStart)} · <button class="underline" onclick="setPayrollRange('${info.nextStart}', '${info.maxEnd >= info.nextStart ? info.maxEnd : info.nextStart}', 'recargos')">ver</button></p>` : '')
+                    : `<p class="text-3xs text-slate-500 mt-1">${label}. ${info.last ? `Último cierre: del ${fmt(info.last.from)} al ${fmt(info.last.to)} · <button class="underline text-purple-700" onclick="setPayrollRange('${info.last.from}', '${info.last.to}', 'recargos')">ver</button>` : 'Aún no hay cierres de recargos.'}</p>`}
                 ${closed || canCut ? preview : ''}
             </div>`;
         }
         // Muestra un rango personalizado en la liquidación.
-        async function setPayrollRange(from, to) {
+        // owner = 'recargos' cuando el rango lo eligió el cuadro de recargos (Revisar / ver):
+        // así el cuadro de horas extras sabe que ese rango NO es su periodo.
+        async function setPayrollRange(from, to, owner) {
             if (!from || !to) return;
+            appState._payrollRangeOwner = owner ? { who: owner, from, to } : null;
             document.getElementById('payrollOtPeriodType').value = 'custom';
             document.getElementById('payrollOtStartDate').value = from;
             document.getElementById('payrollOtEndDate').value = to;
@@ -9468,7 +9500,7 @@
             const cut = document.getElementById('payrollRecCut')?.value;
             if (!cut || cut < info.nextStart || cut > info.maxEnd) { showAppToast('Elige una fecha de corte válida (máximo ayer).'); return; }
             // La tabla debe mostrar exactamente el periodo a cerrar.
-            if (cache.startDate !== info.nextStart || cache.endDate !== cut) await setPayrollRange(info.nextStart, cut);
+            if (cache.startDate !== info.nextStart || cache.endDate !== cut) await setPayrollRange(info.nextStart, cut, 'recargos');
             await closePayrollPeriod('recargos');
         }
 
