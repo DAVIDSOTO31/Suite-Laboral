@@ -13580,6 +13580,7 @@
             const b = lastTodayBoard;
             if (!b) return;
             const picked = msVals('attTodayArea');
+            const area = picked.join(', '); // áreas marcadas en el filtro (vacío = todas)
             const areas = b.areas.filter(a => !picked.length || picked.includes(a.name));
             const people = areas.flatMap(a => a.people.map(p => ({ ...p, area: a.name })));
             const absences = b.absences.filter(a => !picked.length || picked.includes(a.department));
@@ -13673,7 +13674,7 @@
                         </div>`;
                     }).join('')}</div>
                 </div>`;
-            }).join('') : '<p class="text-center text-slate-400 text-xs py-6">No hay colaboradores con turno programado hoy' + (area ? ' en esta área' : '') + '.</p>';
+            }).join('') : '<p class="text-center text-slate-400 text-xs py-6">No hay colaboradores con turno programado hoy' + (area ? (picked.length > 1 ? ' en estas áreas' : ' en esta área') : '') + '.</p>';
             document.getElementById('attTodayAbsences').innerHTML = absences.length ? `
                 <div class="border border-yellow-200 bg-yellow-50/50 rounded-lg px-3 py-2">
                     <p class="text-2xs font-bold uppercase text-yellow-800 mb-1"><i class="fa-solid fa-umbrella-beach"></i> Ausencias programadas hoy (${absences.length})</p>
