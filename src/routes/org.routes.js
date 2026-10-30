@@ -1080,6 +1080,19 @@ function nextRecargosStart(orgId) {
   const first = db.prepare('SELECT MIN(shift_date) AS d FROM attendance_days WHERE organization_id = ?').get(orgId);
   return first && first.d ? first.d : null;
 }
+// Horas extras: su periodo abierto es INDEPENDIENTE del de recargos (las
+// fechas de corte casi nunca coinciden). Arranca el dia despues del ultimo
+// cierre activo de extras; sin cierres, igual que recargos (Dia 0 o primera marcacion).
+function nextExtrasStart(orgId) {
+  const last = db.prepare(`SELECT period_end FROM payroll_closures
+    WHERE organization_id = ? AND closure_type = 'extras' AND status = 'cerrado'
+    ORDER BY period_end DESC LIMIT 1`).get(orgId);
+  if (last) return addDaysISO(last.period_end, 1);
+  const dz = getDayZero(orgId);
+  if (dz) return addDaysISO(dz, 1);
+  const first = db.prepare('SELECT MIN(shift_date) AS d FROM attendance_days WHERE organization_id = ?').get(orgId);
+  return first && first.d ? first.d : null;
+}
 
 // ---------------------------------------------------------------------------
 // DIA 0 Y SALDOS INICIALES
@@ -1197,6 +1210,7 @@ function listPayrollClosures(req, res, query) {
       maxEnd: addDaysISO(bogotaToday(), -1),
       last: lastRec ? { id: lastRec.id, from: lastRec.period_start, to: lastRec.period_end, closedAt: lastRec.closed_at, closedBy: lastRec.closed_by_email } : null,
     },
+    extras: { nextStart: nextExtrasStart(orgId) },
   });
 }
 
