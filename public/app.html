@@ -4161,6 +4161,8 @@
                             <button type="button" onclick="discSigClear()" class="block px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 font-semibold">Borrar</button>
                             <label class="block px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 font-semibold cursor-pointer">Subir imagen<input type="file" accept="image/png,image/jpeg" class="hidden" onchange="discSigUpload(this)"></label>
                             <p class="text-3xs text-slate-500 max-w-[220px]">Dibújala con el mouse o el dedo, o sube una foto de la firma sobre papel blanco.</p>
+                            <button type="button" id="discSigSaveBtn" onclick="discSaveSignature()" class="hidden px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold"><i class="fa-solid fa-floppy-disk"></i> Guardar firma</button>
+                            <p id="discSigStatus" class="text-3xs font-semibold max-w-[220px]"></p>
                         </div>
                     </div>
                 </div>
@@ -4509,9 +4511,37 @@
             ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0f172a';
             pad.onpointerdown = (e) => { e.preventDefault(); drawing = true; last = pt(e); pad.setPointerCapture(e.pointerId); };
             pad.onpointermove = (e) => { if (!drawing) return; const p = pt(e); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); last = p; discSigDirty = true; discSigEmpty = false; };
-            pad.onpointerup = pad.onpointercancel = pad.onpointerleave = () => { drawing = false; };
+            pad.onpointerup = pad.onpointercancel = pad.onpointerleave = () => { if (drawing && discSigDirty) discSigMarkUnsaved(); drawing = false; };
+            discSigStatusText(sig ? 'saved' : '');
         }
-        function discSigClear() { const pad = document.getElementById('discSigPad'); pad.getContext('2d').clearRect(0, 0, pad.width, pad.height); discSigDirty = true; discSigEmpty = true; }
+        function discSigClear() { const pad = document.getElementById('discSigPad'); pad.getContext('2d').clearRect(0, 0, pad.width, pad.height); discSigDirty = true; discSigEmpty = true; discSigMarkUnsaved(); }
+        // Estado de la firma junto al recuadro: guardada / sin guardar.
+        function discSigStatusText(state) {
+            const st = document.getElementById('discSigStatus'), btn = document.getElementById('discSigSaveBtn');
+            if (!st || !btn) return;
+            btn.classList.toggle('hidden', state !== 'unsaved');
+            st.className = 'text-3xs font-semibold max-w-[220px] ' + (state === 'unsaved' ? 'text-amber-700' : (state === 'saved' || state === 'saving') ? 'text-emerald-700' : 'text-rose-700');
+            st.innerHTML = state === 'saved' ? '<i class="fa-solid fa-circle-check"></i> Firma guardada: sale en los llamados y en los certificados.'
+                : state === 'unsaved' ? '<i class="fa-solid fa-triangle-exclamation"></i> Firma sin guardar. Toca "Guardar firma".'
+                : state === 'saving' ? 'Guardando firma…' : (state || '');
+        }
+        function discSigMarkUnsaved() { discSigStatusText('unsaved'); }
+        // Guarda solo la firma (no las reglas ni las plantillas).
+        async function discSaveSignature() {
+            const value = discSigValue();
+            discSigStatusText('saving');
+            try {
+                await apiFetch('/api/discipline/signature', { method: 'PUT', body: JSON.stringify({ signerSignature: value }) });
+                if (discData && discData.config) discData.config.signerSignature = value;
+                if (typeof certData !== 'undefined' && certData && certData.config) certData.config.signerSignature = value;
+                discSigDirty = false;
+                discSigStatusText(value ? 'saved' : '');
+                showAppToast(value ? 'Firma guardada.' : 'Firma quitada.');
+            } catch (e) {
+                discSigStatusText('unsaved');
+                const st = document.getElementById('discSigStatus'); if (st) { st.className = 'text-3xs font-semibold max-w-[220px] text-rose-700'; st.textContent = 'No se pudo guardar la firma: ' + e.message; }
+            }
+        }
         function discSigUpload(input) {
             const f = input.files && input.files[0]; if (!f) return;
             const rd = new FileReader();
@@ -4525,7 +4555,8 @@
                 for (let i = 0; i < d.data.length; i += 4) { if (d.data[i] > 200 && d.data[i + 1] > 200 && d.data[i + 2] > 200) d.data[i + 3] = 0; }
                 ctx.putImageData(d, 0, 0);
                 discSigDirty = true; discSigEmpty = false;
-            }; im.src = rd.result; };
+                discSaveSignature(); // la imagen subida se guarda de una vez
+            }; im.onerror = () => discSigStatusText('No se pudo leer la imagen. Usa una foto PNG o JPG.'); im.src = rd.result; };
             rd.readAsDataURL(f); input.value = '';
         }
         function discSigValue() {
