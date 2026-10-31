@@ -126,6 +126,7 @@ route('POST', '/api/payroll/opening-balance/:employeeId/delete', [requirePermiss
 route('POST', '/api/shifts/publish', [requirePermission('shifts.edit')], (req, res) => org.publishShifts(req, res));
 route('GET', '/api/discipline', [requirePermission('employees.view')], (req, res, params, query) => discipline.listCases(req, res, query));
 route('PUT', '/api/discipline/config', [requirePermission('employees.edit')], (req, res) => discipline.saveConfig(req, res));
+route('PUT', '/api/discipline/signature', [requirePermission('employees.edit')], (req, res) => discipline.saveSignature(req, res));
 route('GET', '/api/discipline/:id/draft', [requirePermission('employees.edit')], (req, res, params) => discipline.draftCase(req, res, params));
 route('POST', '/api/discipline/:id/decide', [requirePermission('employees.edit')], (req, res, params) => discipline.decideCase(req, res, params));
 route('POST', '/api/discipline/:id/link', [requirePermission('employees.edit')], (req, res, params) => discipline.createLink(req, res, params));

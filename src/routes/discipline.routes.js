@@ -513,6 +513,28 @@ async function saveConfig(req, res) {
   sendJson(res, 200, { ok: true });
 }
 
+// PUT /api/discipline/signature { signerSignature }
+// Guarda SOLO la firma de quien firma por la empresa (al subirla o dibujarla),
+// sin tocar reglas ni plantillas. Vacia = se quita la firma.
+async function saveSignature(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'JSON invalido' }); }
+  const orgId = resolveOrgId(req, body);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const sig = String(body.signerSignature || '');
+  if (sig && (!SIG_RE.test(sig) || sig.length > 400000)) return sendJson(res, 400, { error: 'La imagen de la firma no es válida o es muy pesada (máximo 300 KB, formato PNG).' });
+  const row = db.prepare('SELECT discipline_config FROM org_settings WHERE organization_id = ?').get(orgId);
+  let cfg = {};
+  try { cfg = JSON.parse((row && row.discipline_config) || '{}') || {}; } catch { cfg = {}; }
+  const had = !!cfg.signerSignature;
+  if (sig) cfg.signerSignature = sig; else delete cfg.signerSignature;
+  if (row) db.prepare('UPDATE org_settings SET discipline_config = ? WHERE organization_id = ?').run(JSON.stringify(cfg), orgId);
+  else db.prepare("INSERT INTO org_settings (organization_id, org_name, discipline_config) VALUES (?, 'Empresa', ?)").run(orgId, JSON.stringify(cfg));
+  logAction({ organizationId: orgId, userId: req.user.id, action: 'discipline.signature', resourceType: 'organization', resourceId: orgId, ip: getClientIp(req),
+    metadata: { firma: sig ? (had ? 'reemplazada' : 'agregada') : 'quitada' } });
+  sendJson(res, 200, { ok: true, hasSignature: !!sig });
+}
+
 // ---- Enlace publico (sin sesion): el colaborador ve el documento ----
 function caseByToken(token) {
   const t = String(token || '');
@@ -670,4 +692,4 @@ function createNoticeCase(orgId, employeeId, title, body, userId) {
   return id;
 }
 
-module.exports = { noticeVars, fillTemplate, createNoticeCase, NOTICE_TYPE, longDate, closeCase, emailCase, publicSign, caseSignature, bellItems, listCases, draftCase, decideCase, createLink, saveConfig, publicView, publicAck, scanOrg, TYPE_LABEL };
+module.exports = { noticeVars, fillTemplate, createNoticeCase, NOTICE_TYPE, longDate, closeCase, emailCase, publicSign, caseSignature, bellItems, listCases, draftCase, decideCase, createLink, saveConfig, saveSignature, publicView, publicAck, scanOrg, TYPE_LABEL };
