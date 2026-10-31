@@ -1210,6 +1210,18 @@ function kioskEmployeesToday(req, res) {
   sendJson(res, 200, { deviceName: device.device_name, employees: result, evidence: { photo: ev.photo, env: ev.env } });
 }
 
+// Guarda el identificador que el kiosco le puso a una marcacion registrada con
+// conexion (ver kiosk_online_marks): evita registrarla dos veces si el kiosco
+// no recibio la respuesta y la envia de nuevo como marcacion sin conexion.
+function rememberOnlineClientId(device, clientId, result) {
+  const id = String(clientId || '').slice(0, 64);
+  if (!id || !result || result.httpStatus !== 200) return;
+  try {
+    db.prepare('INSERT OR IGNORE INTO kiosk_online_marks (device_id, client_id, employee_id, mark_type) VALUES (?, ?, ?, ?)')
+      .run(device.id, id, result.body.employeeId || null, result.body.markType || null);
+  } catch (e) { /* no impide la marcacion */ }
+}
+
 // POST /api/kiosk/mark  Body: { employeeId }
 async function kioskMark(req, res) {
   const device = authenticateDevice(req, res);
@@ -1221,6 +1233,7 @@ async function kioskMark(req, res) {
   if (!allowed) return sendJson(res, 403, { error: 'Este colaborador no esta autorizado para marcar en este dispositivo.' });
   const result = performMark(device.organization_id, employeeId, null, 'kiosk-manual', getClientIp(req), body.reason);
   applyMarkEvidence(device, result, 'kiosk-manual', body.evidence, { employeeId });
+  rememberOnlineClientId(device, body.clientId, result);
   sendJson(res, result.httpStatus, result.body);
 }
 
@@ -1250,6 +1263,7 @@ async function kioskMarkByFace(req, res) {
   }
   const result = performMark(device.organization_id, best.employeeId, null, 'kiosk-facial', getClientIp(req));
   applyMarkEvidence(device, result, 'kiosk-facial', body.evidence, { employeeId: best.employeeId });
+  rememberOnlineClientId(device, body.clientId, result);
   sendJson(res, result.httpStatus, result.body);
 }
 
@@ -3423,7 +3437,12 @@ function devicesWithProblems(orgId) {
 // ===========================================================================
 const OFFLINE_MAX_AGE_MS = 72 * 3600 * 1000;   // mas de 3 dias: requiere revision
 const OFFLINE_CLOCK_TOLERANCE_MS = 2 * 60000;  // cambio del reloj del equipo tolerado
-const OFFLINE_DUP_WINDOW_MS = 3 * 60000;       // misma persona dentro de 3 min: duplicada
+const OFFLINE_DUP_WINDOW_MS = 3 * 60000;       // aplicar a mano (Administrador): misma persona dentro de 3 min = duplicada
+// Al sincronizar, la misma persona puede tener VARIAS marcaciones guardadas sin
+// conexion (entrada, almuerzo, salida): se registran todas, en el orden en que
+// las hizo. Solo se toma como repetida la que cae a menos de 1 min de otra
+// (doble lectura accidental o una que ya habia llegado con conexion).
+const OFFLINE_SYNC_DUP_WINDOW_MS = 60 * 1000;
 
 function matchFaceOnDevice(device, descriptor, atMs) {
   const profiles = db.prepare(`
@@ -3456,6 +3475,9 @@ async function kioskSync(req, res) {
     if (!clientId || !Number.isFinite(it._t)) { results.push({ clientId, status: 'error', message: 'Registro inválido.' }); continue; }
     const prev = db.prepare('SELECT status, problem, mark_type, employee_id FROM offline_marks WHERE device_id = ? AND client_id = ?').get(device.id, clientId);
     if (prev) { results.push({ clientId, status: prev.status, markType: prev.mark_type, message: prev.problem }); continue; }
+    // Ya habia llegado con conexion (el kiosco no recibio la respuesta): no se repite.
+    const online = db.prepare('SELECT employee_id, mark_type FROM kiosk_online_marks WHERE device_id = ? AND client_id = ?').get(device.id, clientId);
+    if (online) { results.push({ clientId, status: 'duplicada', markType: online.mark_type, message: 'Ya se había registrado con conexión.' }); continue; }
 
     const kind = it.kind === 'manual' ? 'manual' : 'face';
     const capturedMs = it._t + skewNow; // hora real corregida con el reloj del servidor
@@ -3488,9 +3510,9 @@ async function kioskSync(req, res) {
     if (!problem && kind === 'face' && !employeeId) {
       status = 'no_reconocido'; problem = 'El rostro no coincide con ningún colaborador asignado a este dispositivo.';
     } else if (!problem) {
-      // Duplicada: la misma persona ya tiene una marcacion a +/- 3 minutos.
+      // Duplicada: la misma persona ya tiene una marcacion a menos de 1 minuto.
       const near = db.prepare('SELECT actual_at FROM attendance_marks WHERE employee_id = ? AND actual_at BETWEEN ? AND ?')
-        .get(employeeId, new Date(capturedMs - OFFLINE_DUP_WINDOW_MS).toISOString(), new Date(capturedMs + OFFLINE_DUP_WINDOW_MS).toISOString());
+        .get(employeeId, new Date(capturedMs - OFFLINE_SYNC_DUP_WINDOW_MS).toISOString(), new Date(capturedMs + OFFLINE_SYNC_DUP_WINDOW_MS).toISOString());
       if (near) {
         status = 'duplicada'; problem = 'Ya existía una marcación de esta persona en esos minutos.';
       } else {

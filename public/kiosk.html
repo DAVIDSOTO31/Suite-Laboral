@@ -410,17 +410,20 @@ function advanceCachedMark(empId, markType) {
   e.nextMark = i >= 0 && i < MARK_ORDER.length - 1 ? MARK_ORDER[i + 1] : null;
   saveOfflineCache(c);
 }
-// Misma persona marcando otra vez en menos de 3 minutos sin conexión: el
-// servidor la tomaría como duplicada, así que se avisa y no se guarda de nuevo.
+// Sin conexión cada persona puede guardar varias marcaciones (entrada, almuerzo,
+// salida): se envían después en el mismo orden. Solo se frena una segunda
+// lectura de la misma persona en menos de 1 minuto (doble lectura accidental;
+// el servidor también la tomaría como repetida).
+const OFFLINE_REPEAT_MS = 60 * 1000;
 function recentOfflineMark(empId) {
   const q = offlineQueue();
   const now = Date.now();
-  return q.some(x => Number(x.localEmpId) === Number(empId) && now - Date.parse(x.capturedAt) < 3 * 60 * 1000);
+  return q.some(x => Number(x.localEmpId) === Number(empId) && now - Date.parse(x.capturedAt) < OFFLINE_REPEAT_MS);
 }
 function renderAlreadyMarked(name) {
   const box = document.getElementById('resultBox');
   box.className = 'mt-4 bg-slate-800 border-2 border-amber-500 rounded-xl p-4';
-  box.innerHTML = `<p class="font-bold text-lg">${escapeHtml(name)}</p><p class="text-amber-300 font-bold">Ya registraste una marcación hace un momento.</p><p class="text-xs text-slate-300 mt-1">Quedó guardada en este equipo; no hace falta marcar de nuevo.</p>`;
+  box.innerHTML = `<p class="font-bold text-lg">${escapeHtml(name)}</p><p class="text-amber-300 font-bold">Ya registraste una marcación hace menos de un minuto.</p><p class="text-xs text-slate-300 mt-1">Quedó guardada en este equipo; no hace falta marcar de nuevo. Tu siguiente marcación la puedes hacer pasado un minuto.</p>`;
   box.classList.remove('hidden');
   speakText(`${spokenName(name)}. Ya registraste una marcación.`);
 }
@@ -719,15 +722,16 @@ async function runSingleFaceAttempt() {
 
 async function submitFaceMark(descriptor, evidence) {
   const statusEl = document.getElementById('faceStatus');
-  if (likelyOffline()) { await saveOfflineFace(descriptor, evidence); return; }
+  const clientId = newClientId();
+  if (likelyOffline()) { await saveOfflineFace(descriptor, evidence, clientId); return; }
   try {
-    const r = await apiKiosk('/api/kiosk/mark-by-face', { method: 'POST', timeoutMs: 7000, body: JSON.stringify({ descriptor, evidence }) });
+    const r = await apiKiosk('/api/kiosk/mark-by-face', { method: 'POST', timeoutMs: 7000, body: JSON.stringify({ descriptor, evidence, clientId }) });
     if (r && r.employeeId) advanceCachedMark(r.employeeId, r.markType);
     renderResult(r);
     speakConfirmation(r);
     statusEl.textContent = 'Listo. Presiona "Iniciar marcación" para el siguiente colaborador.';
   } catch (e) {
-    if (e.network) { await saveOfflineFace(descriptor, evidence); return; }
+    if (e.network) { await saveOfflineFace(descriptor, evidence, clientId); return; }
     statusEl.textContent = e.message;
     // Rostro no reconocido (o parecido a dos personas): aviso visible y con voz.
     if (/reconoc|seguro de qui/i.test(e.message || '')) {
@@ -754,7 +758,7 @@ function renderOfflineRetry(n) {
   box.classList.remove('hidden');
   speakText('No te reconocí. Acércate y mira de frente a la cámara.');
 }
-async function saveOfflineFace(descriptor, evidence) {
+async function saveOfflineFace(descriptor, evidence, clientId) {
   // Se reconoce con la copia local para confirmar nombre y tipo de marcación.
   const who = matchFaceLocally(descriptor);
   if (!who) {
@@ -774,7 +778,7 @@ async function saveOfflineFace(descriptor, evidence) {
   offlineMissCount = 0;
   if (who && recentOfflineMark(who.id)) { renderAlreadyMarked(who.name); document.getElementById('faceStatus').textContent = 'Listo. Presiona "Iniciar marcación" para el siguiente colaborador.'; return; }
   const ev = evidenceForQueue(evidence);
-  const saved = await enqueueOffline({ kind: 'face', descriptor, ...(who ? { localEmpId: who.id } : {}), ...(ev ? { evidence: ev } : {}) });
+  const saved = await enqueueOffline({ kind: 'face', descriptor, ...(who ? { localEmpId: who.id } : {}), ...(ev ? { evidence: ev } : {}) }, clientId);
   if (!saved) { renderSaveFailed(who ? who.name : null); document.getElementById('faceStatus').textContent = 'Presiona "Iniciar marcación" para intentar de nuevo.'; return; }
   if (who) {
     const mt = cachedNextMark(who.id);
@@ -886,13 +890,14 @@ async function doManualMark() {
   if (markBtn) { markBtn.disabled = true; markBtn.classList.add('opacity-50'); }
   const evidence = await captureManualEvidence();
   if (markBtn) { markBtn.disabled = false; markBtn.classList.remove('opacity-50'); }
+  const clientId = newClientId();
   const saveOfflineManual = async () => {
     const empId = Number(sel.value);
     const cached = cachedEmployee(empId);
     const name = cached ? cached.name : (sel.selectedOptions[0]?.textContent || '').split(' — ')[0];
     if (recentOfflineMark(empId)) { renderAlreadyMarked(name); return; }
     const ev = evidenceForQueue(evidence);
-    const saved = await enqueueOffline({ kind: 'manual', employeeId: empId, localEmpId: empId, employeeName: name, reason, ...(ev ? { evidence: ev } : {}) });
+    const saved = await enqueueOffline({ kind: 'manual', employeeId: empId, localEmpId: empId, employeeName: name, reason, ...(ev ? { evidence: ev } : {}) }, clientId);
     if (!saved) { renderSaveFailed(name); return; }
     reasonEl.value = '';
     sel.value = ''; // el siguiente colaborador busca su propio nombre
@@ -903,7 +908,7 @@ async function doManualMark() {
   };
   if (likelyOffline()) { await saveOfflineManual(); return; }
   try {
-    const r = await apiKiosk('/api/kiosk/mark', { method: 'POST', timeoutMs: 7000, body: JSON.stringify({ employeeId: Number(sel.value), reason, evidence }) });
+    const r = await apiKiosk('/api/kiosk/mark', { method: 'POST', timeoutMs: 7000, body: JSON.stringify({ employeeId: Number(sel.value), reason, evidence, clientId }) });
     if (r && r.employeeId) advanceCachedMark(r.employeeId, r.markType);
     reasonEl.value = '';
     sel.value = ''; // el siguiente colaborador busca su propio nombre
@@ -926,7 +931,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-voz4';
+const KIOSK_VERSION = '2026.10-offline5';
 // Privacidad: el letrero con el resultado de la marcación (nombre, tipo,
 // llegada tarde, etc.) desaparece solo a los 18 segundos. Cada letrero nuevo
 // reinicia el tiempo.
@@ -1058,10 +1063,10 @@ function newClientId() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
   return 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 }
-async function enqueueOffline(item) {
+async function enqueueOffline(item, clientId) {
   const q = offlineQueue();
   const off = localStorage.getItem('kioskServerOffset');
-  q.push({ ...item, clientId: newClientId(), capturedAt: new Date().toISOString(), offsetAtCapture: off == null ? null : Number(off) });
+  q.push({ ...item, clientId: clientId || newClientId(), capturedAt: new Date().toISOString(), offsetAtCapture: off == null ? null : Number(off) });
   const ok = await saveQueue(q);
   setConnStatus(false, navigator.onLine ? 'Sin conexión con el servidor' : 'Sin internet');
   return ok;

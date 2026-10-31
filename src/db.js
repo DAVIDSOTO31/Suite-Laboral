@@ -810,6 +810,18 @@ CREATE TABLE IF NOT EXISTS offline_marks (
   UNIQUE(device_id, client_id)
 );
 CREATE INDEX IF NOT EXISTS idx_offline_marks_org ON offline_marks(organization_id, status);
+-- Marcaciones del kiosco registradas CON conexion, con el identificador que les
+-- puso el kiosco. Si la respuesta no le llego (se cayo el internet justo al
+-- enviar) y la guardo para enviarla despues, al sincronizar se reconoce por
+-- este identificador y no se registra dos veces.
+CREATE TABLE IF NOT EXISTS kiosk_online_marks (
+  device_id TEXT NOT NULL,
+  client_id TEXT NOT NULL,
+  employee_id INTEGER NULL,
+  mark_type TEXT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', '-5 hours')),
+  PRIMARY KEY (device_id, client_id)
+);
 `);
 const dayColsOff = db.prepare('PRAGMA table_info(attendance_days)').all().map(c => c.name);
 if (!dayColsOff.includes('offline_marks')) db.exec('ALTER TABLE attendance_days ADD COLUMN offline_marks INTEGER NOT NULL DEFAULT 0');
