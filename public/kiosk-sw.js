@@ -6,7 +6,7 @@
 //   (o a la cola sin conexión que ya maneja kiosk.html).
 // IMPORTANTE: cada vez que se modifique kiosk.html, subir KIOSK_SW_VERSION
 // para que las tablets instaladas se actualicen solas.
-const KIOSK_SW_VERSION = '2026.10-voz4';
+const KIOSK_SW_VERSION = '2026.10-offline5';
 const CORE_CACHE = 'kiosco-core-' + KIOSK_SW_VERSION;
 const CDN_CACHE = 'kiosco-cdn-v1'; // librerías y modelo facial: se conservan entre versiones
 
