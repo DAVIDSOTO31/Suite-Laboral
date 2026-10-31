@@ -56,7 +56,9 @@ for (const col of ['annulled_at', 'annulled_by', 'annul_reason',
   // Envio por correo: enlace propio (no anula el del WhatsApp), fecha y destino.
   'email_token_hash', 'email_token_expires', 'email_sent_at', 'email_sent_to',
   // Cierre del caso: decision final de la empresa (despues de los descargos).
-  'closed_at', 'closed_by', 'close_decision', 'close_note']) if (!dcCols.includes(col)) db.exec(`ALTER TABLE discipline_cases ADD COLUMN ${col} TEXT NULL`);
+  'closed_at', 'closed_by', 'close_decision', 'close_note',
+  // Portal del colaborador: enlace propio para abrirlo desde "Mis llamados de atención".
+  'portal_token_hash', 'portal_token_expires']) if (!dcCols.includes(col)) db.exec(`ALTER TABLE discipline_cases ADD COLUMN ${col} TEXT NULL`);
 
 const TYPES = ['llegada_tarde', 'exceso_almuerzo', 'inasistencia', 'turno_sin_cerrar'];
 // Otros documentos que usan el mismo flujo (enlace, "Recibido", firma y envío),
@@ -540,9 +542,10 @@ function caseByToken(token) {
   const t = String(token || '');
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(t)) return null;
   const h = sha256Hex(t);
-  const c = db.prepare('SELECT * FROM discipline_cases WHERE token_hash = ? OR email_token_hash = ?').get(h, h);
+  const c = db.prepare('SELECT * FROM discipline_cases WHERE token_hash = ? OR email_token_hash = ? OR portal_token_hash = ?').get(h, h, h);
   if (!c) return null;
-  const exp = c.token_hash === h ? c.token_expires : c.email_token_expires; // enlace del WhatsApp o del correo
+  // enlace del WhatsApp, del correo o del portal del colaborador
+  const exp = c.token_hash === h ? c.token_expires : c.email_token_hash === h ? c.email_token_expires : c.portal_token_expires;
   if (!exp || exp < todayISOInBogota()) return null;
   return c;
 }
@@ -597,6 +600,45 @@ async function publicAck(req, res, params) {
     logAction({ organizationId: c.organization_id, userId: null, action: 'discipline.descargos', resourceType: 'employee', resourceId: String(c.employee_id), ip, metadata: { tipo: TYPE_LABEL[c.rule_type] } });
   }
   sendJson(res, 200, { ok: true });
+}
+
+// ---- Portal del colaborador: "Mis llamados de atención" (permiso self.view) ----
+// Solo ve los llamados que la empresa YA LE COMUNICÓ (enviados por WhatsApp o
+// correo). Nunca los "por revisar", los generados sin enviar, los descartados
+// ni los anulados. Del cierre ve la decisión, nunca la nota interna.
+function selfEmployeeRow(req) {
+  const orgId = req.user.organizationId;
+  const empId = req.user.employeeId != null ? Number(req.user.employeeId) : null;
+  if (!orgId || empId == null) return null;
+  return db.prepare('SELECT id, organization_id, name FROM employees WHERE id = ? AND organization_id = ?').get(empId, orgId) || null;
+}
+const SELF_CASE_WHERE = `organization_id = ? AND employee_id = ? AND rule_type IN (${TYPES.map(() => '?').join(',')})
+  AND status IN ('enviado', 'recibido') AND sent_at IS NOT NULL AND annulled_at IS NULL`;
+// GET /api/self/discipline
+function selfCases(req, res) {
+  const emp = selfEmployeeRow(req);
+  if (!emp) return sendJson(res, 200, { linked: false, cases: [], pending: 0 });
+  const today = todayISOInBogota();
+  const cases = db.prepare(`SELECT * FROM discipline_cases WHERE ${SELF_CASE_WHERE} ORDER BY COALESCE(doc_date, sent_at) DESC, sent_at DESC`)
+    .all(emp.organization_id, emp.id, ...TYPES)
+    .map(c => ({
+      id: c.id, typeLabel: TYPE_LABEL[c.rule_type] || c.rule_type, title: c.doc_title || '', docDate: c.doc_date || String(c.sent_at || '').slice(0, 10),
+      receivedAt: c.received_at || '', signedAt: c.signed_at || '', descargosAt: c.descargos_at || '',
+      descargosUntil: c.descargos_until || '', canDescargos: !c.descargos_text && !c.closed_at && !!c.descargos_until && c.descargos_until >= today,
+      closedAt: c.closed_at || '', closeDecisionLabel: c.closed_at ? (CLOSE_DECISIONS[c.close_decision] || '') : '',
+      pending: !c.signed_at && !c.closed_at,
+    }));
+  sendJson(res, 200, { linked: true, cases, pending: cases.filter(c => c.pending).length });
+}
+// POST /api/self/discipline/:id/open -> enlace para verlo, darlo por recibido, firmarlo y escribir descargos (7 días)
+async function selfOpen(req, res, params) {
+  const emp = selfEmployeeRow(req);
+  if (!emp) return sendJson(res, 404, { error: 'Llamado no encontrado.' });
+  const c = db.prepare(`SELECT id, employee_id, rule_type FROM discipline_cases WHERE id = ? AND ${SELF_CASE_WHERE}`).get(String(params.id), emp.organization_id, emp.id, ...TYPES);
+  if (!c) return sendJson(res, 404, { error: 'Llamado no encontrado.' });
+  const token = randomToken(24);
+  db.prepare('UPDATE discipline_cases SET portal_token_hash = ?, portal_token_expires = ? WHERE id = ?').run(sha256Hex(token), addDaysISO(todayISOInBogota(), 7), c.id);
+  sendJson(res, 200, { ok: true, token });
 }
 
 // ---- Aviso de llamados nuevos por revisar (campana + celular) ----
@@ -692,4 +734,4 @@ function createNoticeCase(orgId, employeeId, title, body, userId) {
   return id;
 }
 
-module.exports = { noticeVars, fillTemplate, createNoticeCase, NOTICE_TYPE, longDate, closeCase, emailCase, publicSign, caseSignature, bellItems, listCases, draftCase, decideCase, createLink, saveConfig, saveSignature, publicView, publicAck, scanOrg, TYPE_LABEL };
+module.exports = { noticeVars, fillTemplate, createNoticeCase, NOTICE_TYPE, longDate, closeCase, emailCase, publicSign, caseSignature, bellItems, listCases, draftCase, decideCase, createLink, saveConfig, saveSignature, selfCases, selfOpen, publicView, publicAck, scanOrg, TYPE_LABEL };
