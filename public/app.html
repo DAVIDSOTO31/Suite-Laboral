@@ -305,6 +305,7 @@
                 <a href="#mine" onclick="switchView('mine')" id="nav-mine" class="hidden flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
                     <i class="fa-solid fa-id-badge text-sky-600 w-5"></i>
                     <span>Mi horario y marcaciones</span>
+                    <span id="mineDiscNavBadge" class="att-badge hidden ml-auto" title="Llamados de atención pendientes de firma"></span>
                 </a>
                 <a href="#gerencia" onclick="switchView('gerencia')" id="nav-gerencia" data-perm="attendance.view_alerts" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-700 hover:bg-slate-50 transition">
                     <i class="fa-solid fa-chart-line text-emerald-600 w-5"></i>
@@ -426,6 +427,13 @@
                         <button type="button" id="mineCertBtn" onclick="mineRequestCert()" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold">Solicitar certificado</button>
                     </div>
                     <div id="mineCertList" class="text-xs"></div>
+                </div>
+
+                <!-- Mis llamados de atención: solo los que la empresa ya le comunicó -->
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 class="font-bold text-slate-800 text-base mb-1 flex flex-wrap items-center gap-2"><i class="fa-solid fa-scale-balanced text-sky-600"></i> Mis llamados de atención <span id="mineDiscAlert" class="hidden px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-2xs font-bold"></span></h3>
+                    <p class="text-xs text-slate-500 mb-3">Aquí ves los llamados de atención que la empresa te ha comunicado. Puedes abrir cada uno para leerlo, confirmar que lo recibiste, firmarlo y presentar tus descargos dentro del plazo. Un llamado de atención no es una sanción.</p>
+                    <div id="mineDiscList" class="text-xs"></div>
                 </div>
             </div>
 
@@ -10786,8 +10794,55 @@
                 if (w) w.location.href = url; else location.href = url;
             } catch (e) { if (w) w.close(); showAppToast(e.message); }
         }
+        // ---- Mis llamados de atención (portal del colaborador) ----
+        // El servidor solo entrega los ya comunicados (nunca los por revisar,
+        // descartados ni anulados). La alerta aparece solo si hay algo por firmar.
+        async function loadMyDiscipline() {
+            const box = document.getElementById('mineDiscList'); if (!box || !CAN('self.view')) return;
+            let d;
+            try { d = await apiFetch('/api/self/discipline'); } catch (e) { box.innerHTML = `<p class="text-slate-400">${escapeHtml(e.message)}</p>`; return; }
+            const f = (x) => x ? String(x).slice(0, 10).split('-').reverse().join('/') : '';
+            const alertEl = document.getElementById('mineDiscAlert'), nav = document.getElementById('mineDiscNavBadge');
+            alertEl.classList.toggle('hidden', !d.pending);
+            alertEl.innerHTML = d.pending ? `<i class="fa-solid fa-triangle-exclamation"></i> ${d.pending} por firmar` : '';
+            if (nav) { nav.classList.toggle('hidden', !d.pending); nav.textContent = d.pending ? '!' : ''; }
+            if (!d.linked) { box.innerHTML = '<p class="text-amber-800">Tu usuario no está vinculado a tu ficha de colaborador: pídele al administrador que lo vincule.</p>'; return; }
+            if (!d.cases.length) { box.innerHTML = '<p class="text-slate-400">No tienes llamados de atención.</p>'; return; }
+            box.innerHTML = d.cases.map(c => {
+                const chip = c.closedAt ? ['Cerrado', 'bg-slate-100 text-slate-700']
+                    : c.signedAt ? ['Firmado', 'bg-emerald-100 text-emerald-800']
+                    : ['Pendiente de firma', 'bg-amber-100 text-amber-800'];
+                const lines = [
+                    c.receivedAt ? `Recibido el ${f(c.receivedAt)}` : '',
+                    c.signedAt ? `Firmado el ${f(c.signedAt)}` : '',
+                    c.descargosAt ? `Descargos enviados el ${f(c.descargosAt)}` : (c.canDescargos ? `<span class="text-sky-700 font-semibold">Puedes presentar descargos hasta el ${f(c.descargosUntil)}</span>` : ''),
+                    c.closedAt ? `Decisión de la empresa (${f(c.closedAt)}): <strong>${escapeHtml(c.closeDecisionLabel)}</strong>` : '',
+                ].filter(Boolean).join(' · ');
+                return `<div class="flex flex-wrap items-center justify-between gap-2 py-2 border-t border-slate-100">
+                    <div class="min-w-0">
+                        <span class="px-2 py-0.5 rounded-full text-3xs font-bold ${chip[1]}">${c.pending ? '<i class="fa-solid fa-triangle-exclamation"></i> ' : ''}${chip[0]}</span>
+                        <strong class="text-slate-800">${escapeHtml(c.typeLabel)}</strong> <span class="text-slate-600">· ${f(c.docDate)}</span>
+                        ${lines ? `<span class="block text-3xs text-slate-500 mt-0.5">${lines}</span>` : ''}
+                    </div>
+                    <button type="button" onclick="mineOpenDiscipline('${c.id}')" class="px-3 py-1.5 rounded-lg ${c.pending ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-800 hover:bg-slate-900'} text-white font-bold whitespace-nowrap">${c.pending ? '<i class="fa-solid fa-signature"></i> Abrir y firmar' : '<i class="fa-regular fa-file-lines"></i> Ver'}</button>
+                </div>`;
+            }).join('');
+        }
+        async function mineOpenDiscipline(id) {
+            const w = window.open('about:blank', '_blank'); // se abre ya (los celulares bloquean ventanas abiertas después de esperar)
+            try {
+                const r = await apiFetch(`/api/self/discipline/${id}/open`, { method: 'POST', body: '{}' });
+                const url = `/comunicacion.html#t=${r.token}`;
+                if (w) w.location.href = url; else location.href = url;
+            } catch (e) { if (w) w.close(); showAppToast(e.message); }
+        }
+        // Al volver a la suite (después de firmar en la otra pestaña) se actualiza el estado.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && !document.getElementById('view-mine')?.classList.contains('hidden')) loadMyDiscipline();
+        });
         async function renderMyView(loadHistory = true) {
             loadMyCertificates();
+            loadMyDiscipline();
             if (!mineMonday) mineMonday = getMondayOfDate(new Date());
             if (!shiftsLoaded(formatDateISO(mineMonday))) { try { await ensureShiftsLoaded(formatDateISO(mineMonday)); } catch (e) { /* sin conexion */ } }
             const emp = myEmployee();

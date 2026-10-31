@@ -153,6 +153,9 @@ route('POST', '/api/contracts/:id/undo-no-renew', [requirePermission('employees.
 route('POST', '/api/certificates/requests/:id/reject', [requirePermission('employees.edit_payroll')], (req, res, params) => certificates.rejectRequest(req, res, params));
 // Portal del colaborador: pedir y descargar sus propios certificados.
 route('GET', '/api/self/certificates', [requirePermission('self.view')], (req, res) => certificates.selfCertificates(req, res));
+// "Mis llamados de atención": el colaborador ve los que ya le comunicaron y los abre para firmar.
+route('GET', '/api/self/discipline', [requirePermission('self.view')], (req, res) => discipline.selfCases(req, res));
+route('POST', '/api/self/discipline/:id/open', [requirePermission('self.view')], (req, res, params) => discipline.selfOpen(req, res, params));
 route('POST', '/api/self/certificates/request', [requirePermission('self.view')], (req, res) => certificates.selfRequest(req, res));
 route('POST', '/api/self/certificates/:id/open', [requirePermission('self.view')], (req, res, params) => certificates.selfOpen(req, res, params));
 route('POST', '/api/certificates/:id/link', [requirePermission('employees.edit_payroll')], (req, res, params) => certificates.certificateLink(req, res, params));
