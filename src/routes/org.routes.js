@@ -516,6 +516,7 @@ async function syncEmployeesAndShifts(req, res) {
   }
   let shiftChanges = [];
   let lockedFixedAll = [];
+  let replayedDays = false;
   if (Array.isArray(body.shifts)) {
     if (canShifts) {
       // Diferencias de turnos (todos los dias): para la auditoria, y los de
@@ -552,14 +553,18 @@ async function syncEmployeesAndShifts(req, res) {
             else {
               const same = ['startTime', 'endTime', 'breakM', 'limit', 'isSplit'].every(f => String(inc[f] ?? '') === String(stored[f] ?? ''));
               // Turno ya iniciado (aun sin salida): se puede cambiar la hora de
-              // salida, el limite de horas o el almuerzo, con motivo. La entrada no.
-              const onlyEnd = String(inc.startTime ?? '') === String(stored.startTime ?? '') && !inc.isSplit && !stored.isSplit;
+              // salida, el limite de horas o el almuerzo, con motivo. La ENTRADA
+              // solo la cambia quien puede corregir marcaciones (Administrador),
+              // p. ej. por un cambio de turno entre compañeros: sus marcaciones
+              // del dia se vuelven a procesar con el nuevo horario.
+              const normal = !inc.isSplit && !stored.isSplit;
+              const startChanged = String(inc.startTime ?? '') !== String(stored.startTime ?? '');
               const reason = String(inc.lockReason || '').trim().slice(0, 300);
-              if (!same && onlyEnd && !l.closed && reason.length >= 5) {
+              if (!same && normal && !l.closed && reason.length >= 5 && (!startChanged || can(req, 'attendance.mark'))) {
                 final = { ...inc };
                 delete final.lockReason;
                 const fmt = (x) => `${x.startTime}-${x.endTime} (${x.limit} h, almuerzo ${x.breakM} min)`;
-                startedChanges.push({ empId: Number(l.employee_id), date: l.shift_date, antes: fmt(stored), despues: fmt(final), motivo: reason, endTime: final.endTime });
+                startedChanges.push({ empId: Number(l.employee_id), date: l.shift_date, antes: fmt(stored), despues: fmt(final), motivo: reason, endTime: final.endTime, startChanged });
               } else if (!same) { final = { ...stored }; if (inc.note) final.note = inc.note; else delete final.note; }
             }
             if (final !== inc) {
@@ -612,6 +617,12 @@ async function syncEmployeesAndShifts(req, res) {
         const id = sh.id || `${sh.empId}_${sh.date}_${uid('s')}`;
         insert.run(id, orgId, JSON.stringify(sh));
       }
+      // Cambio de la hora de ENTRADA en un dia ya iniciado: con el turno ya
+      // guardado, se reprocesan sus marcaciones del dia con el nuevo horario.
+      for (const c of startedChanges.filter(x => x.startChanged)) {
+        require('./attendance.routes').replayDayAfterShiftChange(orgId, c.empId, c.date, { reason: `Cambio de horario: ${c.motivo}`, userId: req.user.id });
+        replayedDays = true;
+      }
     } else {
       ignored.push('cambios en turnos: requiere permiso de editar turnos');
     }
@@ -645,6 +656,7 @@ async function syncEmployeesAndShifts(req, res) {
   if (ignored.length) logAction({ organizationId: orgId, userId: req.user.id, action: 'org_data.ignored', ip: getClientIp(req), metadata: { ignorados: ignored } });
   const newVersion = bumpDataVersion(orgId);
   db.exec('COMMIT');
+  if (replayedDays) { try { require('../lib/live').publishAttendance(orgId, 'mark'); } catch { /* sin aviso en vivo */ } }
   // Si TODO lo enviado quedo guardado tal cual, se recuerda para detectar
   // guardados repetidos sin cambios.
   if (!ignored.length && !(lockedFixedAll && lockedFixedAll.length)) lastSyncHash.set(orgId, { hash: payloadHash, version: newVersion });

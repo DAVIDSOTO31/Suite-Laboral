@@ -1743,6 +1743,20 @@ function replayAttendanceDay(orgId, employeeId, date, marks, ctx) {
   }
   return idMap;
 }
+// Cambio de turno en un dia YA INICIADO (ej. dos colaboradores se cambiaron el
+// turno y no se ajusto el cuadro): con el turno ya guardado con su nuevo
+// horario, se vuelven a procesar sus marcaciones del dia (las originales quedan
+// archivadas como "reprocesada"). Se llama dentro de la transaccion del guardado.
+function replayDayAfterShiftChange(orgId, employeeId, date, ctx) {
+  const marks = db.prepare('SELECT * FROM attendance_marks WHERE employee_id = ? AND shift_date = ? ORDER BY actual_at ASC').all(employeeId, date);
+  if (!marks.length) return 0;
+  alertPushMuted = true;
+  try {
+    for (const m of marks) archiveMark(m, 'reprocesada', ctx);
+    replayAttendanceDay(orgId, employeeId, date, marks, ctx);
+  } finally { alertPushMuted = false; }
+  return marks.length;
+}
 function archiveMark(m, action, ctx, extra = {}) {
   db.prepare(`INSERT INTO attendance_mark_archive (id, original_mark_id, organization_id, employee_id, shift_date, mark_type, scheduled_time, actual_at, method, marked_by_user_id, manual_reason, original_created_at, action, reason, target_employee_id, new_mark_id, archived_by)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -3640,7 +3654,7 @@ if (!db.prepare('SELECT 1 FROM app_migrations WHERE name = ?').get(HOURS_ENGINE_
 }
 
 module.exports = {
-  changeScheduledExit,
+  changeScheduledExit, replayDayAfterShiftChange,
   faceQuality,
   listDayMarks, voidMark,
   kioskLiveVersion, kioskOfflineCache,
