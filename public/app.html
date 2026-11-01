@@ -9264,7 +9264,7 @@
             // Tabla simple con salto de página y encabezado repetido.
             // groups (opcional): franjas de título sobre el encabezado,
             // [{ label, span: nº de columnas, fill: [r,g,b] }].
-            const table = (cols, rows, totalRow, groups) => {
+            const table = (cols, rows, totalRow, groups, opts = {}) => {
                 const totalW = cols.reduce((a, c) => a + c.w, 0);
                 const scale = (W - 2 * M) / totalW;
                 cols.forEach(c => { c.ww = c.w * scale; });
@@ -9304,7 +9304,8 @@
                         doc.text(clipped, c.align === 'right' ? x + c.ww - 1 : x + 1, y, { align: c.align === 'right' ? 'right' : 'left' });
                         x += c.ww;
                     });
-                    doc.setDrawColor(226, 232, 240); doc.line(M, y + 2, W - M, y + 2);
+                    if (opts.strongLines) { doc.setDrawColor(100, 116, 139); doc.setLineWidth(0.3); doc.line(M, y + 2, W - M, y + 2); doc.setLineWidth(0.2); }
+                    else { doc.setDrawColor(226, 232, 240); doc.line(M, y + 2, W - M, y + 2); }
                     y += 6;
                 };
                 rows.forEach((r, i) => drawRow(r, false, i % 2 ? [248, 250, 252] : null));
@@ -9323,8 +9324,43 @@
 
             // ---- Encabezado ----
             const title = type === 'extras' ? 'Cierre de periodo - Horas extras' : 'Cierre de periodo - Recargos nocturnos' + (closure.snapshot.includeSundayHoliday ? ' y dominicales/festivos' : '');
+            const logoData = await pdfOrgLogo();
+            if (type === 'extras') {
+                // Encabezado compacto: logo, título y empresa en una franja; los datos del
+                // cierre en dos renglones a todo el ancho. Deja más hoja para el detalle.
+                const lw = pdfDrawLogo(doc, logoData, M, 5, 36, 15, false);
+                const hx = lw ? M + lw + 5 : M;
+                if (lw) { doc.setDrawColor(203, 213, 225); doc.line(hx - 2.5, 5.5, hx - 2.5, 19.5); }
+                y = 11; text(title, hx, 14, 'bold', [15, 23, 42]);
+                y = 17; text(org, hx, 9, 'bold', [51, 65, 85]);
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(9); const ow = doc.getTextWidth(org);
+                text(`·  ${appState.orgNit ? `NIT ${appState.orgNit}` : 'NIT sin registrar'}`, hx + ow + 2, 8.5, 'normal', [100, 116, 139]);
+                if (closure.number) {
+                    doc.setFillColor(15, 23, 42); doc.roundedRect(W - M - 40, 5.5, 40, 12, 2, 2, 'F');
+                    y = 9.8; text('CIERRE N°', W - M - 20, 6.5, 'bold', [148, 163, 184], { align: 'center' });
+                    y = 15; text(closure.number, W - M - 20, 10.5, 'bold', [255, 255, 255], { align: 'center' });
+                }
+                const prevTxtH = closure.previous
+                    ? `${closure.previous.number ? `cierre N° ${closure.previous.number}, ` : 'cierre de extras '}del ${pdfDate(closure.previous.from)} al ${pdfDate(closure.previous.to)}`
+                    : 'No había saldo anterior';
+                const item = (label, value, x) => {
+                    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.8); doc.setTextColor(71, 85, 105); doc.text(label, x, y);
+                    const lwid = doc.getTextWidth(label) + 1.5;
+                    doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 41, 59); doc.text(String(value), x + lwid, y);
+                };
+                doc.setDrawColor(226, 232, 240); doc.line(M, 21.5, W - M, 21.5);
+                const c2 = M + 92, c3 = M + 178;
+                y = 26;
+                item('Periodo liquidado:', `del ${pdfDate(closure.from)} al ${pdfDate(closure.to)}`, M);
+                item('Estado:', closure.status === 'cerrado' ? 'Cerrado (valores congelados)' : 'Reabierto', c2);
+                item('Días pendientes no incluidos:', closure.pendingDays ? `${closure.pendingDays} día(s) sin marcación cerrada` : 'Ninguno', c3);
+                y = 30.5;
+                item('Cerrado el:', `${closure.closedAt || '-'} (hora Colombia) por ${closure.closedBy || '-'}`, M);
+                item('Saldo anterior tomado de:', prevTxtH, c3);
+                y = 36;
+            } else {
             // Logo de la organización a la izquierda; título y datos de la empresa a su lado.
-            const lw = pdfDrawLogo(doc, await pdfOrgLogo(), M, 5, 48, 21, false);
+            const lw = pdfDrawLogo(doc, logoData, M, 5, 48, 21, false);
             const hx = lw ? M + lw + 6 : M;
             if (lw) { doc.setDrawColor(203, 213, 225); doc.line(hx - 3, 6, hx - 3, 25); }
             text(title, hx, 15, 'bold', [15, 23, 42]);
@@ -9342,6 +9378,7 @@
                 ['Cerrado el:', `${closure.closedAt || '-'} (hora Colombia) por ${closure.closedBy || '-'}`],
                 ['Días pendientes no incluidos:', closure.pendingDays ? `${closure.pendingDays} día(s) sin marcación cerrada al momento del cierre` : 'Ninguno'],
             ]);
+            }
 
             if (type === 'recargos') {
                 const tH = emps.reduce((a, e) => a + (e.hon || 0), 0), tP = emps.reduce((a, e) => a + (e.honPay || 0), 0);
@@ -9376,52 +9413,55 @@
                 const hNum = (v) => (Number(v) || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/^[−‐-]/, '-');
                 const hD = (v) => (Math.abs(Number(v) || 0) < 0.005 ? '—' : hNum(v));
                 const mD = (v) => (Math.round(Number(v) || 0) === 0 ? '—' : pdfMoney(v));
-                const prevTxt = closure.previous
-                    ? `${closure.previous.number ? `cierre N° ${closure.previous.number}, ` : 'cierre de extras '}del ${pdfDate(closure.previous.from)} al ${pdfDate(closure.previous.to)}`
-                    : 'No había saldo anterior';
-                kv([['Saldo anterior tomado de:', prevTxt]]);
+                // Título de sección compacto (solo en este PDF).
+                const sectionC = (t) => { ensure(10); y += 1.5; text(t, M, 9.5, 'bold', [15, 23, 42]); y += 1.5; doc.setDrawColor(148, 163, 184); doc.line(M, y, W - M, y); y += 5; };
 
-                // ---- Resumen para la empresa (consolidado de todos los colaboradores) ----
+                // ---- Resumen para la empresa (consolidado de todos los colaboradores): tarjetas pequeñas ----
                 const totalPay = sum('hedPay') + sum('henPay');
                 const paid = emps.filter(e => (e.hedPay || 0) + (e.henPay || 0) > 0).length;
-                section('Resumen del cierre (todos los colaboradores)');
-                ensure(34);
-                const gap = 4, cardH = 27, top = y - 4;
-                const bigW = 104, smallW = (W - 2 * M - bigW - 3 * gap) / 3;
-                const card = (x, w, fill, border) => { doc.setFillColor(...fill); doc.setDrawColor(...border); doc.roundedRect(x, top, w, cardH, 2, 2, 'FD'); };
+                ensure(18);
+                const gap = 3, cardH = 13, top = y - 2;
+                const bigW = 112, smallW = (W - 2 * M - bigW - 3 * gap) / 3;
+                const card = (x, w, fill, border) => { doc.setFillColor(...fill); doc.setDrawColor(...border); doc.roundedRect(x, top, w, cardH, 1.5, 1.5, 'FD'); };
                 const at = (str, x, dy, size, style, color, opts) => { const yy = y; y = top + dy; text(str, x, size, style, color, opts); y = yy; };
-                // 1) Total a pagar
+                // 1) Total a pagar (con el valor en letras al lado)
                 card(M, bigW, [236, 253, 245], [16, 185, 129]);
-                at('TOTAL A PAGAR POR LA EMPRESA', M + 4, 6, 7.5, 'bold', [6, 95, 70]);
-                at(pdfMoney(totalPay), M + 4, 15, 17, 'bold', [6, 78, 59]);
-                doc.setFont('helvetica', 'italic'); doc.setFontSize(6.8);
-                const words = doc.splitTextToSize(`Son: ${moneyInWords(totalPay)}`, bigW - 8);
-                doc.setTextColor(71, 85, 105); doc.text(words.slice(0, 2), M + 4, top + 20);
+                at('TOTAL A PAGAR POR LA EMPRESA', M + 3, 4.3, 6.3, 'bold', [6, 95, 70]);
+                at(pdfMoney(totalPay), M + 3, 10.8, 13, 'bold', [6, 78, 59]);
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(13); const tw = doc.getTextWidth(pdfMoney(totalPay));
+                doc.setFont('helvetica', 'italic'); doc.setFontSize(6.3);
+                const words = doc.splitTextToSize(`Son: ${moneyInWords(totalPay)}`, bigW - tw - 10);
+                doc.setTextColor(71, 85, 105); doc.text(words.slice(0, 2), M + tw + 7, top + (words.length > 1 ? 8.2 : 10.3));
                 // 2) Colaboradores
+                const small = (x, label, value, sub, colors) => {
+                    card(x, smallW, colors.fill, colors.border);
+                    at(label, x + 3, 4.3, 6.3, 'bold', colors.label);
+                    at(value, x + 3, 10.8, 11.5, 'bold', colors.value);
+                    doc.setFont('helvetica', 'bold'); doc.setFontSize(11.5); const vw = doc.getTextWidth(value);
+                    // El texto pequeño se ajusta al espacio que queda en la tarjeta (nunca se sale).
+                    const room = smallW - vw - 9; let fs = 6.3;
+                    doc.setFont('helvetica', 'normal'); doc.setFontSize(fs);
+                    while (doc.getTextWidth(sub) > room && fs > 5) { fs -= 0.2; doc.setFontSize(fs); }
+                    const subFit = doc.getTextWidth(sub) > room ? doc.splitTextToSize(sub, room)[0] : sub;
+                    at(subFit, x + 3 + vw + 3, 10.6, fs, 'normal', colors.sub);
+                };
+                const neutral = { fill: [248, 250, 252], border: [203, 213, 225], label: [71, 85, 105], value: [15, 23, 42], sub: [100, 116, 139] };
                 let cx = M + bigW + gap;
-                card(cx, smallW, [248, 250, 252], [203, 213, 225]);
-                at('COLABORADORES LIQUIDADOS', cx + 4, 6, 7, 'bold', [71, 85, 105]);
-                at(String(emps.length), cx + 4, 15, 15, 'bold', [15, 23, 42]);
-                at(`${paid} con extras a pagar`, cx + 4, 21.5, 7, 'normal', [100, 116, 139]);
+                small(cx, 'COLABORADORES LIQUIDADOS', String(emps.length), `${paid} con extras a pagar`, neutral);
                 // 3) Horas pagadas
                 cx += smallW + gap;
-                card(cx, smallW, [248, 250, 252], [203, 213, 225]);
-                at('HORAS EXTRA PAGADAS', cx + 4, 6, 7, 'bold', [71, 85, 105]);
-                at(`${hNum(sum('hed') + sum('hen'))} h`, cx + 4, 15, 15, 'bold', [15, 23, 42]);
-                at(`Diurnas ${hNum(sum('hed'))} h · Nocturnas ${hNum(sum('hen'))} h`, cx + 4, 21.5, 7, 'normal', [100, 116, 139]);
+                small(cx, 'HORAS EXTRA PAGADAS', `${hNum(sum('hed') + sum('hen'))} h`, `Diurnas ${hNum(sum('hed'))} · Noct. ${hNum(sum('hen'))}`, neutral);
                 // 4) Tiempo que pasa al siguiente periodo
                 cx += smallW + gap;
                 const owes = debtors.length > 0;
-                card(cx, smallW, owes ? [255, 241, 242] : [248, 250, 252], owes ? [251, 113, 133] : [203, 213, 225]);
-                at('PASA AL SIGUIENTE PERIODO', cx + 4, 6, 7, 'bold', owes ? [190, 18, 60] : [71, 85, 105]);
-                at(owes ? `${hNum(sum('carryOut'))} h` : 'Ninguno', cx + 4, 15, 15, 'bold', owes ? [190, 18, 60] : [15, 23, 42]);
-                at(owes ? `${debtors.length} colaborador(es) deben tiempo` : 'Nadie quedó debiendo tiempo', cx + 4, 21.5, 7, 'normal', owes ? [190, 18, 60] : [100, 116, 139]);
-                y = top + cardH + 7;
+                small(cx, 'PASA AL SIGUIENTE PERIODO', owes ? `${hNum(sum('carryOut'))} h` : 'Ninguno', owes ? `${debtors.length} deben tiempo (hoja aparte)` : 'Nadie debe tiempo',
+                    owes ? { fill: [255, 241, 242], border: [251, 113, 133], label: [190, 18, 60], value: [190, 18, 60], sub: [190, 18, 60] } : neutral);
+                y = top + cardH + 4.5;
                 text(`Extra diurna ${pdfMoney(sum('hedPay'))}  +  Extra nocturna ${pdfMoney(sum('henPay'))}` +
-                    (sum('offsetValue') ? `  (ya descontados ${pdfMoney(sum('offsetValue'))} por deuda de tiempo diurno)` : ''), M, 8, 'normal', [71, 85, 105]);
-                y += 4;
+                    (sum('offsetValue') ? `  (ya descontados ${pdfMoney(sum('offsetValue'))} por deuda de tiempo diurno)` : ''), M, 7.5, 'normal', [71, 85, 105]);
+                y += 4.5;
 
-                section('Detalle por colaborador');
+                sectionC('Detalle por colaborador');
                 const pctHed = Math.round((1 + (Number(appState.settings.percHED) || 0)) * 100), pctHen = Math.round((1 + (Number(appState.settings.percHEN) || 0)) * 100);
                 const red = (v) => (String(v).startsWith('-') ? [190, 18, 60] : null);
                 const empDocX = (id) => docLabel(appState.employees.find(x => Number(x.id) === Number(id)));
@@ -9446,12 +9486,16 @@
                     { label: 'EXTRAS DIURNAS', span: 5, fill: [2, 132, 199] },
                     { label: 'EXTRAS NOCTURNAS', span: 5, fill: [67, 56, 202] },
                     { label: 'RESULTADO', span: 2, fill: [5, 150, 105] },
-                ]);
+                ], { strongLines: true });
                 ensure(5);
                 text('Horas expresadas en horas con decimales (minutos ÷ 60). Ejemplo: 1 h 18 min = 1,30 h. Los valores se calculan con los minutos exactos.', M, 7, 'italic', [100, 116, 139]);
                 y += 4;
 
-                section('Tiempo adeudado al empleador que pasa al siguiente periodo');
+                // Tiempo adeudado: SIEMPRE en hoja aparte (no se mezcla con el pago de las extras).
+                doc.addPage(); y = M + 2;
+                text(`${title}  ·  ${org}${closure.number ? `  ·  Cierre N° ${closure.number}` : ''}  ·  del ${pdfDate(closure.from)} al ${pdfDate(closure.to)}`, M, 8, 'normal', [100, 116, 139]);
+                y += 4;
+                sectionC('Tiempo adeudado al empleador que pasa al siguiente periodo');
                 if (!debtors.length) {
                     ensure(6); text('Ningún colaborador quedó con tiempo pendiente por compensar.', M, 9); y += 6;
                 } else {
@@ -9471,7 +9515,7 @@
                                     : `NO coincide: recibido ${hNum(got)} h en el cierre del ${pdfDate(nxt.from)} al ${pdfDate(nxt.to)} - REVISAR`);
                         }
                         return [e.name, empDocX(e.employeeId) , e.department || '', hNum(e.carryOut), pdfDate(nextDayISO(closure.to)), check];
-                    }), ['TOTAL', '', '', hNum(sum('carryOut')), '', '']);
+                    }), ['TOTAL', '', '', hNum(sum('carryOut')), '', ''], null, { strongLines: true });
                 }
             }
             // ---- Saldo inicial (Dia 0) incluido en este cierre ----
