@@ -9359,11 +9359,16 @@
                     if (fill) { doc.setFillColor(...fill); doc.rect(M, y - 4, W - 2 * M, 6, 'F'); }
                     let x = M;
                     cols.forEach((c, i) => {
-                        doc.setFont('helvetica', bold || c.bold ? 'bold' : 'normal'); doc.setFontSize(7.5);
+                        doc.setFont('helvetica', bold || c.bold ? 'bold' : 'normal');
                         const v = vals[i] == null ? '' : String(vals[i]);
                         doc.setTextColor(...(c.color && c.color(vals[i]) ? c.color(vals[i]) : [30, 41, 59]));
-                        const clipped = doc.splitTextToSize(v, c.ww - 2)[0] || '';
-                        doc.text(clipped, c.align === 'right' ? x + c.ww - 1 : x + 1, y, { align: c.align === 'right' ? 'right' : 'left' });
+                        // Si no cabe, se achica la letra (hasta 5,5) en vez de partir el texto:
+                        // antes "CC 1.088.234.567" quedaba solo como "CC".
+                        let fs = 7.5; doc.setFontSize(fs);
+                        while (doc.getTextWidth(v) > c.ww - 2 && fs > 5.5) { fs -= 0.25; doc.setFontSize(fs); }
+                        let shown = v;
+                        if (doc.getTextWidth(shown) > c.ww - 2) { while (shown.length > 1 && doc.getTextWidth(shown + '…') > c.ww - 2) shown = shown.slice(0, -1); shown += '…'; }
+                        doc.text(shown, c.align === 'right' ? x + c.ww - 1 : x + 1, y, { align: c.align === 'right' ? 'right' : 'left' });
                         x += c.ww;
                     });
                     if (opts.strongLines) { doc.setDrawColor(100, 116, 139); doc.setLineWidth(0.3); doc.line(M, y + 2, W - M, y + 2); doc.setLineWidth(0.2); }
