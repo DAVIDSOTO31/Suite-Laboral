@@ -1646,6 +1646,9 @@
                             <p class="text-xs text-slate-500 mt-0.5">Consolide por periodo las horas extra diurnas/nocturnas (HED/HEN) y el recargo nocturno ordinario (HON) de todos los colaboradores, para facilitar el cuadre de nómina.</p>
                         </div>
                         <div class="flex flex-wrap gap-2 shrink-0">
+                            <button onclick="openClosedPeriods()" title="Ver, imprimir y sacar las colillas de los periodos ya cerrados" class="bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition flex items-center gap-2 shadow">
+                                <i class="fa-solid fa-box-archive"></i> Periodos cerrados
+                            </button>
                             <button onclick="exportPayrollNightXLSX()" title="Solo recargo nocturno ordinario del periodo" class="bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition flex items-center gap-2 shadow">
                                 <i class="fa-solid fa-file-excel"></i> Excel Recargo Nocturno
                             </button>
@@ -2059,6 +2062,21 @@
                 <button onclick="closeModal('modalEarlyExit')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
                 <button id="eeSubmit" onclick="submitEarlyExit()" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shadow">Guardar y recalcular</button>
             </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Periodos cerrados de la Liquidación (recargos y horas extras) -->
+    <div id="modalClosedPeriods" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl max-w-4xl w-full shadow-2xl border border-slate-200 max-h-[92vh] flex flex-col">
+            <div class="flex justify-between items-start border-b p-5 pb-3">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-box-archive text-slate-700"></i> Periodos cerrados</h3>
+                    <p class="text-xs text-slate-500 mt-0.5">Elige un cierre para verlo en pantalla, descargar su PDF o sacar las colillas de pago. Los valores son los congelados al cerrar.</p>
+                </div>
+                <button onclick="closeModal('modalClosedPeriods')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="px-5 pt-3 flex flex-wrap gap-2 text-xs" id="closedPeriodsTabs"></div>
+            <div class="p-5 pt-3 overflow-y-auto text-xs" id="closedPeriodsList"><p class="text-slate-400">Cargando…</p></div>
         </div>
     </div>
 
@@ -8555,6 +8573,63 @@
                 await downloadXLSX(`Horas_Extras_${payRange('ext').from}_al_${payRange('ext').to}${closed ? '_CERRADO' : ''}.xlsx`, header, data, 'Horas extras', formats);
                 showAppToast('Reporte de horas extras exportado.');
             } catch (e) { showAppToast(e.message); }
+        }
+
+        // ---- Periodos cerrados: lista para ver, PDF y colillas sin poner fechas ----
+        let closedPeriods = null, closedPeriodsTab = 'todos';
+        async function openClosedPeriods() {
+            openModal('modalClosedPeriods');
+            document.getElementById('closedPeriodsList').innerHTML = '<p class="text-slate-400">Cargando…</p>';
+            try { closedPeriods = (await apiFetch('/api/payroll/closures/list')).closures || []; }
+            catch (e) { document.getElementById('closedPeriodsList').innerHTML = `<p class="text-rose-700">${escapeHtml(e.message)}</p>`; return; }
+            renderClosedPeriods();
+        }
+        function setClosedPeriodsTab(t) { closedPeriodsTab = t; renderClosedPeriods(); }
+        function renderClosedPeriods() {
+            const list = closedPeriods || [];
+            const f = (iso) => (iso || '').split('-').reverse().join('/');
+            const n = (t) => list.filter(c => t === 'todos' || c.type === t).length;
+            const tab = (k, label) => `<button type="button" onclick="setClosedPeriodsTab('${k}')" class="px-3 py-1.5 rounded-full border font-semibold ${closedPeriodsTab === k ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}">${label} (${n(k)})</button>`;
+            document.getElementById('closedPeriodsTabs').innerHTML = tab('todos', 'Todos') + tab('extras', 'Horas extras') + tab('recargos', 'Recargos');
+            const rows = list.filter(c => closedPeriodsTab === 'todos' || c.type === closedPeriodsTab);
+            const box = document.getElementById('closedPeriodsList');
+            if (!rows.length) { box.innerHTML = '<p class="text-slate-400 py-4 text-center">Aún no hay periodos cerrados.</p>'; return; }
+            box.innerHTML = `<div class="border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100">${rows.map(c => {
+                const ext = c.type === 'extras';
+                const btn = 'px-2.5 py-1.5 rounded-lg font-bold whitespace-nowrap';
+                return `<div class="p-3 flex flex-wrap items-center gap-x-4 gap-y-2 hover:bg-slate-50">
+                    <div class="min-w-[220px] flex-1">
+                        <div class="flex items-center gap-2"><span class="font-mono font-black text-slate-800">${escapeHtml(c.number || '—')}</span>
+                            <span class="px-2 py-0.5 rounded-full text-3xs font-bold ${ext ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-800'}">${ext ? 'Horas extras' : 'Recargos'}</span></div>
+                        <p class="font-semibold text-slate-700 mt-0.5">Del ${f(c.from)} al ${f(c.to)}</p>
+                        <p class="text-3xs text-slate-500">Cerrado el ${escapeHtml(c.closedAt || '-')} por ${escapeHtml(c.closedBy || '-')}</p>
+                    </div>
+                    <div class="text-right min-w-[150px]">
+                        <p class="font-mono font-black text-emerald-700">${pdfMoney(c.total)}</p>
+                        <p class="text-3xs text-slate-500">${c.employees} colaborador(es)${ext && c.carryOut < 0 ? ` · <span class="text-rose-700 font-semibold">${hmText(-c.carryOut)} h debidas pasan al siguiente</span>` : ''}</p>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5">
+                        <button type="button" onclick="closedPeriodAction('${c.id}', 'ver')" class="${btn} bg-slate-100 hover:bg-slate-200 text-slate-800"><i class="fa-solid fa-eye"></i> Ver</button>
+                        <button type="button" onclick="closedPeriodAction('${c.id}', 'pdf')" class="${btn} bg-rose-600 hover:bg-rose-700 text-white"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+                        <button type="button" onclick="closedPeriodAction('${c.id}', 'colillas')" class="${btn} bg-white border border-rose-300 text-rose-700 hover:bg-rose-50"><i class="fa-solid fa-receipt"></i> Colillas</button>
+                    </div>
+                </div>`;
+            }).join('')}</div>`;
+        }
+        // Lleva la pantalla al cierre elegido (solo cambia las fechas de ESE concepto)
+        // y, si se pidió, descarga el PDF o abre las colillas.
+        async function closedPeriodAction(id, what) {
+            const c = (closedPeriods || []).find(x => x.id === id);
+            if (!c) return;
+            closeModal('modalClosedPeriods');
+            const ownerType = c.type === 'recargos' ? 'recargos' : 'extras';
+            showAppToast(`Cargando el cierre ${c.number || ''}…`);
+            await setPayrollRange(c.from, c.to, ownerType);
+            const cache = appState._payrollOtCache;
+            if (!cache || !cache.closures || !cache.closures[c.type]) { showAppToast('No se pudo cargar ese cierre. Intenta de nuevo.'); return; }
+            if (what === 'pdf') await exportClosurePdf(c.type);
+            else if (what === 'colillas') openPayslipModal(c.type);
+            else document.getElementById('payrollOtClosureBox')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
         // ---- Cierre de periodo (recargos y horas extras por separado) ----

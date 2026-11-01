@@ -1204,6 +1204,25 @@ async function deleteOpeningBalance(req, res, params) {
   sendJson(res, 200, { ok: true, balances: listOpeningBalances(orgId) });
 }
 
+// GET /api/payroll/closures/list -> todos los cierres ACTIVOS de la organizacion
+// (resumen, sin la foto completa), para el boton "Periodos cerrados".
+function listAllPayrollClosures(req, res, query) {
+  const orgId = resolveOrgId(req, query);
+  if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
+  const rows = db.prepare(`${CLOSURE_SELECT} WHERE c.organization_id = ? AND c.status = 'cerrado' ORDER BY c.period_end DESC, c.closed_at DESC`).all(orgId);
+  sendJson(res, 200, { closures: rows.map(c => {
+    let snap = {};
+    try { snap = JSON.parse(c.snapshot_json || '{}') || {}; } catch { snap = {}; }
+    const emps = Array.isArray(snap.employees) ? snap.employees : [];
+    return {
+      id: c.id, type: c.closure_type, from: c.period_start, to: c.period_end, number: closureNumber(c.id),
+      closedAt: c.closed_at, closedBy: c.closed_by_email || null, pendingDays: c.pending_days || 0,
+      employees: emps.length, total: Number(snap.totals && snap.totals.pay) || 0,
+      carryOut: c.closure_type === 'extras' ? emps.reduce((a, e) => a + (Number(e.carryOut) || 0), 0) : 0,
+    };
+  }) });
+}
+
 // GET /api/payroll/closures?from=&to=
 function listPayrollClosures(req, res, query) {
   const orgId = resolveOrgId(req, query);
@@ -1500,7 +1519,7 @@ module.exports = {
   retireEmployee, reactivateEmployee, deleteEmployeePermanent, employeeHistoryCheck,
   setDayZero, saveOpeningBalance, deleteOpeningBalance,
   publishShifts, listShiftChanges, replaceRotationPatterns,
-  listPayrollClosures, createPayrollClosure, reopenPayrollClosure,
+  listPayrollClosures, listAllPayrollClosures, createPayrollClosure, reopenPayrollClosure,
   listPayrollAdjustments, savePayrollAdjustment, resetPayrollAdjustments,
   getOrgData, seedDemo, updateSettings, replaceDepartments, replaceShiftPresets, syncEmployeesAndShifts, getShiftLocks,
   listOrgUsers, createOrgUser, updateOrgUser, toggleOrgUserStatus, resetOrgUserPassword, listOrgAudit,

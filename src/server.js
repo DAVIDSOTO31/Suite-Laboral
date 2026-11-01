@@ -170,6 +170,7 @@ route('POST', '/api/rest-days/moves', [requirePermission('shifts.edit')], (req, 
 route('GET', '/api/shifts/changes', [requirePermission('shifts.view')], (req, res, params, query) => org.listShiftChanges(req, res, query));
 route('PUT', '/api/org/rotation-patterns', [requirePermission('shifts.edit')], (req, res) => org.replaceRotationPatterns(req, res));
 // Cierres de periodo (recargos y horas extras por separado).
+route('GET', '/api/payroll/closures/list', [requirePermission('reports.view')], (req, res, params, query) => org.listAllPayrollClosures(req, res, query));
 route('GET', '/api/payroll/closures', [requirePermission('reports.view')], (req, res, params, query) => org.listPayrollClosures(req, res, query));
 route('POST', '/api/payroll/closures', [requirePermission('employees.edit_payroll')], (req, res) => org.createPayrollClosure(req, res));
 route('POST', '/api/payroll/closures/:id/reopen', [requirePermission('employees.edit_payroll')], (req, res, params) => org.reopenPayrollClosure(req, res, params));
