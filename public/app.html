@@ -1791,6 +1791,7 @@
             </div>
             <div class="flex justify-end gap-2 border-t pt-3">
                 <button onclick="closeModal('modalPayslip')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                <button type="button" id="payslipPosBtn" onclick="quickPositivePayslips()" title="Descarga de una vez solo las colillas de quienes tienen valor a pagar" class="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow"><i class="fa-solid fa-sack-dollar"></i> Solo con valor a pagar</button>
                 <button onclick="generatePayslips()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold shadow"><i class="fa-solid fa-file-pdf"></i> Generar PDF</button>
             </div>
         </div>
@@ -8612,6 +8613,7 @@
                         <button type="button" onclick="closedPeriodAction('${c.id}', 'ver')" class="${btn} bg-slate-100 hover:bg-slate-200 text-slate-800"><i class="fa-solid fa-eye"></i> Ver</button>
                         <button type="button" onclick="closedPeriodAction('${c.id}', 'pdf')" class="${btn} bg-rose-600 hover:bg-rose-700 text-white"><i class="fa-solid fa-file-pdf"></i> PDF</button>
                         <button type="button" onclick="closedPeriodAction('${c.id}', 'colillas')" class="${btn} bg-white border border-rose-300 text-rose-700 hover:bg-rose-50"><i class="fa-solid fa-receipt"></i> Colillas</button>
+                        <button type="button" onclick="closedPeriodAction('${c.id}', 'colillas_pos')" title="Solo las colillas de quienes tienen valor a pagar" class="${btn} bg-emerald-600 hover:bg-emerald-700 text-white"><i class="fa-solid fa-sack-dollar"></i> Con valor a pagar</button>
                     </div>
                 </div>`;
             }).join('')}</div>`;
@@ -8629,6 +8631,7 @@
             if (!cache || !cache.closures || !cache.closures[c.type]) { showAppToast('No se pudo cargar ese cierre. Intenta de nuevo.'); return; }
             if (what === 'pdf') await exportClosurePdf(c.type);
             else if (what === 'colillas') openPayslipModal(c.type);
+            else if (what === 'colillas_pos') await quickPositivePayslips(c.type);
             else document.getElementById('payrollOtClosureBox')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
@@ -8707,7 +8710,8 @@
                     <button onclick="applyExtrasRange()" class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-50"><i class="fa-solid fa-eye"></i> Revisar</button>
                     <button onclick="exportPayrollOvertimeOnlyXLSX()" class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"><i class="fa-solid fa-file-excel text-emerald-600"></i> Excel</button>
                     ${closed ? `<button onclick="exportClosurePdf('extras')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white"><i class="fa-solid fa-file-pdf"></i> PDF del cierre</button>
-                    <button onclick="openPayslipModal('extras')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-50"><i class="fa-solid fa-receipt"></i> Colillas de pago</button>` : ''}
+                    <button onclick="openPayslipModal('extras')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-50"><i class="fa-solid fa-receipt"></i> Colillas de pago</button>
+                    <button onclick="quickPositivePayslips('extras')" title="Descarga solo las colillas de quienes tienen valor a pagar" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"><i class="fa-solid fa-sack-dollar"></i> Colillas con valor a pagar</button>` : ''}
                     ${canClose && closed ? `<button onclick="reopenPayrollPeriod('${closed.id}', 'extras')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100"><i class="fa-solid fa-lock-open"></i> Reabrir</button>` : ''}
                     ${canClose && !closed && !others.length ? `<button onclick="closePayrollPeriod('extras')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white"><i class="fa-solid fa-lock"></i> Cerrar periodo</button>` : ''}
                 </div>
@@ -9189,16 +9193,36 @@
             return `${w.charAt(0).toUpperCase()}${w.slice(1)} ${unit} m/cte.`;
         }
 
-        function openPayslipModal(type) {
+        // ¿El colaborador tiene valor a pagar en ese cierre? (saldo positivo)
+        function payslipPositive(e, type) {
+            return type === 'extras' ? (Number(e.hedPay) || 0) + (Number(e.henPay) || 0) > 0.5 : (Number(e.honPay) || 0) + (Number(e.domPay) || 0) > 0.5;
+        }
+        function fillPayslipSelect(type) {
             const cache = appState._payrollOtCache;
             const closure = cache && cache.closures && cache.closures[type];
-            if (!closure) { showAppToast('Este periodo no está cerrado.'); return; }
+            if (!closure) { showAppToast('Este periodo no está cerrado.'); return false; }
             const emps = [...(closure.snapshot.employees || [])].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+            const pos = emps.filter(e => payslipPositive(e, type)).length;
             document.getElementById('payslipSubtitle').textContent = `${type === 'extras' ? 'Horas extras' : 'Recargos'} · del ${pdfDate(closure.from)} al ${pdfDate(closure.to)}`;
             document.getElementById('payslipEmp').innerHTML = `<option value="_ALL_">Todos (${emps.length}) · una colilla por página</option>` +
+                `<option value="_POS_">Solo con valor a pagar (${pos}) · una colilla por página</option>` +
                 emps.map(e => `<option value="${e.employeeId}">${escapeHtml(e.name)}</option>`).join('');
             document.getElementById('payslipEmp').dataset.type = type;
+            const qb = document.getElementById('payslipPosBtn');
+            if (qb) { qb.innerHTML = `<i class="fa-solid fa-sack-dollar"></i> Solo con valor a pagar (${pos})`; qb.disabled = !pos; qb.classList.toggle('opacity-50', !pos); }
+            return true;
+        }
+        function openPayslipModal(type) {
+            if (!fillPayslipSelect(type)) return;
             openModal('modalPayslip');
+        }
+        // Botón rápido: descarga de una vez solo las colillas de quienes tienen valor a pagar.
+        async function quickPositivePayslips(type) {
+            if (type) { if (!fillPayslipSelect(type)) return; }
+            const sel = document.getElementById('payslipEmp');
+            sel.value = '_POS_';
+            sel.dispatchEvent(new Event('change'));
+            await generatePayslips();
         }
 
         // "2026-10-06 10:01:50" -> "6 de octubre de 2026, 10:01 a. m." (sin cambiar zona horaria).
@@ -9257,9 +9281,9 @@
                 await loadScriptOnce('/vendor/jspdf-2.5.1.umd.min.js', () => !!(window.jspdf && window.jspdf.jsPDF));
             } catch (e) { showAppToast(e.message); return; }
             const all = [...(closure.snapshot.employees || [])].sort((a, b) => String(a.name).localeCompare(String(b.name)));
-            const list = sel.value === '_ALL_' ? all : all.filter(e => String(e.employeeId) === sel.value);
+            const list = sel.value === '_ALL_' ? all : sel.value === '_POS_' ? all.filter(e => payslipPositive(e, type)) : all.filter(e => String(e.employeeId) === sel.value);
             const orgLogo = await pdfOrgLogo();
-            if (!list.length) { showAppToast('No hay colaboradores en este cierre.'); return; }
+            if (!list.length) { showAppToast(sel.value === '_POS_' ? 'Nadie tiene valor a pagar en este cierre.' : 'No hay colaboradores en este cierre.'); return; }
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
             const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 16;
@@ -9356,7 +9380,7 @@
                 T(`Generado el ${bogotaNowText()} (hora Colombia)`, M, H - 10, 7, 'normal', [148, 163, 184]);
                 T(`${idx + 1} / ${list.length}`, W - M, H - 10, 7, 'normal', [148, 163, 184], { align: 'right' });
             });
-            const who = list.length === 1 ? '_' + String(list[0].name).replace(/\s+/g, '_') : '';
+            const who = sel.value === '_POS_' ? '_con_valor_a_pagar' : list.length === 1 ? '_' + String(list[0].name).replace(/\s+/g, '_') : '';
             doc.save(`Colillas_${type === 'extras' ? 'Horas_Extras' : 'Recargos'}_${closure.from}_al_${closure.to}${who}.pdf`);
             closeModal('modalPayslip');
             showAppToast(`${list.length} colilla(s) generada(s).`);
@@ -9745,7 +9769,8 @@
                     ${closed ? '' : `<button onclick="setPayrollRange('${info.nextStart}', document.getElementById('payrollRecCut').value, 'recargos')" class="${btn} border border-purple-300 text-purple-800 hover:bg-purple-50"><i class="fa-solid fa-eye"></i> Revisar</button>`}
                     <button onclick="exportPayrollNightXLSX()" class="${btn} border border-slate-300 text-slate-700 hover:bg-slate-50"><i class="fa-solid fa-file-excel text-emerald-600"></i> Excel</button>
                     ${closed ? `<button onclick="exportClosurePdf('recargos')" class="${btn} bg-rose-600 hover:bg-rose-700 text-white"><i class="fa-solid fa-file-pdf"></i> PDF del cierre</button>
-                    <button onclick="openPayslipModal('recargos')" class="${btn} bg-white border border-rose-300 text-rose-700 hover:bg-rose-50"><i class="fa-solid fa-receipt"></i> Colillas de pago</button>` : ''}
+                    <button onclick="openPayslipModal('recargos')" class="${btn} bg-white border border-rose-300 text-rose-700 hover:bg-rose-50"><i class="fa-solid fa-receipt"></i> Colillas de pago</button>
+                    <button onclick="quickPositivePayslips('recargos')" title="Descarga solo las colillas de quienes tienen valor a pagar" class="${btn} bg-emerald-600 hover:bg-emerald-700 text-white"><i class="fa-solid fa-sack-dollar"></i> Colillas con valor a pagar</button>` : ''}
                     ${canClose && isLast ? `<button onclick="reopenPayrollPeriod('${closed.id}', 'recargos')" class="${btn} bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100"><i class="fa-solid fa-lock-open"></i> Reabrir</button>` : ''}
                     ${canClose && !closed ? `<button onclick="closeRecargosPeriod()" class="${btn} bg-slate-800 hover:bg-slate-900 text-white"><i class="fa-solid fa-lock"></i> Cerrar periodo</button>` : ''}
                 </div>` : `<p class="text-3xs text-slate-500 mt-1">El periodo abierto empezó hoy; podrás cerrarlo desde mañana.</p>`}
