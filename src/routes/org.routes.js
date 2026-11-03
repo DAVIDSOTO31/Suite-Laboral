@@ -178,8 +178,8 @@ function getOrgData(req, res, query) {
   sendJson(res, 200, {
     organizationId: orgId,
     orgSettings: settingsRow
-      ? { orgName: settingsRow.org_name, logo: settingsRow.logo_base64, minimumWage: settingsRow.minimum_wage, minimumWageYear: require('./minwage.routes').minimumYear(orgId), includeSundayHoliday: settingsRow.include_sunday_holiday === 1, nightBandAlways: settingsRow.night_band_always !== 0, nightBandSince: settingsRow.night_band_since || '', dayZero: settingsRow.day_zero || null, dayZeroLocked: hasActiveClosures(orgId) }
-      : { orgName: 'Empresa', logo: null, minimumWage: 1750905, minimumWageYear: 2026, includeSundayHoliday: false, nightBandAlways: true, nightBandSince: '', dayZero: null, dayZeroLocked: false },
+      ? { orgName: settingsRow.org_name, logo: settingsRow.logo_base64, minimumWage: settingsRow.minimum_wage, minimumWageYear: require('./minwage.routes').minimumYear(orgId), transportAllowance: require('./minwage.routes').currentTransport(orgId), includeSundayHoliday: settingsRow.include_sunday_holiday === 1, nightBandAlways: settingsRow.night_band_always !== 0, nightBandSince: settingsRow.night_band_since || '', dayZero: settingsRow.day_zero || null, dayZeroLocked: hasActiveClosures(orgId) }
+      : { orgName: 'Empresa', logo: null, minimumWage: 1750905, minimumWageYear: 2026, transportAllowance: 249095, includeSundayHoliday: false, nightBandAlways: true, nightBandSince: '', dayZero: null, dayZeroLocked: false },
     orgNit: (db.prepare('SELECT nit FROM organizations WHERE id = ?').get(orgId) || {}).nit || '',
     openingBalances: canSeePayroll ? listOpeningBalances(orgId) : [],
     departments,
