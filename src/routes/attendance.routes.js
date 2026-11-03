@@ -76,6 +76,8 @@ function isOvernightShift(shift) {
 // Si ayer quedo un turno nocturno abierto (con entrada marcada pero sin
 // salida), las marcas de la madrugada de hoy le pertenecen a ESE turno de
 // ayer, no a uno nuevo de hoy (Regla 26).
+const LATE_EXIT_WINDOW_MIN = 6 * 60;   // salida de ayer: hasta 6 h después de la salida programada
+const NEXT_SHIFT_GUARD_MIN = 2 * 60;   // ...salvo que hoy tenga un turno que empieza en las próximas 2 h
 function resolveShiftDateForMark(orgId, employeeId, now, lookup = getShiftForEmployeeDate) {
   const todayISO = bogota.todayISOInBogota(now);
   const yesterdayISO = bogota.addDaysISO(todayISO, -1);
@@ -85,6 +87,21 @@ function resolveShiftDateForMark(orgId, employeeId, now, lookup = getShiftForEmp
   if (openYesterday) {
     const shiftY = lookup(orgId, employeeId, yesterdayISO);
     if (shiftY && isOvernightShift(shiftY)) return yesterdayISO;
+    // Turno de ayer que NO cruza la medianoche (ej. 14:00-22:00), ya iniciado y
+    // sin salida, cuando la persona se quedó haciendo horas extra y marca su
+    // SALIDA pasada la medianoche: la marcación es de AYER si llega dentro de las
+    // 6 horas siguientes a la salida programada y hoy no tiene un turno que
+    // empiece en las próximas 2 horas (para no confundirla con su entrada de hoy).
+    if (shiftY && !shiftY.isOffDay && shiftY.startTime && shiftY.endTime && openYesterday.entrada_real && !openYesterday.salida_real) {
+      const endY = rules.scheduledAbsoluteMinutes(shiftY.endTime, shiftY.startTime);
+      const nowRelY = bogota.minutesSinceShiftMidnight(now, yesterdayISO);
+      if (endY != null && nowRelY <= endY + LATE_EXIT_WINDOW_MIN) {
+        const shiftT = lookup(orgId, employeeId, todayISO);
+        const startT = shiftT && !shiftT.isOffDay && shiftT.startTime ? rules.timeToMinutes(shiftT.startTime) : null;
+        const nowRelT = bogota.minutesSinceShiftMidnight(now, todayISO);
+        if (startT == null || startT - nowRelT > NEXT_SHIFT_GUARD_MIN) return yesterdayISO;
+      }
+    }
   }
   return todayISO;
 }
@@ -1871,7 +1888,7 @@ function listCorrections(req, res, query) {
 // ===========================================================================
 const NO_SHOW_TOLERANCE_MIN = 15;   // minutos despues de la entrada para mostrar "No ha llegado"
 const OPEN_SHIFT_GRACE_MIN = 60;    // tablero Hoy: minutos despues de la salida programada para mostrar "Sin marcar salida"
-const OPEN_SHIFT_ALERT_MIN = 300;   // alerta "Turno sin cerrar": 5 horas despues de la salida programada (margen para que marque)
+const OPEN_SHIFT_ALERT_MIN = 360;   // alerta "Turno sin cerrar": 6 horas despues de la salida programada (el mismo margen en que una salida pasada la medianoche aun cuenta para ese dia)
 const ABSENCE_LABELS = { vacaciones: 'Vacaciones', incapacidad: 'Incapacidad', sin_horario: 'Sin horario', otro_motivo: 'Otro motivo' };
 
 // Fecha desde la cual se generan las alertas automaticas nuevas (el dia en
@@ -2221,7 +2238,7 @@ function getDayZero(orgId) {
 
 // Revisa los ultimos 3 dias y crea (UNA sola vez por colaborador y dia):
 //  - 'inasistencia': el turno ya termino y no hubo ninguna marcacion de entrada.
-//  - 'turno_sin_cerrar': marco entrada pero, 5 horas despues de la salida
+//  - 'turno_sin_cerrar': marco entrada pero, 6 horas despues de la salida
 //    programada, todavia no marca salida.
 const lastScanAt = new Map();
 function scanMissingMarks(orgId, force = false) {
