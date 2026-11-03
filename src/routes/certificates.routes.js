@@ -232,7 +232,8 @@ function buildVars(orgId, emp, opts) {
   // Auxilio de transporte (término fijo o indefinido): el salario certificado es
   // la suma del básico + el auxilio, con el desglose.
   const auxYear = Number((retired && emp.retired_at ? emp.retired_at : today).slice(0, 4));
-  const aux = kind === 'laboral' && emp.transport_allowance === 1 ? (TRANSPORT_ALLOWANCE[auxYear] || TRANSPORT_ALLOWANCE[Math.max(...Object.keys(TRANSPORT_ALLOWANCE).map(Number))] || 0) : 0;
+  // Valor del auxilio de ese año (el que se cargó con el salario mínimo del año; 2026: decreto).
+  const aux = kind === 'laboral' && emp.transport_allowance === 1 ? (require('./minwage.routes').transportForYear(orgId, auxYear) || TRANSPORT_ALLOWANCE[2026] || 0) : 0;
   const salary = basic + aux;
   let pSal = '';
   if (opts.includeSalary && basic > 0) {

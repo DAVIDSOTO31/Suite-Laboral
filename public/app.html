@@ -872,7 +872,7 @@
                                 </label>
                                 <label id="detailEmpAuxBox" class="mt-2 ml-1 inline-flex items-center gap-2 text-xs font-semibold text-amber-900 cursor-pointer bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1" title="Solo término fijo o indefinido. No hace parte de la base de horas extras ni recargos.">
                                     <input type="checkbox" id="detailEmpAux" class="w-4 h-4 accent-amber-600" onchange="toggleEmployeeTransport(this)">
-                                    Auxilio de transporte <span class="font-mono font-normal">$249.095</span>
+                                    Auxilio de transporte <span class="font-mono font-normal" id="detailEmpAuxValue">$249.095</span>
                                 </label>
                                 <p class="text-3xs text-slate-500 mt-1 hidden" id="detailEmpNightReason"></p>
                             </div>
@@ -2103,6 +2103,16 @@
                             <input type="number" id="mwAmount" min="0" step="1" oninput="mwPreviewSoon()" placeholder="Ej. 1900000" class="mt-1 w-full p-2 border rounded-lg font-mono font-bold"></label>
                         <label class="block"><span class="font-semibold text-slate-700">Rige desde</span>
                             <input type="date" id="mwFrom" class="mt-1 w-full p-2 border rounded-lg"></label>
+                    </div>
+                    <label class="flex items-start gap-2 cursor-pointer"><input type="checkbox" id="mwServices" onchange="mwPreviewSoon()" class="w-4 h-4 mt-0.5">
+                        <span><span class="font-semibold text-slate-700">Aplicar también a contratos de prestación de servicios</span>
+                        <span class="block text-3xs text-slate-500">A quienes tengan pactado exactamente el mínimo actual. La ley no lo exige (no se rigen por el CST); úsalo si la empresa así lo acordó.</span></span></label>
+                    <div class="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                        <label class="block"><span class="font-semibold text-slate-700">Nuevo auxilio de transporte ($)</span> <span class="text-3xs text-slate-500" id="mwAuxCurrent"></span>
+                            <input type="number" id="mwTransport" min="0" step="1" placeholder="Valor del decreto (opcional)" class="mt-1 w-full p-2 border rounded-lg font-mono font-bold"></label>
+                        <label class="flex items-start gap-2 cursor-pointer"><input type="checkbox" id="mwEnableAux" checked onchange="renderMinWagePreview()" class="w-4 h-4 mt-0.5">
+                            <span><span class="font-semibold text-slate-700">Activar el auxilio a quienes queden con derecho</span>
+                            <span class="block text-3xs text-slate-500">Contrato a término indefinido o fijo que, con el nuevo mínimo, quede ganando hasta 2 salarios mínimos y hoy no lo tenga activado.</span></span></label>
                     </div>
                     <div id="mwPreview"></div>
                     <div class="flex justify-end"><button type="button" id="mwSave" onclick="saveMinWage()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold"><i class="fa-solid fa-calendar-check"></i> Programar el cambio</button></div>
@@ -7964,21 +7974,26 @@
             const t = bogotaTodayParts();
             document.getElementById('mwFrom').value = `${t.y + 1}-01-01`;
             document.getElementById('mwAmount').value = '';
+            document.getElementById('mwTransport').value = '';
+            document.getElementById('mwServices').checked = false;
+            document.getElementById('mwEnableAux').checked = true;
             await loadMinWage();
         }
         async function loadMinWage(amount) {
-            try { mwData = await apiFetch('/api/payroll/min-wage' + (amount ? `?amount=${amount}` : '')); }
+            const svc = document.getElementById('mwServices').checked ? '1' : '0';
+            try { mwData = await apiFetch(`/api/payroll/min-wage?services=${svc}` + (amount ? `&amount=${amount}` : '')); }
             catch (e) { document.getElementById('mwCurrent').textContent = e.message; return; }
             const f = (iso) => (iso || '').split('-').reverse().join('/');
-            document.getElementById('mwCurrent').innerHTML = `Vigente: <strong>${pdfMoney(mwData.current)}</strong> (SMLMV ${mwData.year})`;
+            document.getElementById('mwCurrent').innerHTML = `Vigente: <strong>${pdfMoney(mwData.current)}</strong> (SMLMV ${mwData.year}) · Auxilio de transporte: <strong>${pdfMoney(mwData.transport)}</strong>`;
+            document.getElementById('mwAuxCurrent').textContent = `(actual ${pdfMoney(mwData.transport)})`;
             const sch = mwData.scheduled[0];
             document.getElementById('mwScheduled').innerHTML = sch
                 ? `<div class="rounded-lg border border-emerald-300 bg-emerald-50 p-3 flex flex-wrap items-center justify-between gap-2">
-                    <span><i class="fa-solid fa-calendar-check text-emerald-700"></i> <strong>Programado:</strong> ${pdfMoney(sch.amount)} desde el ${f(sch.effectiveFrom)}. Ese día se actualiza solo.</span>
+                    <span><i class="fa-solid fa-calendar-check text-emerald-700"></i> <strong>Programado:</strong> ${pdfMoney(sch.amount)} desde el ${f(sch.effectiveFrom)}${sch.transportAmount ? ` · auxilio de transporte ${pdfMoney(sch.transportAmount)}` : ''}${sch.includeServices ? ' · incluye prestación de servicios' : ''}. Ese día se actualiza solo.</span>
                     <button type="button" onclick="cancelMinWage('${sch.id}')" class="px-2.5 py-1 rounded-lg bg-white border border-rose-300 text-rose-700 font-bold">Cancelar</button></div>` : '';
             document.getElementById('mwForm').classList.toggle('hidden', !!sch);
             document.getElementById('mwHistory').innerHTML = mwData.history.length ? `<p class="font-semibold text-slate-700 mb-1">Cambios aplicados</p>` + mwData.history.map(h =>
-                `<p class="text-slate-600 border-t border-slate-100 py-1">Desde el ${f(h.effectiveFrom)}: ${pdfMoney(h.previousAmount)} → <strong>${pdfMoney(h.amount)}</strong> · ${h.appliedCount || 0} colaborador(es) actualizado(s)</p>`).join('') : '';
+                `<p class="text-slate-600 border-t border-slate-100 py-1">Desde el ${f(h.effectiveFrom)}: ${pdfMoney(h.previousAmount)} → <strong>${pdfMoney(h.amount)}</strong> · ${h.appliedCount || 0} colaborador(es) actualizado(s)${h.transportAmount ? ` · auxilio ${pdfMoney(h.previousTransport)} → <strong>${pdfMoney(h.transportAmount)}</strong>` : ''}</p>`).join('') : '';
             renderMinWagePreview();
         }
         function mwPreviewSoon() { clearTimeout(mwTimer); mwTimer = setTimeout(() => { const a = Number(document.getElementById('mwAmount').value); if (a > 0) loadMinWage(a); else renderMinWagePreview(); }, 400); }
@@ -7988,7 +8003,8 @@
             if (!mwData || !(a > mwData.current)) { box.innerHTML = a && mwData && a <= mwData.current ? '<p class="text-rose-700 font-semibold">Debe ser mayor que el salario mínimo actual.</p>' : ''; return; }
             const p = mwData.preview;
             const names = (l) => l.map(e => `<span class="inline-block px-2 py-0.5 rounded-full bg-white border border-slate-200 mr-1 mb-1">${escapeHtml(e.name)}</span>`).join('');
-            box.innerHTML = `<div class="rounded-lg border border-sky-200 bg-sky-50 p-3"><p class="font-semibold text-sky-900">Se actualizarán ${p.toUpdate.length} colaborador(es) de ${pdfMoney(mwData.current)} a ${pdfMoney(a)}:</p><div class="mt-1">${names(p.toUpdate) || '<span class="text-slate-500">Nadie gana exactamente el mínimo actual.</span>'}</div></div>`
+            box.innerHTML = `<div class="rounded-lg border border-sky-200 bg-sky-50 p-3"><p class="font-semibold text-sky-900">Se actualizarán ${p.toUpdate.length} colaborador(es) de ${pdfMoney(mwData.current)} a ${pdfMoney(a)}:</p><div class="mt-1">${names(p.toUpdate) || '<span class="text-slate-500">Nadie gana exactamente el mínimo actual.</span>'}</div>${p.toUpdate.some(e => e.services) ? '<p class="text-3xs text-sky-800 mt-1">Incluye contratos de prestación de servicios.</p>' : ''}</div>`
+                + (p.auxNew && p.auxNew.length && document.getElementById('mwEnableAux').checked ? `<div class="rounded-lg border border-amber-200 bg-amber-50 p-3 mt-2"><p class="font-semibold text-amber-900">Se les activará el auxilio de transporte a ${p.auxNew.length} colaborador(es) que quedan ganando hasta 2 salarios mínimos:</p><div class="mt-1">${names(p.auxNew)}</div></div>` : '')
                 + (p.below.length ? `<div class="rounded-lg border border-amber-300 bg-amber-50 p-3 mt-2"><p class="font-semibold text-amber-900"><i class="fa-solid fa-triangle-exclamation"></i> ${p.below.length} colaborador(es) con contrato laboral quedarían por debajo del nuevo mínimo (no se actualizan solos; revisa su ficha):</p><div class="mt-1">${p.below.map(e => `<span class="inline-block px-2 py-0.5 rounded-full bg-white border border-amber-200 mr-1 mb-1">${escapeHtml(e.name)} · ${pdfMoney(e.salary)}</span>`).join('')}</div></div>` : '');
         }
         async function saveMinWage() {
@@ -7997,10 +8013,13 @@
             if (!(amount > 0) || !from) { showAppToast('Escribe el nuevo salario mínimo y la fecha desde la que rige.'); return; }
             const now = from <= bogotaTodayISO();
             const n = mwData && mwData.preview ? mwData.preview.toUpdate.length : 0;
-            if (!confirm(`${now ? 'Aplicar YA' : 'Programar'} el nuevo salario mínimo de ${pdfMoney(amount)} desde el ${from.split('-').reverse().join('/')}.\n\n${n} colaborador(es) que ganan el mínimo actual pasarán a ${pdfMoney(amount)}${now ? ' ahora mismo' : ' ese día, automáticamente'}.\nA quienes ganan más no se les cambia nada.`)) return;
+            if (!confirm(`${now ? 'Aplicar YA' : 'Programar'} el nuevo salario mínimo de ${pdfMoney(amount)} desde el ${from.split('-').reverse().join('/')}.\n\n${n} colaborador(es) que ganan el mínimo actual pasarán a ${pdfMoney(amount)}${now ? ' ahora mismo' : ' ese día, automáticamente'}.\nA quienes ganan más no se les cambia nada.${document.getElementById('mwTransport').value ? `\n\nAuxilio de transporte: ${pdfMoney(mwData.transport)} → ${pdfMoney(Number(document.getElementById('mwTransport').value))}.` : ''}`)) return;
+            const transport = document.getElementById('mwTransport').value;
+            if (transport && Number(transport) <= 0) { showAppToast('Revisa el valor del auxilio de transporte.'); return; }
             const btn = document.getElementById('mwSave'); btn.disabled = true;
             try {
-                const r = await apiFetch('/api/payroll/min-wage', { method: 'POST', body: JSON.stringify({ amount, effectiveFrom: from }) });
+                const r = await apiFetch('/api/payroll/min-wage', { method: 'POST', body: JSON.stringify({ amount, effectiveFrom: from, transportAmount: transport || null,
+                    includeServices: document.getElementById('mwServices').checked, enableAux: document.getElementById('mwEnableAux').checked }) });
                 showAppToast(r.applied ? `Salario mínimo actualizado: ${r.applied.updated} colaborador(es) pasaron a ${pdfMoney(amount)}.` : `Cambio programado para el ${from.split('-').reverse().join('/')}.`);
                 if (r.applied) { livePending.data = true; scheduleLiveApply(300); } // se actualiza al cerrar esta ventana
                 await loadMinWage();
@@ -11342,6 +11361,8 @@
             appState.companyLogo = data.orgSettings.logo || null;
             appState.settings.smlmv2026 = data.orgSettings.minimumWage || 1750905; // salario mínimo VIGENTE (el nombre es histórico)
             appState.minimumWageYear = data.orgSettings.minimumWageYear || 2026;
+            appState.settings.auxTransporte2026 = data.orgSettings.transportAllowance || 249095; // auxilio VIGENTE (el nombre es histórico)
+            setSafeText('detailEmpAuxValue', pdfMoney(appState.settings.auxTransporte2026));
             setSafeText('headerSmlmvLabel', `SMLMV ${appState.minimumWageYear}:`);
             setSafeText('headerSmlmvValue', `${pdfMoney(appState.settings.smlmv2026)} COP`);
             appState.includeSundayHoliday = data.orgSettings.includeSundayHoliday === true;
