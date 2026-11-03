@@ -23,6 +23,7 @@ const SCOPE_RULES = [
   [/^\/api\/contracts\/[^/]+\/renew$/, ['data']],
   [/^\/api\/employees\/[^/]+\/(retire|reactivate|delete-permanent)$/, ['data', 'users']],
   [/^\/api\/payroll\/opening-balance/, ['data', 'payroll']],
+  [/^\/api\/payroll\/min-wage/, ['data', 'payroll']],
   [/^\/api\/payroll\//, ['payroll']],
   [/^\/api\/org\/users/, ['users', 'data']],
   [/^\/api\/attendance\/scheduled-exit$/, ['attendance', 'data']],

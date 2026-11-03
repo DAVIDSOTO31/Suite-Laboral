@@ -16,6 +16,7 @@ const notifications = require('./routes/notifications.routes');
 const contracts = require('./routes/contracts.routes');
 const leave = require('./routes/leave.routes');
 const discipline = require('./routes/discipline.routes');
+const minwage = require('./routes/minwage.routes');
 const certificates = require('./routes/certificates.routes');
 const live = require('./lib/live');
 const presence = require('./lib/presence');
@@ -170,6 +171,10 @@ route('POST', '/api/rest-days/moves', [requirePermission('shifts.edit')], (req, 
 route('GET', '/api/shifts/changes', [requirePermission('shifts.view')], (req, res, params, query) => org.listShiftChanges(req, res, query));
 route('PUT', '/api/org/rotation-patterns', [requirePermission('shifts.edit')], (req, res) => org.replaceRotationPatterns(req, res));
 // Cierres de periodo (recargos y horas extras por separado).
+// Salario mínimo del año (lo programa el Administrador; se aplica solo en su fecha).
+route('GET', '/api/payroll/min-wage', [requirePermission('settings.manage')], (req, res, params, query) => minwage.getMinWage(req, res, query));
+route('POST', '/api/payroll/min-wage', [requirePermission('settings.manage')], (req, res) => minwage.scheduleMinWage(req, res));
+route('POST', '/api/payroll/min-wage/:id/cancel', [requirePermission('settings.manage')], (req, res, params) => minwage.cancelMinWage(req, res, params));
 route('GET', '/api/payroll/closures/list', [requirePermission('reports.view')], (req, res, params, query) => org.listAllPayrollClosures(req, res, query));
 route('GET', '/api/payroll/closures', [requirePermission('reports.view')], (req, res, params, query) => org.listPayrollClosures(req, res, query));
 route('POST', '/api/payroll/closures', [requirePermission('employees.edit_payroll')], (req, res) => org.createPayrollClosure(req, res));
