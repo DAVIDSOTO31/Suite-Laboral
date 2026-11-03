@@ -2811,6 +2811,13 @@
                 <div>
                     <label class="block font-semibold text-slate-700 mb-1.5">Color</label>
                     <div id="absTypeColors" class="flex flex-wrap gap-2"></div>
+                    <div class="flex items-center gap-2 mt-2">
+                        <label class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 font-semibold text-slate-700 cursor-pointer" title="Elige cualquier color de la paleta">
+                            <i class="fa-solid fa-palette text-fuchsia-600"></i> Otro color…
+                            <input type="color" id="absTypeCustomColor" oninput="pickAbsenceColor(this.value)" class="w-7 h-7 p-0 border-0 bg-transparent cursor-pointer">
+                        </label>
+                        <span class="text-3xs text-slate-500">Cualquier color, según los gustos o necesidades de la empresa.</span>
+                    </div>
                 </div>
                 <div class="flex items-center gap-2"><span class="text-slate-500">Así se verá:</span> <span id="absTypePreview"></span></div>
                 <label class="flex items-start gap-2 cursor-pointer"><input type="checkbox" id="absTypeCounts" class="w-4 h-4 mt-0.5" checked> <span><span class="font-semibold text-slate-700">Cuenta como ausentismo</span><span class="block text-3xs text-slate-500">Desmárcala si es un día de descanso ganado (ej. Compensatorio).</span></span></label>
@@ -3350,10 +3357,29 @@
         // predeterminados con kind:'absence' y funcionan igual que vacaciones:
         // día sin horario de trabajo, sin marcación y sin horas.
         const BUILTIN_ABSENCE_KEYS = ['vacaciones', 'incapacidad', 'sin_horario', 'otro_motivo'];
-        const ABSENCE_COLOR_CHOICES = ['amber', 'lime', 'teal', 'cyan', 'blue', 'violet', 'pink', 'stone', 'slate', 'green'];
+        const ABSENCE_COLOR_CHOICES = ['amber', 'orange', 'yellow', 'lime', 'green', 'emerald', 'teal', 'cyan', 'sky', 'blue', 'indigo', 'violet', 'purple', 'fuchsia', 'pink', 'rose', 'red', 'stone', 'gray', 'slate'];
+        // Colores libres ("#rrggbb", elegidos con "Otro color…"): se crea su tema
+        // (fondo claro, borde y letra oscura del mismo tono) como clases CSS propias,
+        // así funcionan en el cuadro, la leyenda, "Mi horario" y el PDF/imagen.
+        function ensureColorTheme(key) {
+            if (!key || SHIFT_COLOR_THEMES[key]) return !!key;
+            const m = /^#([0-9a-f]{6})$/i.exec(String(key));
+            if (!m) return false;
+            const hex = m[1].toLowerCase();
+            const rgb = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16));
+            const mix = (to, t) => '#' + rgb.map(c => Math.round(c + (to - c) * t).toString(16).padStart(2, '0')).join('');
+            const id = 'cc-' + hex;
+            let st = document.getElementById('customColorThemes');
+            if (!st) { st = document.createElement('style'); st.id = 'customColorThemes'; document.head.appendChild(st); }
+            st.textContent += `.${id}-bg{background-color:${mix(255, 0.85)};color:${mix(0, 0.6)};border-color:${mix(255, 0.45)}}`
+                + `.${id}-badge{background-color:${mix(255, 0.7)};color:${mix(0, 0.6)}}.${id}-sw{background-color:#${hex}}`;
+            SHIFT_COLOR_THEMES[key] = { bg: `${id}-bg`, badgeBg: `${id}-badge`, icon: 'fa-calendar-xmark', text: 'Color personalizado', swatch: `${id}-sw` };
+            return true;
+        }
         function syncCustomAbsenceTypes() {
             Object.keys(ABSENCE_TYPES).forEach(k => { if (!BUILTIN_ABSENCE_KEYS.includes(k)) delete ABSENCE_TYPES[k]; });
             (appState.shiftPresets || []).filter(p => p.kind === 'absence').forEach(p => {
+                ensureColorTheme(p.color);
                 ABSENCE_TYPES[p.id] = { label: p.name || 'Inasistencia', color: SHIFT_COLOR_THEMES[p.color] ? p.color : 'stone', icon: 'fa-calendar-xmark', custom: true, hidden: !!p.hidden };
             });
         }
@@ -5223,13 +5249,19 @@
             document.getElementById('absTypeName').value = p ? (p.name || '') : '';
             absenceColorKey = p && p.color ? p.color : 'amber';
             document.getElementById('absTypeCounts').checked = !(p && p.countsAbsence === false);
-            document.getElementById('absTypeColors').innerHTML = ABSENCE_COLOR_CHOICES.map(k => `<button type="button" data-abs-color="${k}" onclick="pickAbsenceColor('${k}')" title="${SHIFT_COLOR_THEMES[k].text}" class="w-7 h-7 rounded-full border-2 border-white shadow ${SHIFT_COLOR_THEMES[k].swatch}"></button>`).join('');
+            ensureColorTheme(absenceColorKey);
+            const keys = ABSENCE_COLOR_CHOICES.filter(k => SHIFT_COLOR_THEMES[k]);
+            if (!keys.includes(absenceColorKey) && SHIFT_COLOR_THEMES[absenceColorKey]) keys.push(absenceColorKey); // su color personalizado
+            document.getElementById('absTypeColors').innerHTML = keys.map(k => `<button type="button" data-abs-color="${k}" onclick="pickAbsenceColor('${k}')" title="${SHIFT_COLOR_THEMES[k].text}" class="w-7 h-7 rounded-full border-2 border-white shadow ${SHIFT_COLOR_THEMES[k].swatch}"></button>`).join('');
+            document.getElementById('absTypeCustomColor').value = /^#[0-9a-f]{6}$/i.test(absenceColorKey) ? absenceColorKey : '#e11d48';
             pickAbsenceColor(absenceColorKey);
             document.getElementById('absTypeMsg').classList.add('hidden');
             openModal('modalAbsenceType');
             setTimeout(() => document.getElementById('absTypeName').focus(), 50);
         }
         function pickAbsenceColor(k) {
+            if (/^#[0-9a-f]{6}$/i.test(k)) k = k.toLowerCase();
+            if (!ensureColorTheme(k)) k = 'stone';
             absenceColorKey = k;
             document.querySelectorAll('[data-abs-color]').forEach(b => b.classList.toggle('ring-2', b.dataset.absColor === k));
             document.querySelectorAll('[data-abs-color]').forEach(b => b.classList.toggle('ring-slate-900', b.dataset.absColor === k));
