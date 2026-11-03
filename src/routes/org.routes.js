@@ -129,6 +129,8 @@ function getOrgData(req, res, query) {
   const orgId = resolveOrgId(req, query);
   if (!orgId) return sendJson(res, 400, { error: 'No hay organizacion asociada a esta cuenta.' });
 
+  // Cambio de salario mínimo programado que ya debe regir: se aplica antes de leer los datos.
+  try { require('./minwage.routes').applyDue(orgId); } catch { /* nada */ }
   const settingsRow = db.prepare('SELECT * FROM org_settings WHERE organization_id = ?').get(orgId);
   const departments = db.prepare('SELECT id, name, icon FROM departments WHERE organization_id = ? ORDER BY position ASC').all(orgId);
   const presetRows = db.prepare('SELECT data_json FROM shift_presets WHERE organization_id = ?').all(orgId);
@@ -167,13 +169,17 @@ function getOrgData(req, res, query) {
   const canSeePayroll = can(req, 'reports.view');
   if (!canSeePayroll) {
     employees = employees.map(({ salary, nightSurchargeReason, ...e }) => e);
+  } else {
+    // Historial de salarios con su fecha: la liquidación usa el salario vigente de cada día.
+    const hist = require('./minwage.routes').salaryHistoryMap(orgId);
+    employees = employees.map(e => (hist[e.id] ? { ...e, salaryHistory: hist[e.id] } : e));
   }
 
   sendJson(res, 200, {
     organizationId: orgId,
     orgSettings: settingsRow
-      ? { orgName: settingsRow.org_name, logo: settingsRow.logo_base64, minimumWage: settingsRow.minimum_wage, includeSundayHoliday: settingsRow.include_sunday_holiday === 1, nightBandAlways: settingsRow.night_band_always !== 0, nightBandSince: settingsRow.night_band_since || '', dayZero: settingsRow.day_zero || null, dayZeroLocked: hasActiveClosures(orgId) }
-      : { orgName: 'Empresa', logo: null, minimumWage: 1750905, includeSundayHoliday: false, nightBandAlways: true, nightBandSince: '', dayZero: null, dayZeroLocked: false },
+      ? { orgName: settingsRow.org_name, logo: settingsRow.logo_base64, minimumWage: settingsRow.minimum_wage, minimumWageYear: require('./minwage.routes').minimumYear(orgId), includeSundayHoliday: settingsRow.include_sunday_holiday === 1, nightBandAlways: settingsRow.night_band_always !== 0, nightBandSince: settingsRow.night_band_since || '', dayZero: settingsRow.day_zero || null, dayZeroLocked: hasActiveClosures(orgId) }
+      : { orgName: 'Empresa', logo: null, minimumWage: 1750905, minimumWageYear: 2026, includeSundayHoliday: false, nightBandAlways: true, nightBandSince: '', dayZero: null, dayZeroLocked: false },
     orgNit: (db.prepare('SELECT nit FROM organizations WHERE id = ?').get(orgId) || {}).nit || '',
     openingBalances: canSeePayroll ? listOpeningBalances(orgId) : [],
     departments,
@@ -448,6 +454,13 @@ async function syncEmployeesAndShifts(req, res) {
       }
       const newName = String(e.name || '').slice(0, 120), newRole = String(e.role || '').slice(0, 120);
       upsert.run(e.id, orgId, newName, newRole, e.department || null, e.departmentId || null, salary, nightSurcharge, reason, email || null, countDays, docNumber ? docType : null, docNumber, phoneCountry, phoneNumber);
+      // Cambio de salario: queda en el historial con la fecha desde la que rige
+      // (la que se eligió en la ficha; si no, hoy).
+      if (prev && canPayroll && Math.round(Number(prev.salary) || 0) !== Math.round(Number(salary) || 0)) {
+        const mw = require('./minwage.routes');
+        const from = mw.ISO.test(String(e.salaryFrom || '')) ? String(e.salaryFrom) : bogotaToday();
+        mw.recordSalaryChange(orgId, Number(e.id), Number(prev.salary) || 0, Number(salary) || 0, from, 'ficha', null, req.user.id);
+      }
       // Tipo de contrato (lo cambia quien maneja la nomina; las fechas son opcionales).
       const prevContract = { type: prev && CONTRACT_TYPES.includes(prev.contract_type) ? prev.contract_type : 'indefinido', start: prev ? prev.contract_start || null : null, end: prev ? prev.contract_end || null : null };
       let contract = prevContract;

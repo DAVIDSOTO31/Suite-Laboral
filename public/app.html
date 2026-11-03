@@ -202,9 +202,9 @@
                     <strong class="text-purple-300 font-bold">Noche 19:00 - 06:00</strong>
                 </div>
                 <div class="h-4 w-px bg-slate-700"></div>
-                <div class="flex items-center gap-2" title="SMLMV 2026: $1.750.905 + Aux. Transporte: $249.095">
-                    <span class="text-slate-300 font-medium">SMLMV 2026:</span>
-                    <strong class="text-emerald-300 font-bold font-mono">$1.750.905 COP</strong>
+                <div class="flex items-center gap-2" id="headerSmlmv" title="Salario mínimo legal mensual vigente">
+                    <span class="text-slate-300 font-medium" id="headerSmlmvLabel">SMLMV 2026:</span>
+                    <strong class="text-emerald-300 font-bold font-mono" id="headerSmlmvValue">$1.750.905 COP</strong>
                 </div>
             </div>
 
@@ -811,6 +811,9 @@
                     <div class="flex gap-2 w-full sm:w-auto">
                         <button onclick="openLeaveModal()" data-perm="shifts.view" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
                             <i class="fa-solid fa-mug-hot text-teal-600"></i> Descansos y vacaciones
+                        </button>
+                        <button onclick="openMinWageModal()" data-perm="settings.manage" title="Programar el nuevo salario mínimo del año" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
+                            <i class="fa-solid fa-scale-balanced text-emerald-600"></i> Salario mínimo
                         </button>
                         <button onclick="openEmployeeModal(null)" data-perm="employees.create" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
                             <i class="fa-solid fa-user-plus"></i> Vincular Colaborador
@@ -2081,6 +2084,34 @@
         </div>
     </div>
 
+    <!-- MODAL: Salario mínimo del año -->
+    <div id="modalMinWage" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl max-w-xl w-full shadow-2xl border border-slate-200 max-h-[92vh] flex flex-col">
+            <div class="flex justify-between items-start border-b p-5 pb-3">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-scale-balanced text-emerald-600"></i> Salario mínimo del año</h3>
+                    <p class="text-xs text-slate-500 mt-0.5" id="mwCurrent">-</p>
+                </div>
+                <button onclick="closeModal('modalMinWage')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="p-5 space-y-3 overflow-y-auto text-xs">
+                <div id="mwScheduled"></div>
+                <div id="mwForm" class="space-y-3">
+                    <p class="text-slate-600">Cuando el Gobierno publique el decreto del nuevo salario mínimo, escríbelo aquí con la fecha desde la que rige. Ese día la suite actualiza <strong>sola</strong> a los colaboradores con contrato a término <strong>indefinido o fijo</strong> que ganan <strong>exactamente el mínimo actual</strong>. A quienes ganan más no se les toca: su aumento se acuerda con la empresa y se cambia en la ficha. Los contratos de prestación de servicios no se rigen por el salario mínimo.</p>
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="block"><span class="font-semibold text-slate-700">Nuevo salario mínimo ($)</span>
+                            <input type="number" id="mwAmount" min="0" step="1" oninput="mwPreviewSoon()" placeholder="Ej. 1900000" class="mt-1 w-full p-2 border rounded-lg font-mono font-bold"></label>
+                        <label class="block"><span class="font-semibold text-slate-700">Rige desde</span>
+                            <input type="date" id="mwFrom" class="mt-1 w-full p-2 border rounded-lg"></label>
+                    </div>
+                    <div id="mwPreview"></div>
+                    <div class="flex justify-end"><button type="button" id="mwSave" onclick="saveMinWage()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold"><i class="fa-solid fa-calendar-check"></i> Programar el cambio</button></div>
+                </div>
+                <div id="mwHistory"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL: PDF del cuadro de turnos (todas las áreas o algunas) -->
     <div id="modalRosterPdf" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[60] p-4">
         <div class="bg-white rounded-xl max-w-sm w-full p-5 shadow-2xl space-y-4 border border-slate-200 max-h-[92vh] overflow-y-auto">
@@ -2550,6 +2581,9 @@
                             <label class="block font-semibold text-slate-700 mb-1">Salario mensual base ($ COP)</label>
                             <input type="number" id="newEmpSalary" value="1750905" min="0" step="1000" class="w-full p-2 border rounded-lg font-mono font-bold focus:ring-2 focus:ring-sky-500 focus:outline-none">
                             <p class="text-3xs text-slate-400 mt-1" id="newEmpSalaryHint">Por defecto el salario mínimo vigente (SMLMV). Puede modificarse si el colaborador devenga un salario diferente.</p>
+                            <label id="newEmpSalaryFromBox" class="hidden mt-1.5 text-3xs font-semibold text-slate-600">El nuevo salario rige desde
+                                <input type="date" id="newEmpSalaryFrom" class="ml-1 p-1 border rounded-lg text-xs font-normal">
+                                <span class="block font-normal text-slate-400">Los días anteriores a esa fecha se liquidan con el salario anterior.</span></label>
                         </div>
                         <div data-perm="employees.edit_payroll" class="bg-purple-50/60 border border-purple-200 rounded-lg p-3">
                             <label class="flex items-center gap-2 font-semibold text-purple-900 cursor-pointer">
@@ -6422,6 +6456,10 @@
             // (el área se selecciona después de abrir la ventana: al abrirla se vuelve a armar la lista)
             const salaryInput = document.getElementById('newEmpSalary');
             salaryInput.value = emp && emp.salary != null ? emp.salary : appState.settings.smlmv2026;
+            // Al editar el salario de alguien que ya existe: desde qué fecha rige (por defecto hoy).
+            document.getElementById('newEmpSalaryFrom').value = bogotaTodayISO();
+            document.getElementById('newEmpSalaryFromBox').classList.add('hidden');
+            salaryInput.oninput = () => document.getElementById('newEmpSalaryFromBox').classList.toggle('hidden', !emp || Number(salaryInput.value) === Number(emp.salary));
             const canPay = CAN('employees.edit_payroll');
             salaryInput.disabled = !canPay;
             salaryInput.classList.toggle('bg-slate-100', !canPay);
@@ -6504,6 +6542,14 @@
 
             if (editing) {
                 const salaryChanged = Number(editing.salary) !== Number(salary);
+                if (salaryChanged) {
+                    const from = document.getElementById('newEmpSalaryFrom').value || bogotaTodayISO();
+                    editing.salaryFrom = from; // el servidor lo guarda en el historial de salarios
+                    // Se refleja de una vez en la liquidación (sin esperar a recargar).
+                    const h = (editing.salaryHistory || (editing.salary ? [{ from: '1900-01-01', salary: Number(editing.salary) }] : [])).filter(x => x.from !== from);
+                    h.push({ from, salary: Number(salary) }); h.sort((a, b) => a.from.localeCompare(b.from));
+                    editing.salaryHistory = h;
+                }
                 const typeChanged = empContractType(editing) !== contractType;
                 const prevContractStart = empContractType(editing) === 'fijo' ? (editing.contractStart || '') : '';
                 Object.assign(editing, { name, role, department: dept, departmentId: deptId, salary, email, documentType, documentNumber, phoneCountry: phoneNumber ? phoneCountry : '+57', phoneNumber, contractType, contractStart, contractEnd });
@@ -7705,7 +7751,7 @@
             if (!document.getElementById('simBaseSalary')) return;
             document.getElementById('simBaseSalary').value = appState.settings.smlmv2026;
             runLiveSimulation();
-            showAppToast('Salario base fijado en el SMLMV 2026 ($1.750.905 COP).');
+            showAppToast(`Salario base fijado en el SMLMV ${appState.minimumWageYear || 2026} (${pdfMoney(appState.settings.smlmv2026)} COP).`);
         }
 
 // (Módulo "Auditoría Legal CST" eliminado: los límites legales podrán agregarse luego al Tablero Gerencial.)
@@ -7910,6 +7956,73 @@
             }
         }
 
+        // ---- Salario mínimo del año ----
+        let mwData = null, mwTimer = null;
+        async function openMinWageModal() {
+            if (!CAN('settings.manage')) return;
+            openModal('modalMinWage');
+            const t = bogotaTodayParts();
+            document.getElementById('mwFrom').value = `${t.y + 1}-01-01`;
+            document.getElementById('mwAmount').value = '';
+            await loadMinWage();
+        }
+        async function loadMinWage(amount) {
+            try { mwData = await apiFetch('/api/payroll/min-wage' + (amount ? `?amount=${amount}` : '')); }
+            catch (e) { document.getElementById('mwCurrent').textContent = e.message; return; }
+            const f = (iso) => (iso || '').split('-').reverse().join('/');
+            document.getElementById('mwCurrent').innerHTML = `Vigente: <strong>${pdfMoney(mwData.current)}</strong> (SMLMV ${mwData.year})`;
+            const sch = mwData.scheduled[0];
+            document.getElementById('mwScheduled').innerHTML = sch
+                ? `<div class="rounded-lg border border-emerald-300 bg-emerald-50 p-3 flex flex-wrap items-center justify-between gap-2">
+                    <span><i class="fa-solid fa-calendar-check text-emerald-700"></i> <strong>Programado:</strong> ${pdfMoney(sch.amount)} desde el ${f(sch.effectiveFrom)}. Ese día se actualiza solo.</span>
+                    <button type="button" onclick="cancelMinWage('${sch.id}')" class="px-2.5 py-1 rounded-lg bg-white border border-rose-300 text-rose-700 font-bold">Cancelar</button></div>` : '';
+            document.getElementById('mwForm').classList.toggle('hidden', !!sch);
+            document.getElementById('mwHistory').innerHTML = mwData.history.length ? `<p class="font-semibold text-slate-700 mb-1">Cambios aplicados</p>` + mwData.history.map(h =>
+                `<p class="text-slate-600 border-t border-slate-100 py-1">Desde el ${f(h.effectiveFrom)}: ${pdfMoney(h.previousAmount)} → <strong>${pdfMoney(h.amount)}</strong> · ${h.appliedCount || 0} colaborador(es) actualizado(s)</p>`).join('') : '';
+            renderMinWagePreview();
+        }
+        function mwPreviewSoon() { clearTimeout(mwTimer); mwTimer = setTimeout(() => { const a = Number(document.getElementById('mwAmount').value); if (a > 0) loadMinWage(a); else renderMinWagePreview(); }, 400); }
+        function renderMinWagePreview() {
+            const box = document.getElementById('mwPreview');
+            const a = Number(document.getElementById('mwAmount').value);
+            if (!mwData || !(a > mwData.current)) { box.innerHTML = a && mwData && a <= mwData.current ? '<p class="text-rose-700 font-semibold">Debe ser mayor que el salario mínimo actual.</p>' : ''; return; }
+            const p = mwData.preview;
+            const names = (l) => l.map(e => `<span class="inline-block px-2 py-0.5 rounded-full bg-white border border-slate-200 mr-1 mb-1">${escapeHtml(e.name)}</span>`).join('');
+            box.innerHTML = `<div class="rounded-lg border border-sky-200 bg-sky-50 p-3"><p class="font-semibold text-sky-900">Se actualizarán ${p.toUpdate.length} colaborador(es) de ${pdfMoney(mwData.current)} a ${pdfMoney(a)}:</p><div class="mt-1">${names(p.toUpdate) || '<span class="text-slate-500">Nadie gana exactamente el mínimo actual.</span>'}</div></div>`
+                + (p.below.length ? `<div class="rounded-lg border border-amber-300 bg-amber-50 p-3 mt-2"><p class="font-semibold text-amber-900"><i class="fa-solid fa-triangle-exclamation"></i> ${p.below.length} colaborador(es) con contrato laboral quedarían por debajo del nuevo mínimo (no se actualizan solos; revisa su ficha):</p><div class="mt-1">${p.below.map(e => `<span class="inline-block px-2 py-0.5 rounded-full bg-white border border-amber-200 mr-1 mb-1">${escapeHtml(e.name)} · ${pdfMoney(e.salary)}</span>`).join('')}</div></div>` : '');
+        }
+        async function saveMinWage() {
+            const amount = Number(document.getElementById('mwAmount').value);
+            const from = document.getElementById('mwFrom').value;
+            if (!(amount > 0) || !from) { showAppToast('Escribe el nuevo salario mínimo y la fecha desde la que rige.'); return; }
+            const now = from <= bogotaTodayISO();
+            const n = mwData && mwData.preview ? mwData.preview.toUpdate.length : 0;
+            if (!confirm(`${now ? 'Aplicar YA' : 'Programar'} el nuevo salario mínimo de ${pdfMoney(amount)} desde el ${from.split('-').reverse().join('/')}.\n\n${n} colaborador(es) que ganan el mínimo actual pasarán a ${pdfMoney(amount)}${now ? ' ahora mismo' : ' ese día, automáticamente'}.\nA quienes ganan más no se les cambia nada.`)) return;
+            const btn = document.getElementById('mwSave'); btn.disabled = true;
+            try {
+                const r = await apiFetch('/api/payroll/min-wage', { method: 'POST', body: JSON.stringify({ amount, effectiveFrom: from }) });
+                showAppToast(r.applied ? `Salario mínimo actualizado: ${r.applied.updated} colaborador(es) pasaron a ${pdfMoney(amount)}.` : `Cambio programado para el ${from.split('-').reverse().join('/')}.`);
+                if (r.applied) { livePending.data = true; scheduleLiveApply(300); } // se actualiza al cerrar esta ventana
+                await loadMinWage();
+            } catch (e) { showAppToast(e.message); }
+            finally { btn.disabled = false; }
+        }
+        async function cancelMinWage(id) {
+            if (!confirm('¿Cancelar el cambio de salario mínimo programado?')) return;
+            try { await apiFetch(`/api/payroll/min-wage/${id}/cancel`, { method: 'POST', body: '{}' }); showAppToast('Cambio cancelado.'); await loadMinWage(); }
+            catch (e) { showAppToast(e.message); }
+        }
+        // Salario del colaborador VIGENTE en una fecha (historial con fechas: al
+        // cambiar el salario mínimo o al editar la ficha). Sin historial: el de la ficha.
+        function salaryAt(emp, dateISO) {
+            const h = emp && emp.salaryHistory;
+            if (h && h.length && dateISO) {
+                let v = null;
+                for (const x of h) { if (x.from <= dateISO) v = x.salary; else break; }
+                if (v != null) return Number(v) || 0;
+            }
+            return Number(emp && emp.salary) || 0;
+        }
         // Cálculo de la Liquidación de extras y recargos para un periodo (sin pintar nada):
         // lo usan la pantalla de Liquidación y el indicador "Extras y recargos" del
         // Tablero Gerencial, para que ambos den siempre el mismo valor.
@@ -7984,7 +8097,7 @@
                 if (!byEmp[emp.id]) {
                     byEmp[emp.id] = {
                         emp, shiftsCount: 0,
-                        hourlyRate: emp.salary / legalMonthlyDividerForDate(endDate),
+                        hourlyRate: salaryAt(emp, endDate) / legalMonthlyDividerForDate(endDate),
                         hon: 0, hed: 0, hen: 0,
                         honPay: 0, hedPay: 0, henPay: 0, domPay: 0,
                         detail: [], // desglose por fecha, para el boton "Ver detalle"
@@ -8011,7 +8124,7 @@
                         att.salida_real ? `salida ${att.salida_real}` : null,
                     ].filter(Boolean) : [];
                     const estHours = (s.res.hon || 0) + (s.res.hed || 0) + (s.res.hedd || 0) + (s.res.hen || 0) + (s.res.hend || 0);
-                    const r0 = emp.salary / legalMonthlyDividerForDate(s.date);
+                    const r0 = salaryAt(emp, s.date) / legalMonthlyDividerForDate(s.date);
                     const estPay = (s.res.hon || 0) * r0 * appState.settings.percHON
                         + ((s.res.hed || 0) + (s.res.hedd || 0)) * r0 * (1 + appState.settings.percHED)
                         + ((s.res.hen || 0) + (s.res.hend || 0)) * r0 * (1 + appState.settings.percHEN);
@@ -8047,7 +8160,7 @@
                 const st = appState.settings;
                 // Valor hora del DIA trabajado: divisor legal según la jornada máxima
                 // vigente en esa fecha (Ley 2101 de 2021).
-                const dayRate = emp.salary / legalMonthlyDividerForDate(s.date);
+                const dayRate = salaryAt(emp, s.date) / legalMonthlyDividerForDate(s.date);
                 // Domingo o festivo: calendario automático de Colombia (o marcado a mano).
                 const isDom = !!(appState.includeSundayHoliday && (isSundayOrHolidayCO(s.date) || (s.res && s.res.isSunday)));
                 const domPct = legalSundayPctForDate(s.date);
@@ -8110,9 +8223,9 @@
             // Colaboradores con saldo anterior aunque no tengan turnos en este periodo.
             const deptOk = (emp) => !deptSet || deptSet.has(emp.department);
             const blankRow = (emp) => ({
-                emp, shiftsCount: 0, hourlyRate: (emp.salary || appState.settings.smlmv2026) / legalMonthlyDividerForDate(endDate),
+                emp, shiftsCount: 0, hourlyRate: (salaryAt(emp, endDate) || appState.settings.smlmv2026) / legalMonthlyDividerForDate(endDate),
                 hon: 0, hed: 0, hen: 0, honPay: 0, hedPay: 0, henPay: 0, domPay: 0, domHours: 0, detail: [],
-                rateHon: 0, rateHed: ((emp.salary || appState.settings.smlmv2026) / legalMonthlyDividerForDate(endDate)) * (1 + appState.settings.percHED), rateHen: 0, total: 0,
+                rateHon: 0, rateHed: ((salaryAt(emp, endDate) || appState.settings.smlmv2026) / legalMonthlyDividerForDate(endDate)) * (1 + appState.settings.percHED), rateHen: 0, total: 0,
             });
             Object.keys(carryIn).forEach(id => {
                 if (rows.some(r => Number(r.emp.id) === Number(id))) return;
@@ -11227,7 +11340,10 @@
         function applyOrgData(data, initial) {
             appState.orgName = data.orgSettings.orgName || 'Empresa';
             appState.companyLogo = data.orgSettings.logo || null;
-            appState.settings.smlmv2026 = data.orgSettings.minimumWage || 1750905;
+            appState.settings.smlmv2026 = data.orgSettings.minimumWage || 1750905; // salario mínimo VIGENTE (el nombre es histórico)
+            appState.minimumWageYear = data.orgSettings.minimumWageYear || 2026;
+            setSafeText('headerSmlmvLabel', `SMLMV ${appState.minimumWageYear}:`);
+            setSafeText('headerSmlmvValue', `${pdfMoney(appState.settings.smlmv2026)} COP`);
             appState.includeSundayHoliday = data.orgSettings.includeSundayHoliday === true;
             appState.nightBandAlways = data.orgSettings.nightBandAlways !== false;
             appState.nightBandSince = data.orgSettings.nightBandSince || '';
