@@ -3308,9 +3308,9 @@ async function sendDigestTest(req, res) {
 const KIOSK_ONLINE_MS = 150 * 1000; // hasta 2,5 min sin senal = en linea (la senal llega cada minuto)
 const CAMERA_STATES = ['ok', 'denegada', 'sin_camara', 'error', 'desconocido'];
 // Voz: ok (ya habló) · lista (hay voz, aún no habla) · sin_voz_es · no_disponible · falla (intentó y no sonó).
-const VOICE_STATES = ['ok', 'lista', 'sin_voz_es', 'no_disponible', 'falla', 'desconocido'];
-const VOICE_BAD = ['sin_voz_es', 'no_disponible', 'falla'];
-const VOICE_MSG = { sin_voz_es: 'El equipo no tiene voces en español instaladas: la confirmación por voz no suena.', no_disponible: 'El navegador del equipo no tiene voz: la confirmación por voz no suena.', falla: 'La confirmación por voz no está sonando (intentó hablar y no sonó, ni reintentando).' };
+const VOICE_STATES = ['ok', 'lista', 'sin_voz_es', 'no_disponible', 'falla', 'bloqueada', 'desconocido'];
+const VOICE_BAD = ['sin_voz_es', 'no_disponible', 'falla', 'bloqueada'];
+const VOICE_MSG = { bloqueada: 'La voz está bloqueada por el navegador hasta que alguien toque la pantalla del kiosco (pasa al prender la tablet).', sin_voz_es: 'El equipo no tiene voces en español instaladas: la confirmación por voz no suena.', no_disponible: 'El navegador del equipo no tiene voz: la confirmación por voz no suena.', falla: 'La confirmación por voz no está sonando (intentó hablar y no sonó, ni reintentando).' };
 
 function getDeviceAlertSettings(orgId) {
   const r = db.prepare('SELECT device_alerts_enabled, device_offline_min FROM org_settings WHERE organization_id = ?').get(orgId) || {};
