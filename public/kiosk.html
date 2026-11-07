@@ -77,6 +77,7 @@
         <button onclick="resetDevice()" class="w-full text-center text-2xs text-slate-500 hover:text-slate-300 mt-4">Cambiar dispositivo / token</button>
       </div>
 
+      <div id="voiceBlockedBanner" class="hidden mt-3 rounded-lg bg-amber-500/20 border border-amber-400 text-amber-200 text-sm font-semibold px-3 py-2 text-center">🔇 Toca la pantalla una vez para activar la voz de confirmación</div>
       <div id="resultBox" class="mt-4 hidden"></div>
       <p id="evidenceNotice" class="hidden mt-3 text-center text-2xs text-slate-400"><i class="fa-solid fa-camera"></i> Al marcar se toma una foto como evidencia. Se guarda 30 días y luego se borra sola (Ley 1581 de 2012).</p>
     </div>
@@ -138,12 +139,15 @@ const regionRank = (lang) => (/es-CO/i.test(lang) ? 0 : /es-(MX|US|419)/i.test(l
 let voiceState = hasSpeech ? 'desconocido' : 'no_disponible';
 let voiceChecks = 0;
 function setVoiceState(st) {
+  if (st === 'ok') { speechUnlocked = true; notAllowed = false; }
+  const banner = document.getElementById('voiceBlockedBanner');
+  if (banner) banner.classList.toggle('hidden', st !== 'bloqueada');
   if (st === voiceState) return;
   const was = voiceState;
   voiceState = st;
   renderVoicePanel();
   // Un cambio importante se avisa en la siguiente señal corta (no hay que esperar el minuto).
-  if ((st === 'falla' || (was === 'falla' && st === 'ok')) && typeof scheduleQuickHeartbeat === 'function') scheduleQuickHeartbeat();
+  if ((st === 'falla' || st === 'bloqueada' || ((was === 'falla' || was === 'bloqueada') && st === 'ok')) && typeof scheduleQuickHeartbeat === 'function') scheduleQuickHeartbeat();
 }
 function loadSpanishVoices() {
   if (!hasSpeech) return;
@@ -172,7 +176,7 @@ function renderVoicePanel() {
   if (!label) return;
   if (!hasSpeech) { label.textContent = 'no disponible en este navegador'; return; }
   const v = chosenVoice();
-  label.textContent = (v ? v.name : 'voz predeterminada del equipo') + (voiceState === 'falla' ? ' · ⚠ no está sonando' : '');
+  label.textContent = (v ? v.name : 'voz predeterminada del equipo') + (voiceState === 'falla' ? ' · ⚠ no está sonando' : voiceState === 'bloqueada' ? ' · ⚠ bloqueada: toca la pantalla' : '');
   sel.innerHTML = (spanishVoices.length
     ? spanishVoices.map(x => `<option value="${escapeHtml(x.voiceURI)}" ${v && x.voiceURI === v.voiceURI ? 'selected' : ''}>${escapeHtml(x.name)} (${escapeHtml(x.lang)})${isFemaleVoice(x) ? ' · femenina' : ''}${isNetworkVoice(x) ? ' · de internet' : ''}</option>`).join('')
     : '<option value="">Este equipo no tiene voces en español instaladas</option>')
@@ -185,12 +189,43 @@ function saveVoiceSettings() {
   if (uri) localStorage.setItem('kioskVoiceURI', uri);
   renderVoicePanel();
 }
-// iPhone/iPad solo permiten hablar si la voz se "activa" con un toque del
-// usuario: se llama al presionar "Iniciar marcación".
+// El navegador solo deja hablar si la voz se "activa" con un toque en la
+// pantalla. Se llama al presionar "Iniciar marcación" y con el primer toque de
+// cualquier parte (ver más abajo). Debe ser una palabra REAL dicha en silencio:
+// Android ignora una frase vacía y entonces no cuenta como activada, y la
+// confirmación (que llega unos segundos después del toque) queda bloqueada.
+// Eso pasaba después de que la tablet se apagaba y se volvía a prender: hasta
+// que alguien tocaba "Probar voz" (que sí dice una frase real) no sonaba.
+let speechUnlocked = false;
 function primeSpeech() {
   if (!voiceEnabled()) return;
-  try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) { /* sin voz */ }
+  try {
+    if (speechSynthesis.paused) speechSynthesis.resume();
+    if (speechSynthesis.speaking) return; // ya está hablando: no se interrumpe
+    const u = new SpeechSynthesisUtterance('Listo');
+    const v = chosenVoice();
+    if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'es-CO'; }
+    u.volume = 0; u.rate = 2;
+    const ok = () => { speechUnlocked = true; if (voiceState === 'bloqueada') setVoiceState('lista'); };
+    u.onstart = ok; u.onend = ok;
+    u.onerror = (e) => { if (e && e.error === 'not-allowed') setVoiceState('bloqueada'); };
+    speechSynthesis.speak(u);
+  } catch (e) { /* sin voz */ }
 }
+// Primer toque en cualquier parte de la pantalla: activa la voz y vuelve a leer
+// las voces del equipo (al prender la tablet, el motor de voz puede no estar listo
+// cuando abre el kiosco). Se repite en cada toque mientras la voz no esté activa.
+['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, () => {
+  if (speechUnlocked && voiceState !== 'bloqueada' && voiceState !== 'falla') return;
+  if (!spanishVoices.length) loadSpanishVoices();
+  primeSpeech();
+}, true));
+// Al prender la tablet, las voces pueden tardar en aparecer: se buscan cada 3 s
+// durante los primeros 3 minutos.
+(function retryVoices(n) {
+  if (!hasSpeech || spanishVoices.length || n > 60) return;
+  setTimeout(() => { loadSpanishVoices(); retryVoices(n + 1); }, 3000);
+})(0);
 // "David Soto. Entrada confirmada." (concordancia: entrada/salida -> confirmada;
 // inicio/fin de almuerzo y etapas -> confirmado).
 // Nombre para la VOZ: "ANDRES LONDOÑO" -> "Andres Londoño". Los sintetizadores
@@ -218,6 +253,7 @@ function makeUtterance(text, voice) {
 // muchas horas abierto, se queda pegado y deja de sonar), espera un instante
 // tras cancelar y, si en 2 s no empezó a hablar, lo reintenta una vez.
 let sayToken = 0;
+let notAllowed = false;
 // Voz para cada intento: 1) la elegida; 2) otra voz en español instalada en el
 // equipo; 3) la voz predeterminada del equipo. Si un intento de respaldo suena,
 // el kiosco se queda con esa voz.
@@ -244,9 +280,12 @@ function sayNow(text, attempt = 1) {
     };
     u.onstart = onOk;
     u.onend = onOk;
+    // "not-allowed": el navegador no deja hablar porque nadie ha tocado la pantalla.
+    u.onerror = (e) => { if (e && e.error === 'not-allowed') notAllowed = true; };
     setTimeout(() => { if (my !== sayToken) return; try { speechSynthesis.resume(); speechSynthesis.speak(u); } catch (e) { /* sin voz */ } }, 80);
     setTimeout(() => {
       if (my !== sayToken || started) return; // ya habló, o llegó otra frase
+      if (notAllowed) { setVoiceState('bloqueada'); return; } // probar otras voces no sirve
       if (attempt < 3) sayNow(text, attempt + 1); else { try { speechSynthesis.cancel(); } catch (e) { /* nada */ } setVoiceState('falla'); }
     }, 2000);
   } catch (e) { setVoiceState('falla'); }
@@ -931,7 +970,7 @@ init();
 // ---- Salud del dispositivo: señal "estoy vivo" cada minuto ----
 // Envía batería, estado de la cámara y versión, para que el administrador vea
 // en Asistencia → Dispositivos si este kiosco está en línea y funcionando.
-const KIOSK_VERSION = '2026.10-offline5';
+const KIOSK_VERSION = '2026.11-voz5';
 // Privacidad: el letrero con el resultado de la marcación (nombre, tipo,
 // llegada tarde, etc.) desaparece solo a los 18 segundos. Cada letrero nuevo
 // reinicia el tiempo.

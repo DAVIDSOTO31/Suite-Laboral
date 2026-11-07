@@ -14546,7 +14546,7 @@
             sin_datos: ['Sin datos', 'bg-slate-100 text-slate-500', 'bg-slate-400'],
         };
         const CAMERA_LABELS = { ok: 'Cámara OK', denegada: 'Cámara sin permiso', sin_camara: 'Sin cámara', error: 'Error de cámara', desconocido: 'Cámara: sin verificar' };
-        const VOICE_LABELS = { ok: 'Voz OK', lista: 'Voz lista (aún no ha hablado)', sin_voz_es: 'Sin voz en español', no_disponible: 'Navegador sin voz', falla: 'La voz no está sonando', desconocido: 'Voz: sin verificar' };
+        const VOICE_LABELS = { ok: 'Voz OK', lista: 'Voz lista (aún no ha hablado)', sin_voz_es: 'Sin voz en español', no_disponible: 'Navegador sin voz', falla: 'La voz no está sonando', bloqueada: 'Voz bloqueada: falta tocar la pantalla del kiosco', desconocido: 'Voz: sin verificar' };
         function minutesAgoLabel(m) {
             if (m == null) return '';
             if (m < 1) return 'hace menos de 1 min';
